@@ -10,13 +10,22 @@ import { PROTOCOL_VERSION } from '../../types/protocol'
 import { WebExtensionUIContext } from './extension-ui-context'
 import { ensurePermissionConfig } from './permission-config'
 
+/** Emits a normalized server event to the connected browser client. */
 type SendEvent = (event: ServerEvent) => void
 
+/** Model and thinking-level changes requested while the agent is still busy. */
 type PendingSettings = {
   model?: any
   thinkingLevel?: ThinkingLevel
 }
 
+/**
+ * Coordinates a Pi SDK agent session for the WebSocket backend.
+ *
+ * The service owns Pi session creation, session switching, command dispatch, permission UI wiring,
+ * model/thinking changes, and translation of Pi runtime events into the normalized web protocol.
+ * It is scoped to one active browser connection and should be disposed when that connection closes.
+ */
 export class PiAgentService {
   private authStorage = AuthStorage.create()
   private modelRegistry = ModelRegistry.create(this.authStorage)
@@ -32,10 +41,12 @@ export class PiAgentService {
     private readonly approvalTimeoutMs: number,
   ) {}
 
+  /** Returns the active Pi SDK session, if initialization has completed. */
   get session() {
     return this.sessionResult?.session
   }
 
+  /** Lazily initializes a fresh session once for the current service instance. */
   async initNewSession() {
     if (!this.initializing) {
       this.initializing = this.createNewSession()
@@ -43,15 +54,18 @@ export class PiAgentService {
     await this.initializing
   }
 
+  /** Creates and broadcasts a new persisted session for the configured working directory. */
   async createNewSession() {
     await this.replaceSession(SessionManager.create(this.cwd), true)
   }
 
+  /** Opens an existing session file, aborting the current workflow only when explicitly allowed. */
   async openSession(sessionFile: string, abortCurrent = false) {
     await this.ensureSafeToSwitch(abortCurrent)
     await this.replaceSession(SessionManager.open(sessionFile, undefined, this.cwd), false)
   }
 
+  /** Lists persisted sessions for the configured working directory and sends them to the browser. */
   async listSessions() {
     const sessions = await SessionManager.list(this.cwd)
     this.send({
@@ -60,6 +74,7 @@ export class PiAgentService {
     })
   }
 
+  /** Dispatches a typed browser command to the appropriate Pi SDK operation or UI response handler. */
   async handleCommand(command: ClientCommand) {
     await this.initNewSession()
 
@@ -117,16 +132,19 @@ export class PiAgentService {
     }
   }
 
+  /** Releases extension prompts, subscriptions, and the active Pi session. */
   async dispose() {
     this.uiContext?.cancelAll()
     this.unsubscribe?.()
     this.requireSession(false)?.dispose()
   }
 
+  /** Cancels outstanding permission or extension UI prompts without disposing the whole service. */
   cancelPendingApprovals() {
     this.uiContext?.cancelAll()
   }
 
+  /** Sends the protocol handshake and capability declaration for the active session. */
   sendHello() {
     const session = this.session
     this.send({
@@ -150,10 +168,12 @@ export class PiAgentService {
   }
 
   private async replaceSession(sessionManager: SessionManager, forceNew: boolean) {
+    // Tear down browser prompts and Pi subscriptions before swapping the underlying SDK session.
     this.uiContext?.cancelAll()
     this.unsubscribe?.()
     this.session?.dispose()
 
+    // Ensure the project has a permission-system config before extensions load for the session.
     await ensurePermissionConfig(this.cwd)
 
     if (forceNew) {
@@ -168,6 +188,8 @@ export class PiAgentService {
     })
 
     const session = this.requireSession()
+
+    // Bind extensions to the WebSocket-backed UI context so permission prompts reach the browser.
     this.uiContext = new WebExtensionUIContext(this.send, this.approvalTimeoutMs)
     await session.bindExtensions({
       uiContext: this.uiContext as any,
@@ -179,6 +201,7 @@ export class PiAgentService {
 
     this.unsubscribe = session.subscribe((event) => this.onSessionEvent(event as any))
 
+    // Broadcast enough state for a browser client to render immediately after connecting or switching.
     this.sendHello()
     this.send({ type: 'history', messages: normalizeMessages(session.messages as any[]) })
     this.send({ type: 'session_changed', sessionId: session.sessionId, sessionFile: session.sessionFile, history: normalizeMessages(session.messages as any[]) })

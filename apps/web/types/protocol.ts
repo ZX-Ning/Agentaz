@@ -1,12 +1,16 @@
+/** Current wire protocol version used by the browser and backend handshake. */
 export const PROTOCOL_VERSION = 1
 
+/** Supported Pi thinking levels exposed through the web UI. */
 export type ThinkingLevel = 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh'
 
+/** Base64-encoded image attachment reserved for future multimodal prompts. */
 export type ImagePayload = {
   mediaType: string
   data: string
 }
 
+/** Normalized render block used by the web chat transcript. */
 export type UiBlock =
   | { type: 'text'; text: string }
   | { type: 'thinking'; text: string; collapsed?: boolean }
@@ -19,6 +23,7 @@ export type UiBlock =
     }
   | { type: 'tool_result'; toolCallId: string; content: string; isError?: boolean }
 
+/** Normalized chat message independent of Pi SDK's internal message representation. */
 export type UiMessage = {
   id: string
   role: 'user' | 'assistant' | 'tool' | 'system'
@@ -26,6 +31,7 @@ export type UiMessage = {
   createdAt?: number
 }
 
+/** Summary row for the current working directory's persisted Pi sessions. */
 export type UiSessionSummary = {
   file: string
   name?: string
@@ -34,12 +40,14 @@ export type UiSessionSummary = {
   firstMessage?: string
 }
 
+/** Model metadata needed by the browser model picker. */
 export type UiModel = {
   provider: string
   id: string
   name?: string
 }
 
+/** Initial server-to-client handshake that declares protocol version and backend capabilities. */
 export type ServerHello = {
   type: 'hello'
   protocolVersion: 1
@@ -59,6 +67,7 @@ export type ServerHello = {
   }
 }
 
+/** Standard error event used for recoverable and fatal backend failures. */
 export type ServerErrorEvent = {
   type: 'error'
   code: string
@@ -66,6 +75,7 @@ export type ServerErrorEvent = {
   recoverable: boolean
 }
 
+/** All backend events that may be emitted over the agent WebSocket connection. */
 export type ServerEvent =
   | ServerHello
   | { type: 'history'; messages: UiMessage[] }
@@ -88,6 +98,7 @@ export type ServerEvent =
   | { type: 'status'; isStreaming: boolean; pendingMessageCount: number }
   | ServerErrorEvent
 
+/** All browser commands accepted by the agent WebSocket connection. */
 export type ClientCommand =
   | { type: 'prompt'; text: string; images?: ImagePayload[] }
   | { type: 'steer'; text: string; images?: ImagePayload[] }
