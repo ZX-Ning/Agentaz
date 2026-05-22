@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { ClientCommand, ServerEvent, ServerHello, UiMessage, UiModel, UiSessionSummary } from '../types/protocol'
+import type { ClientCommand, ServerEvent, ServerHello, ThinkingLevel, UiMessage, UiModel, UiSessionSummary } from '../types/protocol'
 
 const toast = useToast()
 const colorMode = useColorMode()
@@ -11,11 +11,24 @@ const messages = ref<UiMessage[]>([])
 const sessions = ref<UiSessionSummary[]>([])
 const models = ref<UiModel[]>([])
 const currentModel = ref<UiModel | null>(null)
+const currentThinkingLevel = ref<ThinkingLevel>('off')
+const availableThinkingLevels = ref<ThinkingLevel[]>(['off'])
+const pendingModelChange = ref(false)
+const pendingThinkingChange = ref(false)
 const isStreaming = ref(false)
 const pendingMessageCount = ref(0)
 const promptText = ref('')
 const lastError = ref<string | null>(null)
 const socket = shallowRef<WebSocket | null>(null)
+
+const thinkingOptions: Array<{ value: ThinkingLevel, label: string }> = [
+  { value: 'off', label: 'Off' },
+  { value: 'minimal', label: 'Minimal' },
+  { value: 'low', label: 'Low' },
+  { value: 'medium', label: 'Medium' },
+  { value: 'high', label: 'High' },
+  { value: 'xhigh', label: 'Extra high' },
+]
 
 const statusColor = computed(() => {
   if (status.value === 'connected') return 'success'
@@ -33,6 +46,21 @@ const statusLabel = computed(() => {
 
 const recentSessions = computed(() => sessions.value.slice(0, 6))
 const hasMessages = computed(() => messages.value.length > 0)
+const selectedModelKey = computed(() => currentModel.value ? modelKey(currentModel.value) : '')
+const modelOptions = computed(() => models.value.map((model) => ({
+  value: modelKey(model),
+  label: `${model.name || model.id} · ${model.provider}`,
+  description: `${model.provider}/${model.id}`,
+  model,
+})))
+const visibleThinkingOptions = computed(() => {
+  const levels = availableThinkingLevels.value.length > 0 ? availableThinkingLevels.value : ['off']
+  return thinkingOptions.filter((option) => levels.includes(option.value))
+})
+
+function modelKey(model: UiModel) {
+  return JSON.stringify([model.provider, model.id])
+}
 
 function roleLabel(role: UiMessage['role']) {
   if (role === 'assistant') return 'Pi'
@@ -56,9 +84,10 @@ function send(command: ClientCommand) {
   const ws = socket.value
   if (!ws || ws.readyState !== WebSocket.OPEN) {
     toast.add({ title: 'Agent is not connected', color: 'warning' })
-    return
+    return false
   }
   ws.send(JSON.stringify(command))
+  return true
 }
 
 function sendPrompt() {
@@ -74,15 +103,52 @@ function sendPrompt() {
   promptText.value = ''
 }
 
-function handleComposerKeydown(event: KeyboardEvent) {
-  if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
-    event.preventDefault()
-    sendPrompt()
+function submitComposer() {
+  if (isStreaming.value) {
+    send({ type: 'abort' })
+    return
   }
+  sendPrompt()
 }
 
 function toggleTheme() {
   colorMode.preference = isDark.value ? 'light' : 'dark'
+}
+
+function updateThinkingState(level?: ThinkingLevel, levels?: ThinkingLevel[]) {
+  if (levels?.length) availableThinkingLevels.value = levels
+  if (level) currentThinkingLevel.value = level
+  if (!availableThinkingLevels.value.includes(currentThinkingLevel.value)) {
+    currentThinkingLevel.value = availableThinkingLevels.value[0] ?? 'off'
+  }
+}
+
+function handleModelSelect(value: unknown) {
+  if (typeof value !== 'string') return
+
+  const option = modelOptions.value.find((item) => item.value === value)
+  if (!option || modelKey(option.model) === selectedModelKey.value) return
+
+  if (send({ type: 'model_set', provider: option.model.provider, id: option.model.id })) {
+    currentModel.value = option.model
+    pendingModelChange.value = true
+  }
+}
+
+function handleThinkingSelect(value: unknown) {
+  if (!isThinkingLevel(value)) return
+
+  const level = value
+  if (level === currentThinkingLevel.value) return
+
+  if (send({ type: 'thinking_set', level })) {
+    currentThinkingLevel.value = level
+    pendingThinkingChange.value = true
+  }
+}
+
+function isThinkingLevel(value: unknown): value is ThinkingLevel {
+  return thinkingOptions.some((option) => option.value === value)
 }
 
 function handleEvent(event: ServerEvent) {
@@ -125,6 +191,22 @@ function handleEvent(event: ServerEvent) {
   if (event.type === 'model_list_result') {
     models.value = event.models
     currentModel.value = event.current ?? null
+    pendingModelChange.value = false
+    pendingThinkingChange.value = false
+    updateThinkingState(event.thinkingLevel, event.availableThinkingLevels)
+    return
+  }
+
+  if (event.type === 'model_changed') {
+    currentModel.value = event.model
+    pendingModelChange.value = Boolean(event.pending)
+    updateThinkingState(event.thinkingLevel, event.availableThinkingLevels)
+    return
+  }
+
+  if (event.type === 'thinking_changed') {
+    updateThinkingState(event.level)
+    pendingThinkingChange.value = Boolean(event.pending)
     return
   }
 
@@ -246,9 +328,6 @@ onBeforeUnmount(() => {
               <h1 class="truncate text-base font-semibold">Pi Web Agent</h1>
               <UBadge :color="statusColor" variant="soft" size="xs" class="lg:hidden">{{ statusLabel }}</UBadge>
             </div>
-            <p class="truncate text-xs text-muted-foreground">
-              {{ currentModel?.name ?? currentModel?.id ?? 'Model loading…' }}
-            </p>
           </div>
 
           <div class="flex items-center gap-2">
@@ -257,9 +336,6 @@ onBeforeUnmount(() => {
             </UButton>
             <UButton color="neutral" variant="ghost" size="sm" class="text-foreground hover:bg-accent hover:text-accent-foreground" @click="send({ type: 'clear_queue' })">
               Clear queue
-            </UButton>
-            <UButton color="neutral" variant="soft" size="sm" class="border border-border bg-secondary text-secondary-foreground hover:bg-accent" @click="send({ type: 'abort' })">
-              Stop
             </UButton>
           </div>
         </header>
@@ -274,22 +350,8 @@ onBeforeUnmount(() => {
               :description="lastError"
             />
 
-            <section v-if="!hasMessages" class="py-12 text-center text-foreground sm:py-20">
-              <div class="mx-auto mb-5 flex size-12 items-center justify-center rounded-lg bg-primary text-xl font-semibold text-primary-foreground">
-                π
-              </div>
-              <h2 class="text-2xl font-semibold tracking-tight">What can I help code today?</h2>
-              <p class="mx-auto mt-3 max-w-md text-sm leading-6 text-muted-foreground">
-                This is a simple ChatGPT-style shell for the local Pi SDK backend. Send a prompt to verify the full loop.
-              </p>
-              <div class="mx-auto mt-6 grid max-w-xl gap-2 text-left sm:grid-cols-2">
-                <button class="rounded-lg border border-border bg-background p-3 text-sm text-foreground hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/35" @click="promptText = 'Summarize this project structure.'">
-                  Summarize this project
-                </button>
-                <button class="rounded-lg border border-border bg-background p-3 text-sm text-foreground hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/35" @click="promptText = 'What should we build next in the frontend?'">
-                  Suggest next frontend steps
-                </button>
-              </div>
+            <section v-if="!hasMessages" class="py-10 text-center text-sm text-muted-foreground">
+              Empty session. Send a message to start.
             </section>
 
             <article
@@ -318,21 +380,21 @@ onBeforeUnmount(() => {
         </div>
 
         <div class="shrink-0 px-4 pb-4 sm:px-6 sm:pb-6">
-          <form class="mx-auto flex w-full max-w-3xl items-end gap-3 rounded-lg border border-input bg-card/95 p-2 text-card-foreground shadow-xl shadow-foreground/10 backdrop-blur dark:shadow-black/30" @submit.prevent="sendPrompt">
-            <textarea
-              v-model="promptText"
-              rows="1"
-              class="max-h-40 min-h-11 flex-1 resize-none rounded-lg bg-transparent px-3 py-2 text-sm leading-6 text-foreground outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring/35"
-              placeholder="Message Pi…"
-              @keydown="handleComposerKeydown"
-            />
-            <UButton type="submit" :loading="isStreaming" :disabled="!promptText.trim()" class="shrink-0 bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50">
-              Send
-            </UButton>
-          </form>
-          <p class="mx-auto mt-2 max-w-3xl text-center text-xs text-muted-foreground">
-            Press Ctrl/⌘ + Enter to send. Dangerous tool calls will request approval in the web UI later.
-          </p>
+          <MessageComposer
+            :prompt-text="promptText"
+            :is-streaming="isStreaming"
+            :is-connected="status === 'connected'"
+            :model-options="modelOptions"
+            :selected-model-key="selectedModelKey"
+            :current-thinking-level="currentThinkingLevel"
+            :visible-thinking-options="visibleThinkingOptions"
+            :pending-model-change="pendingModelChange"
+            :pending-thinking-change="pendingThinkingChange"
+            @update:prompt-text="promptText = $event"
+            @model-select="handleModelSelect"
+            @thinking-select="handleThinkingSelect"
+            @submit="submitComposer"
+          />
         </div>
       </main>
     </div>

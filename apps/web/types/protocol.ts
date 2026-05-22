@@ -88,8 +88,8 @@ export type ServerEvent =
   | { type: 'queue_update'; steering: string[]; followUp: string[] }
   | { type: 'session_list_result'; sessions: UiSessionSummary[] }
   | { type: 'session_changed'; sessionId: string; sessionFile?: string; history: UiMessage[] }
-  | { type: 'model_list_result'; models: UiModel[]; current?: UiModel }
-  | { type: 'model_changed'; model: UiModel; pending?: boolean }
+  | { type: 'model_list_result'; models: UiModel[]; current?: UiModel; thinkingLevel?: ThinkingLevel; availableThinkingLevels?: ThinkingLevel[] }
+  | { type: 'model_changed'; model: UiModel; pending?: boolean; thinkingLevel?: ThinkingLevel; availableThinkingLevels?: ThinkingLevel[] }
   | { type: 'thinking_changed'; level: ThinkingLevel; pending?: boolean }
   | { type: 'ui_select_request'; requestId: string; title: string; options: string[]; timeoutMs: number }
   | { type: 'ui_input_request'; requestId: string; title: string; placeholder?: string; timeoutMs: number }

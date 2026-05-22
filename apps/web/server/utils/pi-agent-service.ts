@@ -233,7 +233,13 @@ export class PiAgentService {
     }
 
     await session.setModel(model)
-    this.send({ type: 'model_changed', model: toUiModel(model), pending: false })
+    this.send({
+      type: 'model_changed',
+      model: toUiModel(model),
+      pending: false,
+      thinkingLevel: session.thinkingLevel,
+      availableThinkingLevels: session.getAvailableThinkingLevels(),
+    })
   }
 
   private setThinkingLevel(level: ThinkingLevel) {
@@ -245,7 +251,7 @@ export class PiAgentService {
     }
 
     session.setThinkingLevel(level)
-    this.send({ type: 'thinking_changed', level, pending: false })
+    this.send({ type: 'thinking_changed', level: session.thinkingLevel, pending: false })
   }
 
   private async applyPendingSettingsIfIdle() {
@@ -257,11 +263,17 @@ export class PiAgentService {
 
     if (model) {
       await session.setModel(model)
-      this.send({ type: 'model_changed', model: toUiModel(model), pending: false })
+      this.send({
+        type: 'model_changed',
+        model: toUiModel(model),
+        pending: false,
+        thinkingLevel: session.thinkingLevel,
+        availableThinkingLevels: session.getAvailableThinkingLevels(),
+      })
     }
     if (thinkingLevel) {
       session.setThinkingLevel(thinkingLevel)
-      this.send({ type: 'thinking_changed', level: thinkingLevel, pending: false })
+      this.send({ type: 'thinking_changed', level: session.thinkingLevel, pending: false })
     }
   }
 
@@ -291,6 +303,9 @@ export class PiAgentService {
           this.sendStatus()
           void this.applyPendingSettingsIfIdle()
           break
+        case 'thinking_level_changed':
+          this.send({ type: 'thinking_changed', level: event.level, pending: false })
+          break
       }
     } catch (error) {
       console.error('[pi-web] failed to forward session event', error)
@@ -313,6 +328,8 @@ export class PiAgentService {
       type: 'model_list_result',
       models: this.modelRegistry.getAvailable().map(toUiModel),
       current: session?.model ? toUiModel(session.model) : undefined,
+      thinkingLevel: session?.thinkingLevel,
+      availableThinkingLevels: session?.getAvailableThinkingLevels(),
     })
   }
 
