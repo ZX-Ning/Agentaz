@@ -1,0 +1,20 @@
+{
+  "name": "web",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "dev": "nuxt dev --host ${HOST:-127.0.0.1}",
+    "build": "nuxt build",
+    "typecheck": "nuxt typecheck"
+  },
+  "dependencies": {
+    "@earendil-works/pi-coding-agent": "latest",
+    "@gotgenes/pi-permission-system": "^7.0.1",
+    "nuxt": "^4.1.0",
+    "vue": "^3.5.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.0",
+    "vue-tsc": "^3.0.0"
+  }
+}
