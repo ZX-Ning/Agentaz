@@ -23,14 +23,21 @@ export class WebExtensionUIContext {
   private pending = new Map<string, PendingRequest>()
 
   constructor(
+    private readonly sessionId: string,
     private readonly send: SendEvent,
     private readonly timeoutMs: number,
   ) {}
+
+  /** Number of browser-backed UI requests still waiting for a response. */
+  get pendingCount() {
+    return this.pending.size
+  }
 
   /** Shows a single-choice prompt in the browser and resolves with the selected option. */
   async select(title: string, options: string[], _opts?: ExtensionUIDialogOptions): Promise<string | undefined> {
     return this.request<string | undefined>('select', {
       type: 'ui_select_request',
+      sessionId: this.sessionId,
       requestId: crypto.randomUUID(),
       title,
       options,
@@ -42,6 +49,7 @@ export class WebExtensionUIContext {
   async confirm(title: string, message: string, _opts?: ExtensionUIDialogOptions): Promise<boolean> {
     return this.request<boolean>('confirm', {
       type: 'ui_confirm_request',
+      sessionId: this.sessionId,
       requestId: crypto.randomUUID(),
       title,
       message,
@@ -53,6 +61,7 @@ export class WebExtensionUIContext {
   async input(title: string, placeholder?: string, _opts?: ExtensionUIDialogOptions): Promise<string | undefined> {
     return this.request<string | undefined>('input', {
       type: 'ui_input_request',
+      sessionId: this.sessionId,
       requestId: crypto.randomUUID(),
       title,
       placeholder,
@@ -62,7 +71,7 @@ export class WebExtensionUIContext {
 
   /** Forwards extension notifications to the browser notification/toast stream. */
   notify(message: string, type?: 'info' | 'warning' | 'error'): void {
-    this.send({ type: 'ui_notify', message, level: type })
+    this.send({ type: 'ui_notify', sessionId: this.sessionId, message, level: type })
   }
 
   /** Resolves a pending select request from a browser response event. */

@@ -11,10 +11,11 @@ Core architecture:
 - `apps/web`: Nuxt fullstack app.
 - `apps/web/app`: Vue/Nuxt frontend.
 - `apps/web/server`: Nitro backend.
-- `apps/web/server/routes/api/agent/ws.ts`: WebSocket endpoint for agent commands/events.
-- `apps/web/server/utils/pi-agent-service.ts`: Pi SDK session orchestration.
-- `apps/web/server/utils/ws-agent-hub.ts`: process-wide WebSocket hub and single-client policy.
-- `apps/web/types/protocol.ts`: browser/server wire protocol types.
+- `apps/web/server/api/agent`: HTTP endpoints for browser-initiated agent actions and snapshots.
+- `apps/web/server/routes/api/agent/ws.ts`: WebSocket endpoint for realtime server events.
+- `apps/web/server/utils/pi-session-registry.ts`: process-wide server-resident Pi session registry.
+- `apps/web/server/utils/ws-agent-hub.ts`: WebSocket subscriber lifecycle and heartbeat snapshots.
+- `apps/web/types/protocol.ts`: HTTP DTOs and WebSocket event protocol types.
 - `docs/plan.md`: confirmed product decisions and current baseline.
 
 ## Common Commands
@@ -25,6 +26,7 @@ Use pnpm from the repository root.
 pnpm dev          # run Nuxt dev server
 pnpm typecheck    # TypeScript/Nuxt typecheck
 pnpm build        # production build; run only when explicitly needed
+pnpm test:api      # REST/WS smoke test; requires dev server already running
 pnpm smoke:backend # backend smoke test; requires dev server already running
 ```
 
@@ -42,7 +44,8 @@ Do not run `pnpm build` by default because it is slower. Run build only when req
 - Do not add authentication or multi-user concepts without updating docs/plan.
 - The backend should bind to `127.0.0.1` by default. Non-localhost bind is allowed only through env override and should warn loudly.
 - The WebSocket hub is currently a process singleton.
-- There is only one active browser client at a time. `?force=1` may be used for takeover.
+- Browser-initiated actions should use HTTP APIs; WebSocket is for realtime server events only.
+- Loaded Pi sessions are server-resident and should survive WebSocket detach.
 - The agent `cwd` is startup-configured and is not currently selected in the web UI.
 - Dangerous tool permissions should route through the web approval path, currently using `@gotgenes/pi-permission-system`.
 
@@ -50,7 +53,7 @@ Do not run `pnpm build` by default because it is slower. Run build only when req
 
 - TypeScript everywhere.
 - Keep protocol changes explicit in `apps/web/types/protocol.ts`.
-- If adding/changing WebSocket event shapes, update both frontend handling and backend emitters.
+- If adding/changing HTTP DTOs or WebSocket event shapes, update both frontend handling and backend emitters/routes.
 - Prefer small, focused server utilities under `apps/web/server/utils/`.
 - Keep frontend state simple until there is a strong reason to introduce a larger store.
 - All `interface` and `class` declarations should have documentation comments explaining purpose and behavior.
@@ -76,8 +79,9 @@ Do not run `pnpm build` by default because it is slower. Run build only when req
 ## Backend Notes
 
 - Keep Pi SDK code server-side only.
-- `PiAgentService` should own Pi session lifecycle and command handling.
-- `WsAgentHub` should own browser connection lifecycle, heartbeat, single-client rejection, force takeover, and cleanup.
+- `PiSessionRegistry` should own loaded Pi session lifecycle and browser-facing agent operations.
+- `WsAgentHub` should own browser WebSocket attach/detach and heartbeat snapshots only.
+- HTTP route files under `apps/web/server/api/agent` should stay thin and delegate to `PiSessionRegistry`.
 - `WebExtensionUIContext` bridges extension UI prompts/approvals to the browser.
 - `permission-config.ts` creates project-level permission-system config under `<cwd>/.pi/extensions/pi-permission-system/config.json`.
 

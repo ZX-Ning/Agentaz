@@ -12,7 +12,7 @@ The frontend is a Nuxt/Vue browser UI for a Pi SDK agent. The current UI should 
 - a bottom composer for prompts
 - web approval UI for dangerous operations
 
-The frontend should not introduce multi-user, authentication, project switching, or database-backed concepts unless the product plan changes. The project is beyond its original MVP phase, but larger server-agent and multi-session UI semantics are still design work until recorded in `docs/plan.md`.
+The frontend should not introduce multi-user, authentication, project switching, or database-backed concepts unless the product plan changes. The server already owns loaded sessions; richer multi-tab/controller semantics remain future product work until recorded in `docs/plan.md`.
 
 ## Location
 
@@ -91,7 +91,7 @@ IBM Plex Sans is loaded in Nuxt head config and applied globally in `main.css`.
 
 ## WebSocket Protocol
 
-The frontend connects to:
+The frontend uses HTTP for browser-initiated actions and state snapshots, and WebSocket only for realtime server events. The WebSocket connects to:
 
 ```txt
 /api/agent/ws
@@ -106,9 +106,17 @@ apps/web/types/protocol.ts
 When protocol shapes change:
 
 1. Update `types/protocol.ts`.
-2. Update backend emitters/handlers.
-3. Update frontend event handling.
+2. Update backend HTTP routes and WebSocket emitters.
+3. Update frontend `$fetch` calls and event handling.
 4. Consider updating `scripts/smoke-backend.mjs` if handshake or required startup events change.
+
+Important HTTP reads include:
+
+```txt
+GET /api/agent/state
+GET /api/agent/sessions/:sessionId/history
+GET /api/agent/sessions/:sessionId/models
+```
 
 ## Frontend State Model
 
@@ -142,8 +150,8 @@ Current behavior:
 
 - Send normal prompt when idle.
 - Support `Ctrl/⌘ + Enter` to send.
-- Stop button sends `abort`.
-- Clear Queue sends `clear_queue`.
+- Stop button calls the HTTP abort endpoint.
+- Clear Queue calls the HTTP queue clear endpoint.
 
 Future behavior:
 
@@ -157,7 +165,7 @@ Dangerous tool approvals are routed through backend extension UI events. Fronten
 - `ui_confirm_request`
 - `ui_select_request`
 - `ui_input_request`
-- matching response commands
+- matching HTTP response submissions
 
 Approval UI should be prominent, modal or docked near the composer, and must clearly show the action being approved.
 

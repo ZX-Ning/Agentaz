@@ -17,6 +17,7 @@ export default defineWebSocketHandler({
     setWsAgentHubConfig({
       cwd: String(config.piWeb.cwd),
       approvalTimeoutMs: Number(config.piWeb.approvalTimeoutMs),
+      maxLoadedSessions: Number(config.piWeb.maxLoadedSessions),
     });
     await getWsAgentHub().open(peer as any, force);
   },

@@ -5,13 +5,19 @@ import {
   SessionManager,
   type CreateAgentSessionResult,
 } from '@earendil-works/pi-coding-agent'
-import type { ClientCommand, ImagePayload, ServerEvent, ThinkingLevel, UiMessage, UiModel, UiSessionSummary } from '../../types/protocol'
+import type { ImagePayload, ThinkingLevel, UiMessage, UiModel, UiSessionSummary } from '../../types/protocol'
 import { PROTOCOL_VERSION } from '../../types/protocol'
 import { WebExtensionUIContext } from './extension-ui-context'
 import { ensurePermissionConfig } from './permission-config'
 
 /** Emits a normalized server event to the connected browser client. */
-type SendEvent = (event: ServerEvent) => void
+type SendEvent = (event: any) => void
+
+/** Legacy browser command shape retained only for the deprecated single-session service. */
+type ClientCommand = {
+  type: string
+  [key: string]: any
+}
 
 /** Model and thinking-level changes requested while the agent is still busy. */
 type PendingSettings = {
@@ -20,11 +26,12 @@ type PendingSettings = {
 }
 
 /**
- * Coordinates a Pi SDK agent session for the WebSocket backend.
+ * Coordinates one Pi SDK agent session for the legacy single-session backend path.
  *
  * The service owns Pi session creation, session switching, command dispatch, permission UI wiring,
  * model/thinking changes, and translation of Pi runtime events into the normalized web protocol.
- * It is scoped to one active browser connection and should be disposed when that connection closes.
+ * New server-resident multi-session behavior is implemented by `PiSessionRegistry`; this class remains
+ * as a compatibility wrapper while older imports and protocol aliases are phased out.
  */
 export class PiAgentService {
   private authStorage = AuthStorage.create()
@@ -95,10 +102,11 @@ export class PiAgentService {
         break
       case 'clear_queue': {
         const cleared = this.requireSession().clearQueue()
-        this.send({ type: 'queue_update', steering: [], followUp: [] })
+        this.send({ type: 'queue_update', sessionId: this.requireSession().sessionId, steering: [], followUp: [] })
         console.log('[pi-web] cleared queue', cleared)
         break
       }
+      case 'session_create':
       case 'session_new':
         await this.ensureSafeToSwitch(true)
         await this.createNewSession()
@@ -108,6 +116,14 @@ export class PiAgentService {
         break
       case 'session_open':
         await this.openSession(command.sessionFile, command.abortCurrent)
+        break
+      case 'session_focus':
+      case 'session_acquire_control':
+      case 'session_release_control':
+        break
+      case 'session_close':
+        await this.ensureSafeToSwitch(command.abortCurrent)
+        await this.dispose()
         break
       case 'model_list':
         this.sendModelList()
@@ -128,7 +144,7 @@ export class PiAgentService {
         this.uiContext?.resolveConfirm(command.requestId, command.confirmed)
         break
       default:
-        assertNever(command)
+        throw new Error(`Unknown command: ${command.type}`)
     }
   }
 
@@ -151,6 +167,20 @@ export class PiAgentService {
       type: 'hello',
       protocolVersion: PROTOCOL_VERSION,
       cwd: this.cwd,
+      clientId: 'legacy-client',
+      activeSessionId: session?.sessionId,
+      loadedSessions: session
+        ? [{
+            file: session.sessionFile ?? session.sessionId,
+            sessionId: session.sessionId,
+            sessionFile: session.sessionFile,
+            isStreaming: session.isStreaming,
+            pendingMessageCount: session.pendingMessageCount,
+            pendingApprovalCount: this.uiContext?.pendingCount ?? 0,
+            controlledByThisClient: true,
+          }]
+        : [],
+      persistedSessions: [],
       sessionId: session?.sessionId ?? '',
       sessionFile: session?.sessionFile,
       capabilities: {
@@ -190,7 +220,7 @@ export class PiAgentService {
     const session = this.requireSession()
 
     // Bind extensions to the WebSocket-backed UI context so permission prompts reach the browser.
-    this.uiContext = new WebExtensionUIContext(this.send, this.approvalTimeoutMs)
+    this.uiContext = new WebExtensionUIContext(session.sessionId, this.send, this.approvalTimeoutMs)
     await session.bindExtensions({
       uiContext: this.uiContext as any,
       onError: (error) => {
@@ -203,7 +233,7 @@ export class PiAgentService {
 
     // Broadcast enough state for a browser client to render immediately after connecting or switching.
     this.sendHello()
-    this.send({ type: 'history', messages: normalizeMessages(session.messages as any[]) })
+    this.send({ type: 'history', sessionId: session.sessionId, messages: normalizeMessages(session.messages as any[]) })
     this.send({ type: 'session_changed', sessionId: session.sessionId, sessionFile: session.sessionFile, history: normalizeMessages(session.messages as any[]) })
     this.sendModelList()
     this.sendStatus()
@@ -228,13 +258,14 @@ export class PiAgentService {
     const session = this.requireSession()
     if (this.isWorkflowBusy()) {
       this.pendingSettings.model = model
-      this.send({ type: 'model_changed', model: toUiModel(model), pending: true })
+      this.send({ type: 'model_changed', sessionId: session.sessionId, model: toUiModel(model), pending: true })
       return
     }
 
     await session.setModel(model)
     this.send({
       type: 'model_changed',
+      sessionId: session.sessionId,
       model: toUiModel(model),
       pending: false,
       thinkingLevel: session.thinkingLevel,
@@ -246,12 +277,12 @@ export class PiAgentService {
     const session = this.requireSession()
     if (this.isWorkflowBusy()) {
       this.pendingSettings.thinkingLevel = level
-      this.send({ type: 'thinking_changed', level, pending: true })
+      this.send({ type: 'thinking_changed', sessionId: session.sessionId, level, pending: true })
       return
     }
 
     session.setThinkingLevel(level)
-    this.send({ type: 'thinking_changed', level: session.thinkingLevel, pending: false })
+    this.send({ type: 'thinking_changed', sessionId: session.sessionId, level: session.thinkingLevel, pending: false })
   }
 
   private async applyPendingSettingsIfIdle() {
@@ -265,6 +296,7 @@ export class PiAgentService {
       await session.setModel(model)
       this.send({
         type: 'model_changed',
+        sessionId: session.sessionId,
         model: toUiModel(model),
         pending: false,
         thinkingLevel: session.thinkingLevel,
@@ -273,7 +305,7 @@ export class PiAgentService {
     }
     if (thinkingLevel) {
       session.setThinkingLevel(thinkingLevel)
-      this.send({ type: 'thinking_changed', level: session.thinkingLevel, pending: false })
+      this.send({ type: 'thinking_changed', sessionId: session.sessionId, level: session.thinkingLevel, pending: false })
     }
   }
 
@@ -285,18 +317,18 @@ export class PiAgentService {
           break
         case 'tool_execution_start':
         case 'tool_start':
-          this.send({ type: 'tool_start', toolCallId: event.toolCallId ?? event.id ?? crypto.randomUUID(), toolName: event.toolName ?? event.name ?? 'tool', input: event.input ?? event.params })
+          this.send({ type: 'tool_start', sessionId: this.requireSession().sessionId, toolCallId: event.toolCallId ?? event.id ?? crypto.randomUUID(), toolName: event.toolName ?? event.name ?? 'tool', input: event.input ?? event.params })
           break
         case 'tool_execution_update':
         case 'tool_update':
-          this.send({ type: 'tool_update', toolCallId: event.toolCallId ?? event.id ?? '', partial: event })
+          this.send({ type: 'tool_update', sessionId: this.requireSession().sessionId, toolCallId: event.toolCallId ?? event.id ?? '', partial: event })
           break
         case 'tool_execution_end':
         case 'tool_end':
-          this.send({ type: 'tool_end', toolCallId: event.toolCallId ?? event.id ?? '', isError: Boolean(event.isError ?? event.error), summary: summarizeToolResult(event.result ?? event.output ?? event.error) })
+          this.send({ type: 'tool_end', sessionId: this.requireSession().sessionId, toolCallId: event.toolCallId ?? event.id ?? '', isError: Boolean(event.isError ?? event.error), summary: summarizeToolResult(event.result ?? event.output ?? event.error) })
           break
         case 'queue_update':
-          this.send({ type: 'queue_update', steering: [...event.steering], followUp: [...event.followUp] })
+          this.send({ type: 'queue_update', sessionId: this.requireSession().sessionId, steering: [...event.steering], followUp: [...event.followUp] })
           void this.applyPendingSettingsIfIdle()
           break
         case 'agent_end':
@@ -304,7 +336,7 @@ export class PiAgentService {
           void this.applyPendingSettingsIfIdle()
           break
         case 'thinking_level_changed':
-          this.send({ type: 'thinking_changed', level: event.level, pending: false })
+          this.send({ type: 'thinking_changed', sessionId: this.requireSession().sessionId, level: event.level, pending: false })
           break
       }
     } catch (error) {
@@ -315,10 +347,10 @@ export class PiAgentService {
   private forwardMessageUpdate(event: any) {
     const messageEvent = event.assistantMessageEvent ?? event.messageEvent ?? event
     if (messageEvent.type === 'text_delta') {
-      this.send({ type: 'message_delta', messageId: event.messageId ?? 'assistant-current', blockType: 'text', delta: messageEvent.delta ?? '' })
+      this.send({ type: 'message_delta', sessionId: this.requireSession().sessionId, messageId: event.messageId ?? 'assistant-current', blockType: 'text', delta: messageEvent.delta ?? '' })
     }
     if (messageEvent.type === 'thinking_delta') {
-      this.send({ type: 'message_delta', messageId: event.messageId ?? 'assistant-current', blockType: 'thinking', delta: messageEvent.delta ?? '' })
+      this.send({ type: 'message_delta', sessionId: this.requireSession().sessionId, messageId: event.messageId ?? 'assistant-current', blockType: 'thinking', delta: messageEvent.delta ?? '' })
     }
   }
 
@@ -336,7 +368,7 @@ export class PiAgentService {
   private sendStatus() {
     const session = this.session
     if (!session) return
-    this.send({ type: 'status', isStreaming: session.isStreaming, pendingMessageCount: session.pendingMessageCount })
+    this.send({ type: 'status', sessionId: session.sessionId, isStreaming: session.isStreaming, pendingMessageCount: session.pendingMessageCount, pendingApprovalCount: this.uiContext?.pendingCount ?? 0 })
   }
 
   private isWorkflowBusy() {

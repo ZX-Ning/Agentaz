@@ -1,106 +1,62 @@
-import type { ClientCommand, ServerEvent } from '../../types/protocol'
-import { PiAgentService } from './pi-agent-service'
+import type { ServerEvent } from '../../types/protocol'
+import { getPiSessionRegistry, setPiSessionRegistryConfig, type WsPeer } from './pi-session-registry'
 
-/** Minimal subset of Nitro's WebSocket peer API used by the backend hub. */
-type Peer = {
-  id?: string
-  send: (data: string) => void
-  close: (code?: number, reason?: string) => void
-}
-
-/** Startup options shared by every WebSocket connection handled by the singleton hub. */
+/** Startup options shared by WebSocket handlers and the process-wide session registry. */
 type HubOptions = {
   cwd: string
   approvalTimeoutMs: number
+  maxLoadedSessions?: number
 }
 
 /**
- * Owns the single active browser WebSocket connection and its associated Pi agent service.
+ * Browser WebSocket connection manager for the server-resident Pi session registry.
  *
- * The MVP intentionally permits only one active client because prompts, approvals, and streaming agent
- * output are stateful. The hub rejects concurrent clients unless the new connection requests a force
- * takeover, translates raw WebSocket messages into typed client commands, and ensures approvals are
- * cancelled when the connection goes away.
+ * The hub owns client attachment and heartbeat snapshots. It deliberately does
+ * not own Pi session lifetime: closing a browser connection detaches that client and releases its
+ * per-session control leases, while loaded sessions continue running in the registry.
  */
 export class WsAgentHub {
-  private peer?: Peer
-  private service?: PiAgentService
+  private peers = new Set<WsPeer>()
   private heartbeat?: NodeJS.Timeout
 
   constructor(private readonly options: HubOptions) {}
 
-  /** Opens a client connection, optionally replacing an existing active browser connection. */
-  async open(peer: Peer, force = false) {
-    if (this.peer && !force) {
-      peer.send(JSON.stringify({ type: 'error', code: 'already_connected', message: 'Another browser client is already connected.', recoverable: true }))
-      peer.close(1008, 'already_connected')
-      return
-    }
-
-    if (this.peer && force) {
-      this.peer.send(JSON.stringify({ type: 'error', code: 'client_replaced', message: 'Connection was taken over by another browser client.', recoverable: false }))
-      this.peer.close(1000, 'client_replaced')
-      await this.closeActive(false)
-    }
-
-    this.peer = peer
-    this.service = new PiAgentService(this.options.cwd, (event) => this.send(event), this.options.approvalTimeoutMs)
-
-    await this.service.initNewSession()
+  /** Opens a browser connection and attaches it to the process-wide session registry. */
+  async open(peer: WsPeer, _force = false) {
+    this.peers.add(peer)
+    await getPiSessionRegistry().attachClient(peer)
     this.startHeartbeat()
   }
 
-  /** Parses and dispatches a raw WebSocket command from the active client. */
-  async message(peer: Peer, raw: unknown) {
-    if (peer !== this.peer) return
-
-    let command: ClientCommand
-    try {
-      command = JSON.parse(String(raw)) as ClientCommand
-    } catch {
-      this.sendError('invalid_json', 'WebSocket message is not valid JSON.', true)
-      return
-    }
-
-    try {
-      await this.service?.handleCommand(command)
-    } catch (error) {
-      console.error('[pi-web] command failed', error)
-      this.sendError('command_failed', error instanceof Error ? error.message : String(error), true)
-    }
+  /** Rejects legacy application commands because browser-initiated actions now use HTTP. */
+  async message(peer: WsPeer, raw: unknown) {
+    if (!this.peers.has(peer)) return
+    console.warn('[pi-web] ignored legacy websocket command', String(raw).slice(0, 200))
+    this.send(peer, { type: 'error', code: 'ws_commands_disabled', message: 'Browser commands must use the HTTP agent API.', recoverable: true })
   }
 
-  /** Closes the active client and cancels outstanding browser-backed approvals. */
-  async close(peer: Peer) {
-    if (peer !== this.peer) return
-    await this.closeActive(true)
+  /** Detaches a browser client without aborting or disposing loaded Pi sessions. */
+  async close(peer: WsPeer) {
+    if (!this.peers.has(peer)) return
+    this.peers.delete(peer)
+    getPiSessionRegistry().detachClient(peer)
+    if (this.peers.size === 0) this.stopHeartbeat()
   }
 
-  /** Logs a WebSocket error and disposes the service if it came from the active client. */
-  async error(peer: Peer, error: unknown) {
+  /** Logs a WebSocket error and detaches the failed browser client. */
+  async error(peer: WsPeer, error: unknown) {
     console.error('[pi-web] websocket error', error)
-    if (peer === this.peer) {
-      await this.closeActive(true)
-    }
+    await this.close(peer)
   }
 
-  private send(event: ServerEvent) {
-    this.peer?.send(JSON.stringify(event))
-  }
-
-  private sendError(code: string, message: string, recoverable: boolean) {
-    this.send({ type: 'error', code, message, recoverable })
+  private send(peer: WsPeer, event: ServerEvent) {
+    peer.send(JSON.stringify(event))
   }
 
   private startHeartbeat() {
-    this.stopHeartbeat()
+    if (this.heartbeat) return
     this.heartbeat = setInterval(() => {
-      try {
-        this.peer?.send(JSON.stringify({ type: 'status', isStreaming: Boolean(this.service?.session?.isStreaming), pendingMessageCount: this.service?.session?.pendingMessageCount ?? 0 }))
-      } catch (error) {
-        console.error('[pi-web] heartbeat failed', error)
-        void this.closeActive(true)
-      }
+      getPiSessionRegistry().pushSnapshots()
     }, 15_000)
   }
 
@@ -109,42 +65,39 @@ export class WsAgentHub {
     this.heartbeat = undefined
   }
 
-  private async closeActive(cancelApprovals: boolean) {
-    this.stopHeartbeat()
-    if (cancelApprovals) this.service?.cancelPendingApprovals()
-    await this.service?.dispose()
-    this.service = undefined
-    this.peer = undefined
-  }
 }
 
 let hub: WsAgentHub | undefined
 let hubOptions: HubOptions | undefined
 
 /**
- * Sets the process-wide WebSocket hub configuration before the singleton is read.
+ * Sets the process-wide WebSocket hub and session registry configuration.
  *
- * The first call fixes the runtime configuration for the local MVP. Repeating the call with the same
- * values is allowed so route handlers can be idempotent, but changing values after initialization is a
- * configuration error and must fail loudly instead of silently reusing a hub with stale options.
+ * The first call fixes runtime configuration for the current process. Repeating the call with the same
+ * values is allowed so route handlers can be idempotent, but changing values after initialization fails
+ * loudly instead of reusing a registry with stale cwd or approval timeout settings.
  */
 export function setWsAgentHubConfig(options: HubOptions) {
   if (!hubOptions) {
     hubOptions = options
+    setPiSessionRegistryConfig({
+      cwd: options.cwd,
+      approvalTimeoutMs: options.approvalTimeoutMs,
+      maxLoadedSessions: options.maxLoadedSessions,
+    })
     return
   }
 
-  if (hubOptions.cwd !== options.cwd || hubOptions.approvalTimeoutMs !== options.approvalTimeoutMs) {
+  if (
+    hubOptions.cwd !== options.cwd
+    || hubOptions.approvalTimeoutMs !== options.approvalTimeoutMs
+    || hubOptions.maxLoadedSessions !== options.maxLoadedSessions
+  ) {
     throw new Error('WsAgentHub configuration cannot be changed after it has been set.')
   }
 }
 
-/**
- * Returns the process-wide WebSocket hub used by Nitro route handlers.
- *
- * `setWsAgentHubConfig()` must be called first so callers cannot accidentally create the singleton with
- * ad-hoc options at the usage site.
- */
+/** Returns the process-wide WebSocket hub used by Nitro route handlers. */
 export function getWsAgentHub() {
   if (!hubOptions) {
     throw new Error('WsAgentHub configuration has not been set.')

@@ -2,559 +2,248 @@
 
 ## 1. Goal
 
-Build a personal, local-first agent application powered by the Pi SDK, with a browser UI for interaction.
+Build a personal, local-first/server-hosted agent application powered by the Pi SDK, with a browser UI as one interaction surface.
 
-The product began as a browser-accessible version of Pi for one local user. It should let the user run Pi against a chosen project directory, stream assistant output, inspect tool execution, approve dangerous operations from the browser, manage sessions, and switch model/thinking settings.
-
-The project has moved beyond the original MVP planning phase. This document now records confirmed product and architecture decisions plus known baseline behavior. Larger runtime changes, including richer multi-session/server-agent behavior, should be added only after the design is finalized.
-
-This is **not** currently a multi-user SaaS or team platform.
+The app is not a multi-user SaaS or team platform. It has moved beyond the original MVP boundary; this document records confirmed product decisions and the current implementation baseline.
 
 ## 2. Confirmed Decisions And Baseline
 
-### Primary use case
+### Product Model
 
 - Target: **personal local/server-hosted Pi agent with a Web UI**.
 - Local-first remains the default trust model.
-- Multi-user SaaS/team behavior is not a confirmed product goal.
+- The agent runs on the Nuxt/Nitro server side.
+- The browser UI talks to the server over HTTP APIs plus a WebSocket event stream.
+- Multi-user auth, accounts, team concepts, and SaaS behavior are not confirmed goals.
 
-### Working directory
+### Working Directory
 
-- The agent operates on a **startup-specified `cwd`**.
+- The agent operates on a startup-specified `cwd`.
 - The Web UI does not currently choose or switch project directories.
-- Future cwd switching may require `createAgentSessionRuntime()` because cwd-bound resources need rebuilding.
+- Future cwd switching may require rebuilding Pi runtime resources, not just changing a field in UI state.
 
-### Framework and process model
+### Process And Repository Shape
 
-- Use **Nuxt**.
-- Use **Nuxt fullstack single process** for the current implementation.
-- Pi SDK runs on the Nuxt/Nitro server side.
-- Frontend and backend communicate via WebSocket.
+- Use a pnpm workspace with one Nuxt fullstack app under `apps/web`.
+- Keep Pi SDK integration server-side only.
+- Keep browser/server protocol types in `apps/web/types/protocol.ts`.
+- Keep backend runtime utilities under `apps/web/server/utils/`.
 
-### Repository structure
-
-Use a pnpm workspace with one app:
+Important backend pieces:
 
 ```txt
-Agentaz/
-  pnpm-workspace.yaml
-  apps/
-    web/
-      nuxt.config.ts
-      server/
-      app/
-```
-
-Pi server utilities should live under:
-
-```txt
-apps/web/server/utils/
-```
-
-Examples:
-
-```txt
-apps/web/server/utils/pi-agent-service.ts
+apps/web/server/api/agent/                HTTP agent API routes
+apps/web/server/routes/api/agent/ws.ts    WebSocket event route
+apps/web/server/utils/pi-session-registry.ts
 apps/web/server/utils/ws-agent-hub.ts
-apps/web/server/utils/permission-config.ts
 apps/web/server/utils/extension-ui-context.ts
+apps/web/server/utils/permission-config.ts
 ```
 
 ### Transport
 
-- Use **WebSocket**.
-- One WebSocket endpoint carries all agent commands and backend events.
-- HTTP API is only needed for health checks initially.
+- Use **HTTP** for browser-initiated actions and snapshot queries.
+- Use **WebSocket** for server-initiated realtime events only.
+- Full session history is fetched over HTTP, not pushed as a WebSocket event.
+- Model/thinking state is queried and changed over HTTP, not pushed through dedicated WS model events.
 
-Planned endpoints:
+Current HTTP endpoints:
 
 ```txt
-WS   /api/agent/ws
-GET  /api/health
+GET    /api/health
+GET    /api/agent/state
+POST   /api/agent/sessions
+POST   /api/agent/sessions/:sessionId/focus
+DELETE /api/agent/sessions/:sessionId
+POST   /api/agent/sessions/:sessionId/control
+GET    /api/agent/sessions/:sessionId/history
+GET    /api/agent/sessions/:sessionId/models
+PUT    /api/agent/sessions/:sessionId/model
+PUT    /api/agent/sessions/:sessionId/thinking
+POST   /api/agent/sessions/:sessionId/messages
+POST   /api/agent/sessions/:sessionId/abort
+POST   /api/agent/sessions/:sessionId/queue/clear
+POST   /api/agent/sessions/:sessionId/ui-requests/:requestId/response
+WS     /api/agent/ws
 ```
 
-### WebSocket client policy
+### Session Behavior
 
-- Current implementation allows **one active browser client**.
-- If a second client connects while one is active, reject the new connection.
-- Add heartbeat ping/pong to clean up dead connections.
-- Allow explicit force takeover as an escape hatch.
-- Multi-client behavior is an open design area.
+- The server owns loaded Pi sessions in a process-wide `PiSessionRegistry`.
+- Loaded sessions survive WebSocket detach.
+- The app creates an initial loaded session when needed.
+- Users can create new sessions and open persisted sessions for the configured `cwd`.
+- Session list scope is current `cwd`, using Pi `SessionManager.list(cwd)`.
+- Focusing a session changes the active browser view and then the frontend fetches history over HTTP.
+- Closing a running loaded session requires an explicit `abortCurrent` request.
+- Fork/tree/clone workflows are not implemented.
 
-### Security / binding
+### Browser Client Model
 
-- Current implementation has no login/auth.
-- Default bind host should be `127.0.0.1`.
-- Allow env override, e.g. `HOST=0.0.0.0`, but print a strong warning because the app has no authentication.
+- This is still a single-user app.
+- WebSocket clients are realtime subscribers, not authentication principals.
+- Browser-initiated mutations use HTTP APIs.
+- Current control state is a local UI/runtime concept, not a security boundary.
 
-### API keys
+### Model And Thinking Settings
 
-- Reuse Pi's default credential resolution.
-- Use Pi default `AuthStorage` / `ModelRegistry`, including:
-  - `~/.pi/agent/auth.json`
-  - environment variables
-  - existing Pi settings/models
-- Current implementation does not implement API key management UI.
+- Available models come from Pi `ModelRegistry`.
+- Model changes use `session.setModel(model)`.
+- Thinking changes use `session.setThinkingLevel(level)`.
+- If a session is streaming or has queued messages, model/thinking changes are queued and applied when the session becomes idle.
+- Model/thinking choices affect only the current loaded session. They are not written to Pi settings.
 
-### Model and thinking settings
+### Permission Approval UX
 
-- The Web UI supports model selection.
-- Available models come from `modelRegistry.getAvailable()`.
-- Use `session.setModel(model)` to change model.
-- The Web UI supports thinking level selection via `session.setThinkingLevel(level)`.
-- If the agent is currently running or has pending queued messages, model/thinking changes are queued and applied only after the current workflow is fully idle.
-- Model/thinking choices affect only the current session. They are not written to Pi settings.
-
-### Session behavior
-
-- Current implementation supports:
-  - new session
-  - list sessions for current `cwd`
-  - resume/open selected session
-- The app starts with a **new session by default**.
-- Historical sessions are restored manually from the session list.
-- Session list scope: current `cwd` only, using `SessionManager.list(cwd)`.
-- When restoring a session, backend sends normalized history derived from `session.messages`.
-- If switching/new session while agent is running, show confirmation; if confirmed, abort current run, dispose old session, then switch.
-- Current implementation does not support true background multi-session execution.
-- Current implementation does not support fork/tree/clone.
-- Server-side multi-session runtime behavior is under design and should not be treated as finalized by this document.
-
-### Pi SDK layer
-
-Current implementation uses `createAgentSession()` plus explicit service-level switching:
-
-- create new session with `SessionManager.create(cwd)`
-- open existing session with `SessionManager.open(path)`
-- list sessions with `SessionManager.list(cwd)`
-- dispose old session on switch
-- rebind extensions and event subscriptions after each new/open
-
-The project may migrate to `createAgentSessionRuntime()` or a server-side session registry for first-class session replacement, fork, clone, tree navigation, and richer multi-session behavior after the design is settled.
-
-### Tools and permission model
-
-- Use full coding tool capability, but dangerous operations require approval.
-- Use `@gotgenes/pi-permission-system` as the permission engine.
-- Do not build a custom tool-wrapper approval layer unless the product plan explicitly changes.
-- Generate project-level permission config at startup if missing.
-- Dangerous defaults:
-  - read-like tools: allow
-  - `bash`: ask
-  - `edit`: ask
-  - `write`: ask
-  - sensitive paths like `.env`: deny
-  - external directory access: ask
-
-Example generated project config:
-
-```jsonc
-{
-  "$schema": "https://raw.githubusercontent.com/gotgenes/pi-permission-system/main/schemas/permissions.schema.json",
-  "debugLog": false,
-  "permissionReviewLog": true,
-  "yoloMode": false,
-  "piInfrastructureReadPaths": [],
-  "permission": {
-    "*": "allow",
-    "read": "allow",
-    "grep": "allow",
-    "find": "allow",
-    "ls": "allow",
-    "bash": "ask",
-    "edit": "ask",
-    "write": "ask",
-    "path": {
-      "*": "allow",
-      "*.env": "deny",
-      "*.env.*": "deny",
-      "*.env.example": "allow"
-    },
-    "external_directory": "ask"
-  }
-}
-```
-
-Config path:
+- Dangerous tool approvals use `@gotgenes/pi-permission-system`.
+- `permission-config.ts` creates project-level config under:
 
 ```txt
 <cwd>/.pi/extensions/pi-permission-system/config.json
 ```
 
-### Permission approval UX
+- Browser-backed extension UI prompts are emitted over WebSocket:
+  - `ui_select_request`
+  - `ui_input_request`
+  - `ui_confirm_request`
+- Browser responses are submitted over HTTP:
 
-Use the permission system's full decision model:
-
-- approve once
-- approve for session
-- deny
-- deny with reason
-
-The Web UI should display permission requests from `ctx.ui.select()` and return the selected label to the server-side `ExtensionUIContext`.
-
-When the user clicks Stop while an approval is pending:
-
-- close pending approval dialog
-- resolve the waiting UI promise as cancelled/undefined
-- permission-system should treat that as not approved
-- abort current agent operation
-
-Approval timeout policy:
-
-- Current implementation cancels pending approvals on WebSocket disconnect.
-- Pending approval also times out after a fixed duration, e.g. 5 minutes.
-- Timeout defaults to cancellation/deny, never allow.
-
-### Events shown in UI
-
-Current frontend displays or is expected to display:
-
-- assistant text streaming
-- tool lifecycle: start/update/end
-- tool arguments and result summary
-- permission decision/status events
-- queue state
-- errors
-
-The app does not currently need a raw debug event panel.
-
-### Message model
-
-Backend should normalize Pi messages/events into an app-level model rather than exposing raw Pi internals.
-
-Suggested normalized message shape:
-
-```ts
-type UiMessage = {
-  id: string
-  role: "user" | "assistant" | "tool" | "system"
-  blocks: UiBlock[]
-  createdAt?: number
-}
-
-type UiBlock =
-  | { type: "text"; text: string }
-  | { type: "thinking"; text: string; collapsed?: boolean }
-  | { type: "tool_call"; toolCallId: string; toolName: string; input: unknown; status: "pending" | "running" | "completed" | "error" | "blocked" }
-  | { type: "tool_result"; toolCallId: string; content: string; isError?: boolean }
+```txt
+POST /api/agent/sessions/:sessionId/ui-requests/:requestId/response
 ```
 
-The frontend should not read session files directly.
+- Approval timeout defaults to cancellation/deny, never allow.
+- Stop/abort cancels pending browser-backed approval prompts.
 
-### Thinking display
+### UI Baseline
 
-- Display thinking in a collapsed block.
-- Default UI should not mix thinking into normal assistant text.
+Current frontend is a protocol-testing UI, not the final UX:
 
-### Queueing behavior
+- sidebar with loaded/persisted sessions
+- active transcript
+- model/thinking controls
+- prompt composer
+- basic pending approval panel
+- light/dark mode
 
-Current protocol supports both:
-
-- `steer`
-- `followUp`
-
-When the agent is streaming, sending a prompt must choose one of these behaviors.
-
-Expose queue state via:
-
-- `queue_update` events
-- `session.getSteeringMessages()`
-- `session.getFollowUpMessages()`
-- `session.pendingMessageCount`
-
-Abort controls:
-
-- Stop: `session.abort()`
-- Clear Queue: `session.clearQueue()`
-
-### Images
-
-- Protocol should reserve an `images` field.
-- Current UI does not implement image upload/paste.
-
-### File browser
-
-- Current UI does not implement a file tree or file browser.
-- Users refer to paths in prompts; Pi tools handle file inspection.
-
-### Diff display
-
-- Current UI does not render diffs.
-- For `edit/write`, show only tool execution status/summary.
-- A future version can add a diff viewer.
-
-### Logs and debugging
-
-- Current implementation logs to server console.
-- No debug panel initially.
-- `pi-permission-system` can keep its permission review log.
-
-### Error handling
-
-Use a unified WebSocket error event:
-
-```ts
-type ServerErrorEvent = {
-  type: "error"
-  code: string
-  message: string
-  recoverable: boolean
-}
-```
-
-Do not encode system errors as assistant messages, because that pollutes Pi conversation history.
-
-### Responsive UI
-
-- The UI should have basic responsive behavior.
-- Desktop browser remains the primary target.
+The frontend should keep state normalized around `UiMessage` and `UiBlock`, not raw Pi SDK objects.
 
 ## 3. Architecture
 
 ```txt
 Browser / Nuxt Frontend
-  ├─ Chat UI
-  ├─ Tool status UI
-  ├─ Approval modal
-  ├─ Session list/new/resume controls
+  ├─ HTTP client for actions and snapshots
+  ├─ WebSocket event subscriber
+  ├─ Session/sidebar state
+  ├─ Transcript state
   ├─ Model/thinking controls
-  └─ WebSocket client + state store
+  └─ Approval response UI
 
 Nuxt/Nitro Server
+  ├─ HTTP agent routes
   ├─ WebSocket route /api/agent/ws
-  ├─ PiAgentService
-  ├─ WebSocket Agent Hub
-  ├─ Web-backed ExtensionUIContext
+  ├─ PiSessionRegistry
+  ├─ WsAgentHub
+  ├─ WebExtensionUIContext
   ├─ Permission config generator
-  ├─ Session switching logic
-  └─ Event normalization
+  └─ Protocol/event normalization
 
 Pi SDK
   ├─ createAgentSession
   ├─ SessionManager
   ├─ AuthStorage / ModelRegistry
-  ├─ DefaultResourceLoader
   ├─ Extensions
   │   └─ @gotgenes/pi-permission-system
   ├─ Tools
   └─ Agent events
 ```
 
-## 4. Backend Components
+## 4. Protocol
 
-### `PiAgentService`
+Protocol types live in:
 
-Responsibilities:
-
-- own current `AgentSession`
-- create new session
-- open existing session
-- list current-cwd sessions
-- subscribe/unsubscribe to session events
-- bind extension UI context
-- expose `prompt`, `steer`, `followUp`, `abort`, `clearQueue`
-- expose model/thinking APIs
-- normalize history and events
-- dispose old session during switch
-
-Important: every time a new session is created/opened, reattach:
-
-- `session.subscribe(...)`
-- `session.bindExtensions(...)`
-- permission event forwarding if bound through shared event bus/resource loader
-
-### `WsAgentHub`
-
-Responsibilities:
-
-- manage single active WebSocket client
-- reject second connection unless force takeover is requested
-- heartbeat/ping-pong
-- route client commands to `PiAgentService`
-- send server events to client
-- manage pending UI requests such as approval selects/inputs
-- cancel pending approval on disconnect, timeout, or stop
-
-### `ExtensionUIContext` bridge
-
-Implements Pi `ExtensionUIContext` server-side. Important methods:
-
-- `select(title, options)` → send `ui_select_request` over WS, await response
-- `input(title, placeholder)` → send `ui_input_request` over WS, await response
-- `confirm(title, message)` → send `ui_confirm_request`, await response
-- `notify(message, type)` → send `ui_notify`
-
-TUI-specific methods can be no-ops until the Web UI exposes equivalent surfaces.
-
-### Permission config generator
-
-At startup:
-
-1. Resolve configured `cwd`.
-2. Ensure directory exists:
-
-   ```txt
-   <cwd>/.pi/extensions/pi-permission-system/
-   ```
-
-3. If `config.json` does not exist, write the default project config.
-4. Do not overwrite an existing config.
-
-## 5. WebSocket Protocol Draft
-
-All messages should include a protocol version at connection/hello time.
-
-### Server hello
-
-```ts
-type ServerHello = {
-  type: "hello"
-  protocolVersion: 1
-  cwd: string
-  sessionId: string
-  sessionFile?: string
-  capabilities: {
-    steer: true
-    followUp: true
-    clearQueue: true
-    permissions: true
-    modelSelect: true
-    thinkingSelect: true
-    images: false
-    fileTree: false
-    diffViewer: false
-  }
-}
+```txt
+apps/web/types/protocol.ts
 ```
 
-### Client commands
+### HTTP DTOs
+
+HTTP APIs return request/response DTOs declared in `protocol.ts`, including:
+
+- `AgentStateResponse`
+- `SessionHistoryResponse`
+- `SessionOperationResponse`
+- `ModelStateResponse`
+- `MessageSubmitRequest`
+- `MessageSubmitResponse`
+- `UiRequestResponseRequest`
+
+HTTP errors should use a structured payload:
 
 ```ts
-type ClientCommand =
-  | { type: "prompt"; text: string; images?: ImagePayload[] }
-  | { type: "steer"; text: string; images?: ImagePayload[] }
-  | { type: "follow_up"; text: string; images?: ImagePayload[] }
-  | { type: "abort" }
-  | { type: "clear_queue" }
-  | { type: "session_new" }
-  | { type: "session_list" }
-  | { type: "session_open"; sessionFile: string; abortCurrent?: boolean }
-  | { type: "model_list" }
-  | { type: "model_set"; provider: string; id: string }
-  | { type: "thinking_set"; level: ThinkingLevel }
-  | { type: "ui_select_response"; requestId: string; selected?: string }
-  | { type: "ui_input_response"; requestId: string; value?: string }
-  | { type: "ui_confirm_response"; requestId: string; confirmed: boolean }
+{ code: string, message: string, recoverable: boolean }
 ```
 
-Reserved image payload:
+### WebSocket Events
 
-```ts
-type ImagePayload = {
-  mediaType: "image/png" | "image/jpeg" | "image/webp" | string
-  data: string // base64
-}
-```
+WebSocket is server-to-client for realtime events. Browser commands should not be sent over WS.
 
-### Server events
+Current important events:
 
-```ts
-type ServerEvent =
-  | ServerHello
-  | { type: "history"; messages: UiMessage[] }
-  | { type: "message_delta"; messageId: string; blockType: "text" | "thinking"; delta: string }
-  | { type: "message_upsert"; message: UiMessage }
-  | { type: "tool_start"; toolCallId: string; toolName: string; input: unknown }
-  | { type: "tool_update"; toolCallId: string; partial: unknown }
-  | { type: "tool_end"; toolCallId: string; isError: boolean; summary?: string }
-  | { type: "permission_decision"; surface: string; value: string; result: "allow" | "deny"; resolution: string; matchedPattern?: string | null }
-  | { type: "queue_update"; steering: string[]; followUp: string[] }
-  | { type: "session_list_result"; sessions: UiSessionSummary[] }
-  | { type: "session_changed"; sessionId: string; sessionFile?: string; history: UiMessage[] }
-  | { type: "model_list_result"; models: UiModel[]; current?: UiModel }
-  | { type: "model_changed"; model: UiModel; pending?: boolean }
-  | { type: "thinking_changed"; level: ThinkingLevel; pending?: boolean }
-  | { type: "ui_select_request"; requestId: string; title: string; options: string[]; timeoutMs: number }
-  | { type: "ui_input_request"; requestId: string; title: string; placeholder?: string; timeoutMs: number }
-  | { type: "ui_confirm_request"; requestId: string; title: string; message: string; timeoutMs: number }
-  | { type: "ui_notify"; message: string; level?: "info" | "warning" | "error" }
-  | { type: "status"; isStreaming: boolean; pendingMessageCount: number }
-  | ServerErrorEvent
-```
+- `hello`
+- `sessions_snapshot`
+- `active_session_changed`
+- `session_control_changed`
+- `message_delta`
+- `message_upsert`
+- `tool_start`
+- `tool_update`
+- `tool_end`
+- `permission_decision`
+- `queue_update`
+- `ui_select_request`
+- `ui_input_request`
+- `ui_confirm_request`
+- `ui_notify`
+- `status`
+- `error`
 
-Session summary:
+REST-only data must not be emitted as WS result events:
 
-```ts
-type UiSessionSummary = {
-  file: string
-  name?: string
-  createdAt?: number
-  updatedAt?: number
-  firstMessage?: string
-}
-```
+- full `history`
+- session list result
+- model list result
+- model/thinking changed result
 
-Model summary:
-
-```ts
-type UiModel = {
-  provider: string
-  id: string
-  name?: string
-}
-```
-
-## 6. Frontend State
-
-Use a frontend state store, likely Pinia, because the app needs centralized state for:
-
-- connection status
-- current session
-- message list
-- tool calls
-- pending approval dialogs
-- queue state
-- session list
-- model list/current model
-- thinking level
-- errors/toasts
-
-UI component library and visual design can evolve independently as long as the required interaction surfaces remain supported.
-
-## 7. Current Baseline Scope
+## 5. Current Baseline Scope
 
 ### Included
 
-- pnpm workspace with Nuxt app
-- Nuxt server-side Pi SDK integration
-- startup-specified cwd
-- WebSocket `/api/agent/ws`
-- one active browser client
-- heartbeat and optional force takeover
-- new session by default
-- session list for current cwd
-- open/resume selected session
-- normalized history loading
-- prompt, steer, followUp
-- assistant streaming text
-- collapsed thinking display
-- tool lifecycle display
+- Nuxt fullstack app
+- startup-specified `cwd`
+- server-side Pi SDK integration
+- HTTP agent API for actions and snapshots
+- WebSocket server event stream
+- process-wide server-resident loaded session registry
+- new/open/focus/close loaded sessions
+- persisted session listing for current `cwd`
+- history loading over HTTP
+- prompt/steer/follow-up over HTTP with streaming output over WS
+- assistant text/thinking deltas
+- tool lifecycle events
 - stop and clear queue
 - model list and current-session model selection
 - thinking level selection
 - `@gotgenes/pi-permission-system` integration
 - generated project-level permission config if missing
-- Web approval bridge with four decisions
-- approval cancellation on stop/disconnect/timeout
-- server console logging
-- unified frontend error event
+- browser-backed approval requests and HTTP approval responses
+- structured smoke test for REST and WS protocol boundaries
 
 ### Excluded
 
 - multi-user auth
 - API key management UI
 - cwd switching in Web UI
-- true concurrent multi-session runtime
 - fork/clone/tree navigation
 - file browser
 - image upload UI
@@ -563,46 +252,36 @@ UI component library and visual design can evolve independently as long as the r
 - mobile-first design
 - writing model choices to Pi settings
 
-## 8. Open Product Directions
+## 6. Open Product Directions
 
-- Multi-session/runtime support:
-  - background sessions
-  - event routing per session
-  - concurrent runs
-  - approval ownership per session/client
-- Multi-tab support:
+- Multi-tab UX:
   - multiple viewers
-  - one controller
-  - takeover/lease model
+  - explicit controller semantics
+  - shared transcript state
 - Pi tree workflows:
   - fork
   - clone
   - navigate tree
-  - labels
-  - branch summaries
+  - labels and branch summaries
 - CWD switching/project selector.
 - Diff viewer for edit/write results.
 - Image upload/paste support.
 - File explorer/project browser.
 - Debug panel for raw Pi/WS events.
 - Permission settings UI.
-- More advanced permission policies:
-  - pattern suggestions
-  - per-command risk tiers
-  - per-session approval review
-- Persist model/thinking defaults with explicit "set as default" action.
+- Persist model/thinking defaults with an explicit "set as default" action.
 - Authentication/token mode for non-localhost deployments.
 
-## 9. Open Implementation Questions
+## 7. Verification
 
-These can be decided during implementation or another design pass:
+After normal code edits:
 
-1. Exact Nuxt WebSocket implementation strategy under Nitro.
-2. Exact install/load path for `@gotgenes/pi-permission-system` inside the Nuxt app:
-   - installed as dependency and loaded via package resource discovery, or
-   - copied/installed into Pi extension locations, or
-   - added via `DefaultResourceLoader` additional paths if needed.
-3. Shape of final normalized message reducer.
-4. Whether to use Pinia immediately or defer until UI implementation starts.
-5. Exact UI design/component library.
-6. Exact heartbeat interval and approval timeout value.
+```bash
+pnpm typecheck
+```
+
+For protocol/backend changes, with a dev server already running:
+
+```bash
+pnpm test:api
+```

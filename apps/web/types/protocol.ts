@@ -1,5 +1,5 @@
 /** Current wire protocol version used by the browser and backend handshake. */
-export const PROTOCOL_VERSION = 1
+export const PROTOCOL_VERSION = 2
 
 /** Supported Pi thinking levels exposed through the web UI. */
 export type ThinkingLevel = 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh'
@@ -40,6 +40,17 @@ export type UiSessionSummary = {
   firstMessage?: string
 }
 
+/** Runtime state for a Pi session currently loaded in the server process. */
+export type UiLoadedSession = UiSessionSummary & {
+  sessionId: string
+  sessionFile?: string
+  isStreaming: boolean
+  pendingMessageCount: number
+  pendingApprovalCount: number
+  controlledByClientId?: string
+  controlledByThisClient?: boolean
+}
+
 /** Model metadata needed by the browser model picker. */
 export type UiModel = {
   provider: string
@@ -47,24 +58,33 @@ export type UiModel = {
   name?: string
 }
 
+/** Shared capability flags exposed by the local agent backend. */
+export type AgentCapabilities = {
+  steer: true
+  followUp: true
+  clearQueue: true
+  permissions: true
+  modelSelect: true
+  thinkingSelect: true
+  images: false
+  fileTree: false
+  diffViewer: false
+}
+
 /** Initial server-to-client handshake that declares protocol version and backend capabilities. */
 export type ServerHello = {
   type: 'hello'
-  protocolVersion: 1
+  protocolVersion: 2
   cwd: string
+  activeSessionId?: string
+  loadedSessions: UiLoadedSession[]
+  persistedSessions: UiSessionSummary[]
+  clientId: string
+  /** Legacy alias for the active session while the frontend migrates to v2. */
   sessionId: string
+  /** Legacy alias for the active session file while the frontend migrates to v2. */
   sessionFile?: string
-  capabilities: {
-    steer: true
-    followUp: true
-    clearQueue: true
-    permissions: true
-    modelSelect: true
-    thinkingSelect: true
-    images: false
-    fileTree: false
-    diffViewer: false
-  }
+  capabilities: AgentCapabilities
 }
 
 /** Standard error event used for recoverable and fatal backend failures. */
@@ -78,39 +98,87 @@ export type ServerErrorEvent = {
 /** All backend events that may be emitted over the agent WebSocket connection. */
 export type ServerEvent =
   | ServerHello
-  | { type: 'history'; messages: UiMessage[] }
-  | { type: 'message_delta'; messageId: string; blockType: 'text' | 'thinking'; delta: string }
-  | { type: 'message_upsert'; message: UiMessage }
-  | { type: 'tool_start'; toolCallId: string; toolName: string; input: unknown }
-  | { type: 'tool_update'; toolCallId: string; partial: unknown }
-  | { type: 'tool_end'; toolCallId: string; isError: boolean; summary?: string }
-  | { type: 'permission_decision'; surface: string; value: string; result: 'allow' | 'deny'; resolution: string; matchedPattern?: string | null }
-  | { type: 'queue_update'; steering: string[]; followUp: string[] }
-  | { type: 'session_list_result'; sessions: UiSessionSummary[] }
-  | { type: 'session_changed'; sessionId: string; sessionFile?: string; history: UiMessage[] }
-  | { type: 'model_list_result'; models: UiModel[]; current?: UiModel; thinkingLevel?: ThinkingLevel; availableThinkingLevels?: ThinkingLevel[] }
-  | { type: 'model_changed'; model: UiModel; pending?: boolean; thinkingLevel?: ThinkingLevel; availableThinkingLevels?: ThinkingLevel[] }
-  | { type: 'thinking_changed'; level: ThinkingLevel; pending?: boolean }
-  | { type: 'ui_select_request'; requestId: string; title: string; options: string[]; timeoutMs: number }
-  | { type: 'ui_input_request'; requestId: string; title: string; placeholder?: string; timeoutMs: number }
-  | { type: 'ui_confirm_request'; requestId: string; title: string; message: string; timeoutMs: number }
-  | { type: 'ui_notify'; message: string; level?: 'info' | 'warning' | 'error' }
-  | { type: 'status'; isStreaming: boolean; pendingMessageCount: number }
+  | { type: 'sessions_snapshot'; activeSessionId?: string; loadedSessions: UiLoadedSession[]; persistedSessions: UiSessionSummary[] }
+  | { type: 'active_session_changed'; sessionId: string; sessionFile?: string }
+  | { type: 'session_control_changed'; sessionId: string; controlledByClientId?: string; controlledByThisClient: boolean }
+  | { type: 'message_delta'; sessionId: string; messageId: string; blockType: 'text' | 'thinking'; delta: string }
+  | { type: 'message_upsert'; sessionId: string; message: UiMessage }
+  | { type: 'tool_start'; sessionId: string; toolCallId: string; toolName: string; input: unknown }
+  | { type: 'tool_update'; sessionId: string; toolCallId: string; partial: unknown }
+  | { type: 'tool_end'; sessionId: string; toolCallId: string; isError: boolean; summary?: string }
+  | { type: 'permission_decision'; sessionId?: string; surface: string; value: string; result: 'allow' | 'deny'; resolution: string; matchedPattern?: string | null }
+  | { type: 'queue_update'; sessionId: string; steering: string[]; followUp: string[] }
+  | { type: 'ui_select_request'; sessionId: string; requestId: string; title: string; options: string[]; timeoutMs: number }
+  | { type: 'ui_input_request'; sessionId: string; requestId: string; title: string; placeholder?: string; timeoutMs: number }
+  | { type: 'ui_confirm_request'; sessionId: string; requestId: string; title: string; message: string; timeoutMs: number }
+  | { type: 'ui_notify'; sessionId?: string; message: string; level?: 'info' | 'warning' | 'error' }
+  | { type: 'status'; sessionId?: string; isStreaming: boolean; pendingMessageCount: number; pendingApprovalCount?: number }
   | ServerErrorEvent
 
-/** All browser commands accepted by the agent WebSocket connection. */
-export type ClientCommand =
-  | { type: 'prompt'; text: string; images?: ImagePayload[] }
-  | { type: 'steer'; text: string; images?: ImagePayload[] }
-  | { type: 'follow_up'; text: string; images?: ImagePayload[] }
-  | { type: 'abort' }
-  | { type: 'clear_queue' }
-  | { type: 'session_new' }
-  | { type: 'session_list' }
-  | { type: 'session_open'; sessionFile: string; abortCurrent?: boolean }
-  | { type: 'model_list' }
-  | { type: 'model_set'; provider: string; id: string }
-  | { type: 'thinking_set'; level: ThinkingLevel }
-  | { type: 'ui_select_response'; requestId: string; selected?: string }
-  | { type: 'ui_input_response'; requestId: string; value?: string }
-  | { type: 'ui_confirm_response'; requestId: string; confirmed: boolean }
+/** Full backend state snapshot returned by HTTP. */
+export type AgentStateResponse = {
+  protocolVersion: 2
+  cwd: string
+  activeSessionId?: string
+  loadedSessions: UiLoadedSession[]
+  persistedSessions: UiSessionSummary[]
+  capabilities: AgentCapabilities
+}
+
+/** HTTP response carrying normalized history for one loaded session. */
+export type SessionHistoryResponse = {
+  sessionId: string
+  messages: UiMessage[]
+}
+
+/** HTTP request used to create a fresh session or open an existing persisted session. */
+export type SessionCreateRequest = {
+  sessionFile?: string
+}
+
+/** HTTP response used by session lifecycle operations. */
+export type SessionOperationResponse = AgentStateResponse & {
+  sessionId?: string
+  sessionFile?: string
+}
+
+/** HTTP response carrying model and thinking state for one session. */
+export type ModelStateResponse = {
+  sessionId: string
+  models: UiModel[]
+  current?: UiModel
+  thinkingLevel?: ThinkingLevel
+  availableThinkingLevels?: ThinkingLevel[]
+  pendingModel?: UiModel
+  pendingThinkingLevel?: ThinkingLevel
+}
+
+/** HTTP request used to submit prompts, steering, or queued follow-up text. */
+export type MessageSubmitRequest = {
+  mode: 'prompt' | 'steer' | 'follow_up'
+  text: string
+  images?: ImagePayload[]
+}
+
+/** HTTP response returned after a message has been accepted for processing. */
+export type MessageSubmitResponse = {
+  accepted: true
+  sessionId: string
+}
+
+/** HTTP request used to submit a model selection. */
+export type ModelSetRequest = {
+  provider: string
+  id: string
+}
+
+/** HTTP request used to submit a thinking level selection. */
+export type ThinkingSetRequest = {
+  level: ThinkingLevel
+}
+
+/** HTTP request used to answer a browser-backed extension UI prompt. */
+export type UiRequestResponseRequest =
+  | { selected?: string }
+  | { value?: string }
+  | { confirmed: boolean }

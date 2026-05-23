@@ -6,6 +6,7 @@
     "dev": "pnpm --filter web dev",
     "build": "pnpm --filter web build",
     "typecheck": "pnpm --filter web typecheck",
+    "test:api": "node scripts/smoke-backend.mjs",
     "smoke:backend": "node scripts/smoke-backend.mjs"
   }
 }

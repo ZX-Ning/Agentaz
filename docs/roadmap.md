@@ -8,7 +8,7 @@ Build a reliable personal local/server-hosted agent experience powered by Pi:
 
 - local-first by default
 - one configured project directory
-- one browser controller
+- server-resident loaded sessions
 - simple ChatGPT-like UX
 - safe approval flow for dangerous tools
 - session list/new/open
@@ -73,7 +73,7 @@ The original MVP baseline is no longer the product boundary. This roadmap should
 
 - Better normalization of Pi SDK event shapes after runtime testing.
 - More precise status tracking around streaming/queued messages.
-- Stronger cleanup on disconnect, abort, and takeover.
+- Stronger cleanup on abort, close, and pending approval timeout.
 - More robust pending approval cancellation.
 - More detailed backend smoke tests.
 - Optional structured logs for debugging local sessions.
@@ -102,7 +102,7 @@ Possible evolution:
 - shared transcript state
 - per-client connection status
 
-This likely requires replacing the single `WsAgentHub` peer model.
+This likely requires clarifying controller semantics on top of the current single-user HTTP/WS split.
 
 ### Multiple Projects / cwd Switching
 

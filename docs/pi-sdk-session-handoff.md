@@ -1,4 +1,6 @@
-# Handoff: Pi SDK embedding discussion
+# Historical Handoff: Pi SDK embedding discussion
+
+This is a historical handoff from an earlier Pi SDK exploration. It is retained as background reference, not as the canonical Agentaz architecture document. For current implementation guidance, use `docs/plan.md`, `docs/backend.md`, `docs/frontend.md`, and `AGENTS.md`.
 
 ## Context
 
@@ -78,7 +80,7 @@ The user asked for an explanation of `createAgentSessionRuntime`. The answer cov
   - `createAgentSessionFromServices({ services, sessionManager, sessionStartEvent })`
 - Important caveat: `runtime.session` changes after replacement operations, so event subscriptions must be reattached
 
-## Current user intent
+## Historical user intent
 
 The user likely wants to continue learning or implementing a Node.js integration using Pi SDK. They may next ask for:
 
@@ -103,4 +105,4 @@ The user likely wants to continue learning or implementing a Node.js integration
 - Keep responses concise and technical, preferably in Chinese since the user asked in Chinese.
 - Answer questions first before proposing edits or commands.
 - Do not assume the user wants workspace code changes unless they asks for implementation.
-- If implementing code in this repo, follow `/home/zxning/code/pi/AGENTS.md` rules, especially running `npm run check` after code changes and not committing unless explicitly asked.
+- If implementing code in this repo, follow `/home/zxning/code/Agentaz/AGENTS.md`, use pnpm from the repository root, and run `pnpm typecheck` after normal code edits.
