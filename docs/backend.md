@@ -45,7 +45,9 @@ runtimeConfig: {
 Important constraints:
 
 - `cwd` is startup-configured.
-- `maxLoadedSessions` limits how many Pi sessions stay loaded in the server process.
+- `maxLoadedSessions` limits the in-memory working set. Loaded sessions stay resident across focus
+  changes; when the cap is reached, the registry evicts one idle, non-active session before loading
+  another available session.
 - The web UI does not currently switch cwd.
 - Non-localhost bind should warn because there is no auth.
 
@@ -94,7 +96,7 @@ The route should stay thin. Put connection/session logic in utilities, not the r
 - client attach/detach
 - heartbeat snapshots
 - rejecting legacy WebSocket command messages
-- preserving loaded Pi sessions when browsers disconnect
+- leaving loaded session lifecycle to `PiSessionRegistry` when browsers disconnect
 
 The hub is currently a process singleton. Configuration is separated from lookup:
 
@@ -109,7 +111,7 @@ The first config wins. Reconfiguration with different values should fail loudly.
 
 `PiSessionRegistry` owns server-resident Pi SDK session lifecycle and browser-facing state:
 
-- create/open/list loaded and persisted sessions for the current cwd
+- create/open/list the loaded working set and available persisted sessions for the current cwd
 - normalize Pi messages/events into `ServerEvent`
 - accept prompt/steer/follow-up over HTTP and stream output over WebSocket
 - abort and clear queue
@@ -177,10 +179,11 @@ Do not remove the permission-system integration without updating `docs/plan.md`.
 
 Current behavior:
 
-- start with a new session by default
+- start with a new opened session by default
 - list sessions for current cwd
 - open/resume selected session
-- keep loaded sessions server-resident across WebSocket disconnects
+- keep loaded sessions server-resident across focus changes and WebSocket disconnects
+- evict one idle, non-active session only when `maxLoadedSessions` is reached
 - no fork/tree UI
 
 When closing a running loaded session, callers must explicitly pass `abortCurrent`.

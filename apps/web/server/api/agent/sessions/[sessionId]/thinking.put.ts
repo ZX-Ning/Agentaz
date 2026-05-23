@@ -6,7 +6,7 @@ export default defineEventHandler(async (event) => {
     const sessionId = requireRouteParam(event, 'sessionId')
     const body = await readJsonBody<ThinkingSetRequest>(event)
     if (!body.level) throw new Error('Thinking level is required.')
-    return getConfiguredAgentRegistry().setSessionThinkingLevel(sessionId, body.level)
+    return await getConfiguredAgentRegistry().setSessionThinkingLevel(sessionId, body.level)
   } catch (error) {
     throw agentHttpError(error)
   }

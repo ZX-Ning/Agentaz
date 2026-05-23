@@ -5,6 +5,7 @@ import {
   SessionManager,
   type CreateAgentSessionResult,
 } from '@earendil-works/pi-coding-agent'
+import { resolve } from 'node:path'
 import type { AgentCapabilities, AgentStateResponse, ImagePayload, MessageSubmitRequest, ModelStateResponse, ServerEvent, SessionHistoryResponse, SessionOperationResponse, ThinkingLevel, UiBlock, UiLoadedSession, UiMessage, UiModel, UiSessionSummary, UiRequestResponseRequest } from '../../types/protocol'
 import { PROTOCOL_VERSION } from '../../types/protocol'
 import { WebExtensionUIContext } from './extension-ui-context'
@@ -40,6 +41,7 @@ type ToolBlockLocation = {
 type SendEvent = (event: ServerEvent) => void
 
 const LOCAL_CLIENT_ID = 'local-browser'
+const DEFAULT_THINKING_LEVELS: ThinkingLevel[] = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh']
 
 const CAPABILITIES: AgentCapabilities = {
   steer: true,
@@ -62,6 +64,8 @@ const CAPABILITIES: AgentCapabilities = {
  */
 class PiSessionController {
   private sessionResult?: CreateAgentSessionResult
+  private sessionManager?: SessionManager
+  private initPromise?: Promise<void>
   private unsubscribe?: () => void
   private uiContext?: WebExtensionUIContext
   private pendingSettings: PendingSettings = {}
@@ -73,6 +77,7 @@ class PiSessionController {
   private toolBlocks = new Map<string, ToolBlockLocation>()
   private anonymousToolCallId?: string
   private anonymousToolCallCounter = 0
+  private cachedHistory?: SessionHistoryResponse
 
   private constructor(
     private readonly cwd: string,
@@ -107,7 +112,7 @@ class PiSessionController {
     sessionFile: string
   }) {
     const controller = new PiSessionController(options.cwd, options.authStorage, options.modelRegistry, options.send, options.approvalTimeoutMs)
-    await controller.init(SessionManager.open(options.sessionFile, undefined, options.cwd))
+    controller.sessionManager = SessionManager.open(options.sessionFile, undefined, options.cwd)
     return controller
   }
 
@@ -118,7 +123,12 @@ class PiSessionController {
 
   /** Stable Pi session identifier used for protocol routing. */
   get sessionId() {
-    return this.requireSession().sessionId
+    return this.session?.sessionId ?? this.requireSessionManager().getSessionId()
+  }
+
+  /** Current session file path for persisted sessions. */
+  get sessionFile() {
+    return this.session?.sessionFile ?? this.requireSessionManager().getSessionFile()
   }
 
   /** Current client that may mutate this session, if any. */
@@ -146,15 +156,22 @@ class PiSessionController {
     this._controlledByClientId = undefined
   }
 
+  /** Returns whether the session must remain loaded because work is still in flight. */
+  isBusy() {
+    return Boolean(this.initPromise) || this.isWorkflowBusy() || (this.uiContext?.pendingCount ?? 0) > 0
+  }
+
   /** Converts this loaded session into a browser sidebar/status row. */
   toLoadedSession(_clientId: string): UiLoadedSession {
-    const session = this.requireSession()
+    const session = this.session
+    const sessionId = this.sessionId
+    const sessionFile = this.sessionFile
     return {
-      file: session.sessionFile ?? session.sessionId,
-      sessionId: session.sessionId,
-      sessionFile: session.sessionFile,
-      isStreaming: session.isStreaming,
-      pendingMessageCount: session.pendingMessageCount,
+      file: sessionFile ?? sessionId,
+      sessionId,
+      sessionFile,
+      isStreaming: session?.isStreaming ?? false,
+      pendingMessageCount: session?.pendingMessageCount ?? 0,
       pendingApprovalCount: this.uiContext?.pendingCount ?? 0,
       controlledByClientId: this._controlledByClientId,
       controlledByThisClient: true,
@@ -163,28 +180,33 @@ class PiSessionController {
 
   /** Sends a prompt to this session and waits for the Pi agent loop to finish. */
   async prompt(text: string, images?: ImagePayload[]) {
+    await this.ensureInitialized()
     await this.requireSession().prompt(text, { images: toPiImages(images) })
   }
 
   /** Sends steering text to the currently streaming session. */
   async steer(text: string, images?: ImagePayload[]) {
+    await this.ensureInitialized()
     await this.requireSession().prompt(text, { images: toPiImages(images), streamingBehavior: 'steer' })
   }
 
   /** Queues a follow-up prompt for the currently streaming session. */
   async followUp(text: string, images?: ImagePayload[]) {
+    await this.ensureInitialized()
     await this.requireSession().prompt(text, { images: toPiImages(images), streamingBehavior: 'followUp' })
   }
 
   /** Aborts the active agent operation and pending browser-backed UI prompts. */
   async abort() {
+    await this.ensureInitialized()
     this.uiContext?.cancelAll()
     await this.requireSession().abort()
     this.sendStatus()
   }
 
   /** Clears queued steering and follow-up messages. */
-  clearQueue() {
+  async clearQueue() {
+    await this.ensureInitialized()
     const cleared = this.requireSession().clearQueue()
     this.send({ type: 'queue_update', sessionId: this.sessionId, steering: [], followUp: [] })
     this.sendStatus()
@@ -193,13 +215,15 @@ class PiSessionController {
 
   /** Returns the model list and current model state for this session. */
   getModelState(): ModelStateResponse {
-    const session = this.requireSession()
+    const session = this.session
+    const restored = session ? undefined : this.requireSessionManager().buildSessionContext()
+    const restoredModel = restored?.model ? this.modelRegistry.find(restored.model.provider, restored.model.modelId) : undefined
     return {
-      sessionId: session.sessionId,
+      sessionId: this.sessionId,
       models: this.modelRegistry.getAvailable().map(toUiModel),
-      current: session.model ? toUiModel(session.model) : undefined,
-      thinkingLevel: session.thinkingLevel,
-      availableThinkingLevels: session.getAvailableThinkingLevels(),
+      current: session?.model ? toUiModel(session.model) : restoredModel ? toUiModel(restoredModel) : undefined,
+      thinkingLevel: session?.thinkingLevel ?? normalizeThinkingLevel(restored?.thinkingLevel),
+      availableThinkingLevels: session?.getAvailableThinkingLevels() ?? DEFAULT_THINKING_LEVELS,
       pendingModel: this.pendingSettings.model ? toUiModel(this.pendingSettings.model) : undefined,
       pendingThinkingLevel: this.pendingSettings.thinkingLevel,
     }
@@ -207,6 +231,7 @@ class PiSessionController {
 
   /** Sets the model immediately or queues it until the session is idle. */
   async setModel(provider: string, id: string) {
+    await this.ensureInitialized()
     const model = this.modelRegistry.find(provider, id)
     if (!model) throw new Error(`Unknown model: ${provider}/${id}`)
 
@@ -221,7 +246,8 @@ class PiSessionController {
   }
 
   /** Sets the thinking level immediately or queues it until the session is idle. */
-  setThinkingLevel(level: ThinkingLevel) {
+  async setThinkingLevel(level: ThinkingLevel) {
+    await this.ensureInitialized()
     const session = this.requireSession()
     if (this.isWorkflowBusy()) {
       this.pendingSettings.thinkingLevel = level
@@ -257,30 +283,54 @@ class PiSessionController {
     this.requireSession(false)?.dispose()
   }
 
-  /** Returns normalized history for this loaded session. */
+  /** Returns normalized history, caching the result until messages change. */
   getHistory(): SessionHistoryResponse {
-    const session = this.requireSession()
-    return {
-      sessionId: session.sessionId,
-      messages: normalizeMessages(session.messages as any[]),
+    if (this.cachedHistory) return this.cachedHistory
+    const session = this.session
+    const messages = session?.messages ?? this.requireSessionManager().buildSessionContext().messages
+    this.cachedHistory = {
+      sessionId: this.sessionId,
+      messages: normalizeMessages(messages as any[]),
     }
+    return this.cachedHistory
+  }
+
+  /** Invalidates the cached history when session messages change. */
+  private invalidateHistoryCache() {
+    this.cachedHistory = undefined
   }
 
   /** Sends lightweight active-session and status events for a focused loaded session. */
   sendFocusState(send: SendEvent = this.send) {
-    const session = this.requireSession()
-    send({ type: 'active_session_changed', sessionId: session.sessionId, sessionFile: session.sessionFile })
+    send({ type: 'active_session_changed', sessionId: this.sessionId, sessionFile: this.sessionFile })
     this.sendStatus(send)
   }
 
   private async init(sessionManager: SessionManager) {
+    this.sessionManager = sessionManager
+    await this.ensureInitialized()
+  }
+
+  private async ensureInitialized() {
+    if (this.sessionResult) return
+    if (this.initPromise) return this.initPromise
+
+    this.initPromise = this.initializeSession()
+    try {
+      await this.initPromise
+    } finally {
+      this.initPromise = undefined
+    }
+  }
+
+  private async initializeSession() {
     await ensurePermissionConfig(this.cwd)
 
     this.sessionResult = await createAgentSession({
       cwd: this.cwd,
       authStorage: this.authStorage,
       modelRegistry: this.modelRegistry,
-      sessionManager,
+      sessionManager: this.requireSessionManager(),
     })
 
     const session = this.requireSession()
@@ -317,18 +367,22 @@ class PiSessionController {
       switch (event.type) {
         case 'message_update':
           this.forwardMessageUpdate(sessionId, event)
+          this.invalidateHistoryCache()
           break
         case 'tool_execution_start':
         case 'tool_start':
           this.upsertToolCallBlock(sessionId, event, 'pending')
+          this.invalidateHistoryCache()
           break
         case 'tool_execution_update':
         case 'tool_update':
           this.upsertToolCallBlock(sessionId, event, 'running')
+          this.invalidateHistoryCache()
           break
         case 'tool_execution_end':
         case 'tool_end':
           this.completeToolCallBlock(sessionId, event)
+          this.invalidateHistoryCache()
           break
         case 'queue_update':
           this.send({ type: 'queue_update', sessionId, steering: [...event.steering], followUp: [...event.followUp] })
@@ -344,6 +398,7 @@ class PiSessionController {
           this.toolBlocks.clear()
           this.anonymousToolCallId = undefined
           void this.applyPendingSettingsIfIdle()
+          this.invalidateHistoryCache()
           break
         case 'thinking_level_changed':
           this.sendStatus()
@@ -502,14 +557,18 @@ class PiSessionController {
     if (!session && required) throw new Error('Pi session is not initialized')
     return session
   }
+
+  private requireSessionManager() {
+    if (!this.sessionManager) throw new Error('Pi session manager is not initialized')
+    return this.sessionManager
+  }
 }
 
 /**
  * Process-level owner for loaded Pi sessions and connected browser clients.
  *
- * Sessions remain loaded when WebSocket clients disconnect. Browser clients acquire mutation control
- * per session, so different sessions can be controlled by different clients without sharing one global
- * connection lifecycle.
+ * Sessions remain loaded across focus changes and WebSocket disconnects until the configured
+ * loaded-session cap requires evicting one idle, non-active session.
  */
 export class PiSessionRegistry {
   private authStorage = AuthStorage.create()
@@ -564,24 +623,22 @@ export class PiSessionRegistry {
   /** Creates a fresh loaded session and returns the resulting state snapshot. */
   async createLoadedSession(clientId = LOCAL_CLIENT_ID): Promise<SessionOperationResponse> {
     const controller = await this.createSession(clientId)
-    await this.refreshPersistedSessionCache()
     this.broadcastSnapshots()
     return {
       ...(await this.getState(clientId)),
       sessionId: controller.sessionId,
-      sessionFile: controller.session?.sessionFile,
+      sessionFile: controller.sessionFile,
     }
   }
 
   /** Opens a persisted session and returns the resulting state snapshot. */
   async openLoadedSession(sessionFile: string, clientId = LOCAL_CLIENT_ID): Promise<SessionOperationResponse> {
     const controller = await this.openSession(clientId, sessionFile)
-    await this.refreshPersistedSessionCache()
     this.broadcastSnapshots()
     return {
       ...(await this.getState(clientId)),
       sessionId: controller.sessionId,
-      sessionFile: controller.session?.sessionFile,
+      sessionFile: controller.sessionFile,
     }
   }
 
@@ -592,7 +649,7 @@ export class PiSessionRegistry {
     return {
       ...(await this.getState(clientId)),
       sessionId: controller.sessionId,
-      sessionFile: controller.session?.sessionFile,
+      sessionFile: controller.sessionFile,
     }
   }
 
@@ -642,8 +699,8 @@ export class PiSessionRegistry {
   }
 
   /** Sets the thinking level for one loaded session and returns the updated HTTP model state. */
-  setSessionThinkingLevel(sessionId: string, level: ThinkingLevel): ModelStateResponse {
-    const state = this.mutableSession(sessionId).setThinkingLevel(level)
+  async setSessionThinkingLevel(sessionId: string, level: ThinkingLevel): Promise<ModelStateResponse> {
+    const state = await this.mutableSession(sessionId).setThinkingLevel(level)
     this.broadcastSnapshots()
     return state
   }
@@ -673,8 +730,8 @@ export class PiSessionRegistry {
   }
 
   /** Clears queued steer/follow-up messages for one loaded session. */
-  clearSessionQueue(sessionId: string) {
-    this.mutableSession(sessionId).clearQueue()
+  async clearSessionQueue(sessionId: string) {
+    await this.mutableSession(sessionId).clearQueue()
     this.broadcastSnapshots()
   }
 
@@ -712,6 +769,7 @@ export class PiSessionRegistry {
   }
 
   private async createSession(clientId: string) {
+    await this.releaseOneAvailableSessionIfAtCapacity()
     this.assertCanLoadAnotherSession()
     const controller = await PiSessionController.create({
       cwd: this.options.cwd,
@@ -727,13 +785,15 @@ export class PiSessionRegistry {
   }
 
   private async openSession(clientId: string, sessionFile: string) {
-    const loaded = [...this.sessions.values()].find((controller) => controller.session?.sessionFile === sessionFile)
+    const normalizedSessionFile = resolve(sessionFile)
+    const loaded = [...this.sessions.values()].find((controller) => controller.sessionFile && resolve(controller.sessionFile) === normalizedSessionFile)
     if (loaded) {
       this.focusSession(clientId, loaded.sessionId)
       if (!loaded.controlledByClientId) loaded.acquireControl(clientId)
       return loaded
     }
 
+    await this.releaseOneAvailableSessionIfAtCapacity()
     this.assertCanLoadAnotherSession()
     const controller = await PiSessionController.open({
       cwd: this.options.cwd,
@@ -741,7 +801,7 @@ export class PiSessionRegistry {
       modelRegistry: this.modelRegistry,
       send: (event) => this.broadcast(event),
       approvalTimeoutMs: this.options.approvalTimeoutMs,
-      sessionFile,
+      sessionFile: normalizedSessionFile,
     })
     this.sessions.set(controller.sessionId, controller)
     controller.acquireControl(clientId)
@@ -804,6 +864,22 @@ export class PiSessionRegistry {
     }
   }
 
+  /** Frees one idle, non-active loaded session only when the working set is at capacity. */
+  private async releaseOneAvailableSessionIfAtCapacity() {
+    if (this.sessions.size < this.options.maxLoadedSessions) return
+
+    const activeSessionIds = new Set(this.activeSessionByClient.values())
+    if (this.lastActiveSessionId) activeSessionIds.add(this.lastActiveSessionId)
+
+    for (const [sessionId, controller] of [...this.sessions]) {
+      if (activeSessionIds.has(sessionId) || controller.isBusy()) continue
+      await controller.dispose()
+      this.sessions.delete(sessionId)
+      controller.clearControl()
+      return
+    }
+  }
+
   private mutableSession(sessionId: string) {
     const controller = this.sessionForClient(LOCAL_CLIENT_ID, sessionId)
     if (!controller.controlledByClientId) {
@@ -834,7 +910,7 @@ export class PiSessionRegistry {
       loadedSessions: this.loadedSessionsFor(clientId),
       persistedSessions: this.persistedSessionCache,
       sessionId: active?.sessionId ?? '',
-      sessionFile: active?.session?.sessionFile,
+      sessionFile: active?.sessionFile,
       capabilities: CAPABILITIES,
     })
   }
@@ -1149,6 +1225,10 @@ function toUiModel(model: any): UiModel {
     id: model.id,
     name: model.name,
   }
+}
+
+function normalizeThinkingLevel(level: unknown): ThinkingLevel {
+  return DEFAULT_THINKING_LEVELS.includes(level as ThinkingLevel) ? level as ThinkingLevel : 'off'
 }
 
 function summarizeToolResult(result: unknown) {

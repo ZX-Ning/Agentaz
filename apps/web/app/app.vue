@@ -31,6 +31,18 @@ type PendingUiRequest =
   | Extract<ServerEvent, { type: 'ui_input_request' }>
   | Extract<ServerEvent, { type: 'ui_confirm_request' }>
 
+type SessionListItem = {
+  id: string
+  file: string | null
+  sessionId: string | null
+  isLoaded: boolean
+  isActive: boolean
+  isStreaming: boolean
+  pendingApprovalCount: number
+  title: string
+  updatedAt?: number
+}
+
 const toast = useToast()
 const colorMode = useColorMode()
 const isDark = computed(() => colorMode.value === 'dark')
@@ -75,82 +87,37 @@ const activeMessages = computed(() => activeSessionId.value ? messagesBySessionI
 const activeModelState = computed(() => activeSessionId.value ? ensureModelState(activeSessionId.value) : defaultModelState())
 const activePendingUiRequests = computed(() => activeSessionId.value ? pendingUiRequestsBySessionId.value[activeSessionId.value] ?? [] : [])
 const unifiedSessions = computed(() => {
-  const list: Array<{
-    id: string
-    file: string | null
-    sessionId: string | null
-    isLoaded: boolean
-    isStreaming: boolean
-    pendingApprovalCount: number
-    controlledByThisClient: boolean
-    controlledByClientId?: string
-    title: string
-    updatedAt?: number
-  }> = []
+  const list: SessionListItem[] = []
+  const loadedByFile = new Map<string, UiLoadedSession>()
 
-  const matchedLoadedIds = new Set<string>()
-
-  // 1. Process persisted sessions
-  for (const p of persistedSessions.value) {
-    const loaded = loadedSessions.value.find(
-      (l) => l.file === p.file || l.sessionFile === p.file || l.sessionId === p.file
-    )
-
-    if (loaded) {
-      matchedLoadedIds.add(loaded.sessionId)
-      list.push({
-        id: loaded.sessionId,
-        file: p.file,
-        sessionId: loaded.sessionId,
-        isLoaded: true,
-        isStreaming: loaded.isStreaming,
-        pendingApprovalCount: loaded.pendingApprovalCount,
-        controlledByThisClient: !!loaded.controlledByThisClient,
-        controlledByClientId: loaded.controlledByClientId,
-        title: sessionTitle(loaded),
-        updatedAt: p.updatedAt || p.createdAt,
-      })
-    } else {
-      list.push({
-        id: p.file,
-        file: p.file,
-        sessionId: null,
-        isLoaded: false,
-        isStreaming: false,
-        pendingApprovalCount: 0,
-        controlledByThisClient: false,
-        title: sessionTitle(p),
-        updatedAt: p.updatedAt || p.createdAt,
-      })
-    }
+  for (const session of loadedSessions.value) {
+    const file = session.sessionFile ?? session.file
+    if (file) loadedByFile.set(file, session)
   }
 
-  // 2. Add loaded sessions that didn't match persisted
-  for (const l of loadedSessions.value) {
-    if (!matchedLoadedIds.has(l.sessionId)) {
-      list.push({
-        id: l.sessionId,
-        file: l.file || l.sessionFile || null,
-        sessionId: l.sessionId,
-        isLoaded: true,
-        isStreaming: l.isStreaming,
-        pendingApprovalCount: l.pendingApprovalCount,
-        controlledByThisClient: !!l.controlledByThisClient,
-        controlledByClientId: l.controlledByClientId,
-        title: sessionTitle(l),
-        updatedAt: l.updatedAt || l.createdAt,
-      })
-    }
+  for (const persisted of persistedSessions.value) {
+    const loaded = findLoadedSessionByFile(persisted.file, loadedByFile)
+    list.push(toSessionListItem(loaded ?? persisted, loaded, persisted))
   }
 
-  // Sort by updatedAt descending
-  return list.sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))
+  for (const loaded of loadedSessions.value) {
+    const file = loaded.sessionFile ?? loaded.file
+    if (file && persistedSessions.value.some((session) => session.file === file)) continue
+    list.push(toSessionListItem(loaded, loaded))
+  }
+
+  return list.sort((left, right) => Number(right.isActive) - Number(left.isActive) || Number(right.isStreaming) - Number(left.isStreaming) || (right.updatedAt ?? 0) - (left.updatedAt ?? 0))
 })
 
-async function handleSessionClick(session: typeof unifiedSessions.value[number]) {
+async function handleSessionClick(session: SessionListItem) {
   if (session.isLoaded && session.sessionId) {
     await focusSessionAndClose(session.sessionId)
   } else if (session.file) {
+    const loaded = findLoadedSessionByFile(session.file)
+    if (loaded) {
+      await focusSessionAndClose(loaded.sessionId)
+      return
+    }
     await openPersistedSessionAndClose(session.file)
   }
 }
@@ -245,6 +212,28 @@ function sessionTitle(session: UiLoadedSession | UiSessionSummary) {
   return session.firstMessage || session.name || ('sessionId' in session ? session.sessionId.slice(0, 8) : 'Untitled session')
 }
 
+function findLoadedSessionByFile(file: string, indexedByFile?: Map<string, UiLoadedSession>) {
+  const indexed = indexedByFile?.get(file)
+  if (indexed) return indexed
+  return loadedSessions.value.find((session) => session.sessionFile === file || session.file === file || session.sessionId === file)
+}
+
+function toSessionListItem(source: UiLoadedSession | UiSessionSummary, loaded?: UiLoadedSession, persisted?: UiSessionSummary): SessionListItem {
+  const sessionFile = loaded?.sessionFile ?? loaded?.file ?? persisted?.file ?? ('file' in source ? source.file : null)
+  const sessionId = loaded?.sessionId ?? null
+  return {
+    id: sessionId ?? sessionFile ?? sessionTitle(source),
+    file: sessionFile,
+    sessionId,
+    isLoaded: Boolean(loaded),
+    isActive: Boolean(sessionId && sessionId === activeSessionId.value),
+    isStreaming: loaded?.isStreaming ?? false,
+    pendingApprovalCount: loaded?.pendingApprovalCount ?? 0,
+    title: loaded ? sessionTitle({ ...persisted, ...loaded }) : sessionTitle(source),
+    updatedAt: persisted?.updatedAt ?? persisted?.createdAt ?? ('updatedAt' in source ? source.updatedAt : undefined) ?? ('createdAt' in source ? source.createdAt : undefined),
+  }
+}
+
 async function agentFetch<T>(url: string, options?: Parameters<typeof $fetch<T>>[1]) {
   try {
     return await $fetch<T>(url, options)
@@ -288,8 +277,7 @@ async function refreshSessionDetails(sessionId: string) {
 }
 
 async function refreshHistory(sessionId: string) {
-  const session = loadedSessions.value.find((item) => item.sessionId === sessionId)
-  if (session?.isStreaming && messagesBySessionId.value[sessionId]?.length) return
+  if (messagesBySessionId.value[sessionId]?.length) return
   const history = await agentFetch<SessionHistoryResponse>(sessionUrl(sessionId, '/history'))
   messagesBySessionId.value[sessionId] = history.messages
 }
@@ -380,6 +368,48 @@ async function focusSession(sessionId: string) {
 
 async function createSessionAndClose() {
   await createSession()
+  isSidebarOpen.value = false
+}
+
+function loadDummySession() {
+  const sessionId = 'dummy-test-session'
+  const now = Date.now()
+
+  // Inject fake loaded session
+  loadedSessions.value = [
+    ...loadedSessions.value.filter((s) => s.sessionId !== sessionId),
+    {
+      file: sessionId,
+      sessionId,
+      sessionFile: undefined,
+      isStreaming: false,
+      pendingMessageCount: 0,
+      pendingApprovalCount: 0,
+    },
+  ]
+
+  // Generate 300 fake messages with realistic content
+  const messages: UiMessage[] = []
+  for (let i = 0; i < 300; i++) {
+    const isUser = i % 2 === 0
+    const text = isUser
+      ? `This is user message #${i / 2 + 1}. How can I help you test the rendering performance of this chat interface? Let me add some more text to make it realistic. `.repeat(3)
+      : `This is assistant response #${Math.floor(i / 2) + 1}. Here is a detailed explanation of how the system works. `.repeat(5)
+    messages.push({
+      id: `dummy-msg-${i}`,
+      role: isUser ? 'user' : 'assistant',
+      blocks: [
+        { id: `dummy-msg-${i}:text:0`, type: 'text', text },
+        ...(isUser ? [] : [
+          { id: `dummy-msg-${i}:thinking:0`, type: 'thinking' as const, text: `Thinking process for message ${i}... `.repeat(3), collapsed: true },
+        ]),
+      ],
+      createdAt: now - (300 - i) * 60_000,
+    })
+  }
+
+  messagesBySessionId.value[sessionId] = messages
+  activeSessionId.value = sessionId
   isSidebarOpen.value = false
 }
 
@@ -526,7 +556,7 @@ function handleEvent(event: ServerEvent) {
   if (event.type === 'active_session_changed') {
     activeSessionId.value = event.sessionId
     upsertLoadedSession(event.sessionId, { file: event.sessionFile ?? event.sessionId, sessionFile: event.sessionFile })
-    void refreshSessionDetails(event.sessionId)
+    // HTTP flow already refreshes details; skip redundant WS-triggered fetch
     return
   }
 
@@ -663,7 +693,14 @@ onBeforeUnmount(() => {
           <template #leading>
             <UIcon name="i-lucide-plus" class="size-4" />
           </template>
-          New loaded session
+          New session
+        </UButton>
+
+        <UButton block color="warning" variant="soft" class="mb-2 justify-start border border-sidebar-border bg-sidebar-accent text-sidebar-accent-foreground hover:bg-secondary" @click="loadDummySession">
+          <template #leading>
+            <UIcon name="i-lucide-flask-conical" class="size-4" />
+          </template>
+          Load Dummy (300 msgs)
         </UButton>
 
         <div class="space-y-2 px-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
@@ -674,7 +711,7 @@ onBeforeUnmount(() => {
             v-for="session in unifiedSessions"
             :key="session.id"
             class="w-full rounded-lg px-3 py-2 text-left text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/35"
-            :class="session.sessionId && session.sessionId === activeSessionId ? 'bg-sidebar-accent text-sidebar-accent-foreground font-medium' : 'text-sidebar-foreground hover:bg-sidebar-accent'"
+            :class="session.isActive ? 'bg-sidebar-accent text-sidebar-accent-foreground font-medium' : 'text-sidebar-foreground hover:bg-sidebar-accent'"
             @click="handleSessionClick(session)"
           >
             <div class="flex items-center justify-between gap-2">
@@ -682,16 +719,16 @@ onBeforeUnmount(() => {
               <span class="flex shrink-0 items-center gap-1">
                 <UBadge v-if="session.isStreaming" color="success" variant="soft" size="xs">run</UBadge>
                 <UBadge v-if="session.pendingApprovalCount" color="warning" variant="soft" size="xs">{{ session.pendingApprovalCount }}</UBadge>
-                <UBadge v-if="session.isLoaded" color="neutral" variant="soft" size="xs">loaded</UBadge>
+                <UBadge v-if="session.isActive" color="primary" variant="soft" size="xs">open</UBadge>
               </span>
             </div>
             <div class="mt-1 flex items-center justify-between gap-2 text-xs text-muted-foreground font-normal">
               <span class="truncate">{{ session.sessionId || session.file }}</span>
-              <span v-if="session.isLoaded">
-                {{ session.controlledByThisClient ? 'control' : session.controlledByClientId ? 'readonly' : 'free' }}
+              <span v-if="session.isLoaded" class="text-[10px] uppercase font-semibold tracking-wider opacity-60">
+                {{ session.isActive ? 'opened' : 'working' }}
               </span>
               <span v-else class="text-[10px] uppercase font-semibold tracking-wider opacity-60">
-                persisted
+                available
               </span>
             </div>
           </button>
@@ -925,6 +962,7 @@ onBeforeUnmount(() => {
               v-for="message in activeMessages"
               :key="message.id"
               class="flex gap-4 px-4 py-3 hover:bg-muted/30 transition-colors duration-150 rounded-lg text-left"
+              style="content-visibility: auto; contain-intrinsic-size: 0 120px"
             >
               <!-- Avatar -->
               <div class="flex-shrink-0">

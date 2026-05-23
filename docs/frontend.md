@@ -125,13 +125,14 @@ Current state includes:
 - connection status
 - server hello/cwd
 - chat messages
-- session summaries
+- open, working, and available session summaries
 - model list/current model
 - streaming/pending queue state
 - prompt text
 - last error
 
 Keep state normalized around `UiMessage` and `UiBlock` rather than raw Pi SDK messages. The backend should translate Pi events into app-level protocol events.
+Treat `loadedSessions` as the server-resident working set. Loaded sessions should be focused with the session-specific focus endpoint; normal persisted sessions should be opened on demand from `persistedSessions`.
 
 ## Chat Transcript
 

@@ -69,10 +69,11 @@ WS     /api/agent/ws
 
 ### Session Behavior
 
-- The server owns loaded Pi sessions in a process-wide `PiSessionRegistry`.
-- Loaded sessions survive WebSocket detach.
+- The server owns a small loaded Pi session working set in a process-wide `PiSessionRegistry`.
+- Loaded sessions stay resident across focus changes and WebSocket detach until the working set reaches `maxLoadedSessions`.
+- When the loaded-session cap is reached, the registry evicts one idle, non-active session before opening another persisted session.
 - The app creates an initial loaded session when needed.
-- Users can create new sessions and open persisted sessions for the configured `cwd`.
+- Users can create new sessions and open available persisted sessions for the configured `cwd`.
 - Session list scope is current `cwd`, using Pi `SessionManager.list(cwd)`.
 - Focusing a session changes the active browser view and then the frontend fetches history over HTTP.
 - Closing a running loaded session requires an explicit `abortCurrent` request.
@@ -119,7 +120,7 @@ POST /api/agent/sessions/:sessionId/ui-requests/:requestId/response
 
 Current frontend is a protocol-testing UI, not the final UX:
 
-- sidebar with loaded/persisted sessions
+- sidebar with open, working, and available sessions
 - active transcript
 - model/thinking controls
 - prompt composer
@@ -222,8 +223,8 @@ REST-only data must not be emitted as WS result events:
 - server-side Pi SDK integration
 - HTTP agent API for actions and snapshots
 - WebSocket server event stream
-- process-wide server-resident loaded session registry
-- new/open/focus/close loaded sessions
+- process-wide server-resident working session registry
+- new/open/focus/close sessions, with capped server-resident loaded session retention
 - persisted session listing for current `cwd`
 - history loading over HTTP
 - prompt/steer/follow-up over HTTP with streaming output over WS
