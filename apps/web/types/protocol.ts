@@ -1,5 +1,5 @@
 /** Current wire protocol version used by the browser and backend handshake. */
-export const PROTOCOL_VERSION = 2
+export const PROTOCOL_VERSION = 3
 
 /** Supported Pi thinking levels exposed through the web UI. */
 export type ThinkingLevel = 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh'
@@ -12,16 +12,17 @@ export type ImagePayload = {
 
 /** Normalized render block used by the web chat transcript. */
 export type UiBlock =
-  | { type: 'text'; text: string }
-  | { type: 'thinking'; text: string; collapsed?: boolean }
+  | { id: string; type: 'text'; text: string }
+  | { id: string; type: 'thinking'; text: string; collapsed?: boolean }
   | {
+      id: string
       type: 'tool_call'
       toolCallId: string
       toolName: string
       input: unknown
       status: 'pending' | 'running' | 'completed' | 'error' | 'blocked'
     }
-  | { type: 'tool_result'; toolCallId: string; content: string; isError?: boolean }
+  | { id: string; type: 'tool_result'; toolCallId: string; content: string; isError?: boolean }
 
 /** Normalized chat message independent of Pi SDK's internal message representation. */
 export type UiMessage = {
@@ -74,15 +75,15 @@ export type AgentCapabilities = {
 /** Initial server-to-client handshake that declares protocol version and backend capabilities. */
 export type ServerHello = {
   type: 'hello'
-  protocolVersion: 2
+  protocolVersion: 3
   cwd: string
   activeSessionId?: string
   loadedSessions: UiLoadedSession[]
   persistedSessions: UiSessionSummary[]
   clientId: string
-  /** Legacy alias for the active session while the frontend migrates to v2. */
+  /** Legacy alias for the active session while older clients migrate to v3. */
   sessionId: string
-  /** Legacy alias for the active session file while the frontend migrates to v2. */
+  /** Legacy alias for the active session file while older clients migrate to v3. */
   sessionFile?: string
   capabilities: AgentCapabilities
 }
@@ -101,11 +102,9 @@ export type ServerEvent =
   | { type: 'sessions_snapshot'; activeSessionId?: string; loadedSessions: UiLoadedSession[]; persistedSessions: UiSessionSummary[] }
   | { type: 'active_session_changed'; sessionId: string; sessionFile?: string }
   | { type: 'session_control_changed'; sessionId: string; controlledByClientId?: string; controlledByThisClient: boolean }
-  | { type: 'message_delta'; sessionId: string; messageId: string; blockType: 'text' | 'thinking'; delta: string }
   | { type: 'message_upsert'; sessionId: string; message: UiMessage }
-  | { type: 'tool_start'; sessionId: string; toolCallId: string; toolName: string; input: unknown }
-  | { type: 'tool_update'; sessionId: string; toolCallId: string; partial: unknown }
-  | { type: 'tool_end'; sessionId: string; toolCallId: string; isError: boolean; summary?: string }
+  | { type: 'message_block_upsert'; sessionId: string; messageId: string; block: UiBlock }
+  | { type: 'message_block_delta'; sessionId: string; messageId: string; blockId: string; blockType: 'text' | 'thinking'; delta: string }
   | { type: 'permission_decision'; sessionId?: string; surface: string; value: string; result: 'allow' | 'deny'; resolution: string; matchedPattern?: string | null }
   | { type: 'queue_update'; sessionId: string; steering: string[]; followUp: string[] }
   | { type: 'ui_select_request'; sessionId: string; requestId: string; title: string; options: string[]; timeoutMs: number }
@@ -117,7 +116,7 @@ export type ServerEvent =
 
 /** Full backend state snapshot returned by HTTP. */
 export type AgentStateResponse = {
-  protocolVersion: 2
+  protocolVersion: 3
   cwd: string
   activeSessionId?: string
   loadedSessions: UiLoadedSession[]

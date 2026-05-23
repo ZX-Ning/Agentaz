@@ -13,6 +13,10 @@ const forbiddenWsEvents = new Set([
   'model_list_result',
   'model_changed',
   'thinking_changed',
+  'message_delta',
+  'tool_start',
+  'tool_update',
+  'tool_end',
 ])
 
 function logStep(message) {
@@ -61,7 +65,7 @@ function requireSessionId(state, context) {
 }
 
 function assertAgentState(state, context) {
-  assert(state?.protocolVersion === 2, `${context} protocolVersion should be 2`, JSON.stringify(state, null, 2))
+  assert(state?.protocolVersion === 3, `${context} protocolVersion should be 3`, JSON.stringify(state, null, 2))
   assert(typeof state.cwd === 'string' && state.cwd.length > 0, `${context} should include cwd`, JSON.stringify(state, null, 2))
   assert(Array.isArray(state.loadedSessions), `${context} should include loadedSessions[]`, JSON.stringify(state, null, 2))
   assert(Array.isArray(state.persistedSessions), `${context} should include persistedSessions[]`, JSON.stringify(state, null, 2))
@@ -162,10 +166,10 @@ async function testWebSocket() {
       }
 
       if (message.type === 'hello') {
-        if (message.protocolVersion !== 2) {
+        if (message.protocolVersion !== 3) {
           clearTimeout(timer)
           ws.close()
-          reject(new Error(`hello protocolVersion should be 2, got ${message.protocolVersion}`))
+          reject(new Error(`hello protocolVersion should be 3, got ${message.protocolVersion}`))
           return
         }
       }

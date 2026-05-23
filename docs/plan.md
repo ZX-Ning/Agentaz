@@ -194,11 +194,9 @@ Current important events:
 - `sessions_snapshot`
 - `active_session_changed`
 - `session_control_changed`
-- `message_delta`
 - `message_upsert`
-- `tool_start`
-- `tool_update`
-- `tool_end`
+- `message_block_upsert`
+- `message_block_delta`
 - `permission_decision`
 - `queue_update`
 - `ui_select_request`

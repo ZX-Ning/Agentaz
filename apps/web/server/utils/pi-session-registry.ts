@@ -5,7 +5,7 @@ import {
   SessionManager,
   type CreateAgentSessionResult,
 } from '@earendil-works/pi-coding-agent'
-import type { AgentCapabilities, AgentStateResponse, ImagePayload, MessageSubmitRequest, ModelStateResponse, ServerEvent, SessionHistoryResponse, SessionOperationResponse, ThinkingLevel, UiLoadedSession, UiMessage, UiModel, UiSessionSummary, UiRequestResponseRequest } from '../../types/protocol'
+import type { AgentCapabilities, AgentStateResponse, ImagePayload, MessageSubmitRequest, ModelStateResponse, ServerEvent, SessionHistoryResponse, SessionOperationResponse, ThinkingLevel, UiBlock, UiLoadedSession, UiMessage, UiModel, UiSessionSummary, UiRequestResponseRequest } from '../../types/protocol'
 import { PROTOCOL_VERSION } from '../../types/protocol'
 import { WebExtensionUIContext } from './extension-ui-context'
 import { ensurePermissionConfig } from './permission-config'
@@ -27,6 +27,13 @@ type RegistryOptions = {
 type PendingSettings = {
   model?: any
   thinkingLevel?: ThinkingLevel
+}
+
+/** Runtime location of a tool call block in the canonical transcript projection. */
+type ToolBlockLocation = {
+  messageId: string
+  callBlockId: string
+  resultBlockId: string
 }
 
 /** Emits a normalized server event to connected browser clients. */
@@ -59,6 +66,13 @@ class PiSessionController {
   private uiContext?: WebExtensionUIContext
   private pendingSettings: PendingSettings = {}
   private _controlledByClientId?: string
+  private currentAssistantMessageId: string = crypto.randomUUID()
+  private currentTextBlockId?: string
+  private currentThinkingBlockId?: string
+  private transcript = new Map<string, UiMessage>()
+  private toolBlocks = new Map<string, ToolBlockLocation>()
+  private anonymousToolCallId?: string
+  private anonymousToolCallCounter = 0
 
   private constructor(
     private readonly cwd: string,
@@ -306,15 +320,15 @@ class PiSessionController {
           break
         case 'tool_execution_start':
         case 'tool_start':
-          this.send({ type: 'tool_start', sessionId, toolCallId: event.toolCallId ?? event.id ?? crypto.randomUUID(), toolName: event.toolName ?? event.name ?? 'tool', input: event.input ?? event.params })
+          this.upsertToolCallBlock(sessionId, event, 'pending')
           break
         case 'tool_execution_update':
         case 'tool_update':
-          this.send({ type: 'tool_update', sessionId, toolCallId: event.toolCallId ?? event.id ?? '', partial: event })
+          this.upsertToolCallBlock(sessionId, event, 'running')
           break
         case 'tool_execution_end':
         case 'tool_end':
-          this.send({ type: 'tool_end', sessionId, toolCallId: event.toolCallId ?? event.id ?? '', isError: Boolean(event.isError ?? event.error), summary: summarizeToolResult(event.result ?? event.output ?? event.error) })
+          this.completeToolCallBlock(sessionId, event)
           break
         case 'queue_update':
           this.send({ type: 'queue_update', sessionId, steering: [...event.steering], followUp: [...event.followUp] })
@@ -323,6 +337,12 @@ class PiSessionController {
           break
         case 'agent_end':
           this.sendStatus()
+          this.flushCurrentAssistantMessage(sessionId)
+          this.currentAssistantMessageId = crypto.randomUUID()
+          this.currentTextBlockId = undefined
+          this.currentThinkingBlockId = undefined
+          this.toolBlocks.clear()
+          this.anonymousToolCallId = undefined
           void this.applyPendingSettingsIfIdle()
           break
         case 'thinking_level_changed':
@@ -337,10 +357,130 @@ class PiSessionController {
   private forwardMessageUpdate(sessionId: string, event: any) {
     const messageEvent = event.assistantMessageEvent ?? event.messageEvent ?? event
     if (messageEvent.type === 'text_delta') {
-      this.send({ type: 'message_delta', sessionId, messageId: event.messageId ?? 'assistant-current', blockType: 'text', delta: messageEvent.delta ?? '' })
+      this.appendAssistantBlockDelta(sessionId, event.messageId, 'text', messageEvent.delta ?? '')
     }
     if (messageEvent.type === 'thinking_delta') {
-      this.send({ type: 'message_delta', sessionId, messageId: event.messageId ?? 'assistant-current', blockType: 'thinking', delta: messageEvent.delta ?? '' })
+      this.appendAssistantBlockDelta(sessionId, event.messageId, 'thinking', messageEvent.delta ?? '')
+    }
+  }
+
+  private appendAssistantBlockDelta(sessionId: string, messageId: string | undefined, blockType: 'text' | 'thinking', delta: string) {
+    const message = this.ensureAssistantMessage(sessionId, messageId)
+    const block = blockType === 'text'
+      ? this.ensureTextBlock(sessionId, message)
+      : this.ensureThinkingBlock(sessionId, message)
+    block.text += delta
+    this.send({ type: 'message_block_delta', sessionId, messageId: message.id, blockId: block.id, blockType, delta })
+  }
+
+  private upsertToolCallBlock(sessionId: string, event: any, status: Extract<UiBlock, { type: 'tool_call' }>['status']) {
+    const toolCallId = this.toolCallId(event, status === 'pending' ? 'start' : 'update')
+    const location = this.ensureToolBlockLocation(sessionId, toolCallId)
+    const message = this.ensureAssistantMessage(sessionId, location.messageId)
+    const existing = findToolCallBlock(message, toolCallId) ?? message.blocks.find((block): block is Extract<UiBlock, { type: 'tool_call' }> => block.id === location.callBlockId && block.type === 'tool_call')
+    const block: UiBlock = {
+      id: location.callBlockId,
+      type: 'tool_call',
+      toolCallId,
+      toolName: event.toolName ?? event.name ?? event.tool ?? existing?.toolName ?? 'tool',
+      input: extractToolInput(event) ?? existing?.input,
+      status,
+    }
+    this.upsertBlock(message, block)
+    this.send({ type: 'message_block_upsert', sessionId, messageId: message.id, block })
+  }
+
+  private completeToolCallBlock(sessionId: string, event: any) {
+    const isError = Boolean(event.isError ?? event.error)
+    this.upsertToolCallBlock(sessionId, event, isError ? 'error' : 'completed')
+
+    const toolCallId = this.toolCallId(event, 'end')
+    const location = this.ensureToolBlockLocation(sessionId, toolCallId)
+    const message = this.ensureAssistantMessage(sessionId, location.messageId)
+    const summary = summarizeToolResult(event.result ?? event.output ?? event.error)
+    const resultBlock: UiBlock = {
+      id: location.resultBlockId,
+      type: 'tool_result',
+      toolCallId,
+      content: summary,
+      isError,
+    }
+    this.upsertBlock(message, resultBlock)
+    this.send({ type: 'message_block_upsert', sessionId, messageId: message.id, block: resultBlock })
+    if (!extractToolCallId(event) && this.anonymousToolCallId === toolCallId) {
+      this.anonymousToolCallId = undefined
+    }
+  }
+
+  private ensureAssistantMessage(sessionId: string, messageId = this.currentAssistantMessageId) {
+    let message = this.transcript.get(messageId)
+    if (!message) {
+      message = { id: messageId, role: 'assistant', blocks: [], createdAt: Date.now() }
+      this.transcript.set(messageId, message)
+      this.send({ type: 'message_upsert', sessionId, message })
+    }
+    return message
+  }
+
+  private ensureTextBlock(sessionId: string, message: UiMessage) {
+    const blockId = this.currentTextBlockId ?? `${message.id}:text:0`
+    this.currentTextBlockId = blockId
+    return this.ensureTextLikeBlock(sessionId, message, blockId, 'text')
+  }
+
+  private ensureThinkingBlock(sessionId: string, message: UiMessage) {
+    const blockId = this.currentThinkingBlockId ?? `${message.id}:thinking:0`
+    this.currentThinkingBlockId = blockId
+    return this.ensureTextLikeBlock(sessionId, message, blockId, 'thinking')
+  }
+
+  private ensureTextLikeBlock(sessionId: string, message: UiMessage, blockId: string, type: 'text' | 'thinking') {
+    const existing = message.blocks.find((block): block is Extract<UiBlock, { type: typeof type }> => block.id === blockId && block.type === type)
+    if (existing) return existing
+
+    const block: UiBlock = type === 'text'
+      ? { id: blockId, type: 'text', text: '' }
+      : { id: blockId, type: 'thinking', text: '', collapsed: true }
+    this.upsertBlock(message, block)
+    this.send({ type: 'message_block_upsert', sessionId, messageId: message.id, block })
+    return block
+  }
+
+  private ensureToolBlockLocation(sessionId: string, toolCallId: string): ToolBlockLocation {
+    const existing = this.toolBlocks.get(toolCallId)
+    if (existing) return existing
+    const message = this.ensureAssistantMessage(sessionId)
+    const location = {
+      messageId: message.id,
+      callBlockId: `${message.id}:tool:${toolCallId}:call`,
+      resultBlockId: `${message.id}:tool:${toolCallId}:result`,
+    }
+    this.toolBlocks.set(toolCallId, location)
+    return location
+  }
+
+  private toolCallId(event: any, phase: 'start' | 'update' | 'end') {
+    const explicit = extractToolCallId(event)
+    if (explicit) return explicit
+    if (phase === 'start' || !this.anonymousToolCallId) {
+      this.anonymousToolCallId = `anonymous-${++this.anonymousToolCallCounter}`
+    }
+    return this.anonymousToolCallId
+  }
+
+  private upsertBlock(message: UiMessage, block: UiBlock) {
+    const index = message.blocks.findIndex((item) => item.id === block.id || areSameToolBlock(item, block))
+    if (index === -1) {
+      message.blocks.push(block)
+    } else {
+      message.blocks[index] = block
+    }
+  }
+
+  private flushCurrentAssistantMessage(sessionId: string) {
+    const message = this.transcript.get(this.currentAssistantMessageId)
+    if (message) {
+      this.send({ type: 'message_upsert', sessionId, message })
     }
   }
 
@@ -378,6 +518,7 @@ export class PiSessionRegistry {
   private clients = new Map<string, WsPeer>()
   private activeSessionByClient = new Map<string, string>()
   private lastActiveSessionId?: string
+  private persistedSessionCache: UiSessionSummary[] = []
 
   constructor(private readonly options: RegistryOptions) {}
 
@@ -391,6 +532,7 @@ export class PiSessionRegistry {
     if (!hadLoadedSessions && !initial.controlledByClientId) {
       initial.acquireControl(clientId)
     }
+    await this.refreshPersistedSessionCache()
     this.sendHello(clientId)
     this.broadcastSnapshots()
   }
@@ -414,7 +556,7 @@ export class PiSessionRegistry {
       cwd: this.options.cwd,
       activeSessionId: this.activeSessionByClient.get(clientId) ?? this.lastActiveSessionId,
       loadedSessions: this.loadedSessionsFor(clientId),
-      persistedSessions: await this.listPersistedSessions(),
+      persistedSessions: this.persistedSessionCache,
       capabilities: CAPABILITIES,
     }
   }
@@ -422,6 +564,7 @@ export class PiSessionRegistry {
   /** Creates a fresh loaded session and returns the resulting state snapshot. */
   async createLoadedSession(clientId = LOCAL_CLIENT_ID): Promise<SessionOperationResponse> {
     const controller = await this.createSession(clientId)
+    await this.refreshPersistedSessionCache()
     this.broadcastSnapshots()
     return {
       ...(await this.getState(clientId)),
@@ -433,6 +576,7 @@ export class PiSessionRegistry {
   /** Opens a persisted session and returns the resulting state snapshot. */
   async openLoadedSession(sessionFile: string, clientId = LOCAL_CLIENT_ID): Promise<SessionOperationResponse> {
     const controller = await this.openSession(clientId, sessionFile)
+    await this.refreshPersistedSessionCache()
     this.broadcastSnapshots()
     return {
       ...(await this.getState(clientId)),
@@ -455,6 +599,7 @@ export class PiSessionRegistry {
   /** Closes one loaded session and returns the remaining state snapshot. */
   async closeLoadedSession(sessionId: string, abortCurrent = false, clientId = LOCAL_CLIENT_ID): Promise<SessionOperationResponse> {
     await this.closeSession(sessionId, abortCurrent)
+    await this.refreshPersistedSessionCache()
     this.broadcastSnapshots()
     return this.getState(clientId)
   }
@@ -687,11 +832,15 @@ export class PiSessionRegistry {
       clientId,
       activeSessionId,
       loadedSessions: this.loadedSessionsFor(clientId),
-      persistedSessions: [],
+      persistedSessions: this.persistedSessionCache,
       sessionId: active?.sessionId ?? '',
       sessionFile: active?.session?.sessionFile,
       capabilities: CAPABILITIES,
     })
+  }
+
+  private async refreshPersistedSessionCache() {
+    this.persistedSessionCache = await this.listPersistedSessions()
   }
 
   private async listPersistedSessions() {
@@ -705,7 +854,7 @@ export class PiSessionRegistry {
         type: 'sessions_snapshot',
         activeSessionId: this.activeSessionByClient.get(clientId),
         loadedSessions: this.loadedSessionsFor(clientId),
-        persistedSessions: [],
+        persistedSessions: this.persistedSessionCache,
       })
     }
   }
@@ -779,19 +928,193 @@ export function getPiSessionRegistry() {
 }
 
 function normalizeMessages(messages: any[]): UiMessage[] {
-  return messages.map((message, index) => ({
-    id: message.id ?? `history-${index}`,
-    role: normalizeRole(message.role),
-    blocks: [{ type: 'text', text: extractText(message.content ?? message) }],
+  const normalized: UiMessage[] = []
+  let lastAssistant: UiMessage | undefined
+
+  messages.forEach((message, index) => {
+    if (isToolResultMessage(message)) {
+      const target = lastAssistant ?? createSyntheticAssistantMessage(message, index)
+      appendToolResultToMessage(target, message, index)
+      if (!lastAssistant) {
+        normalized.push(target)
+        lastAssistant = target
+      }
+      return
+    }
+
+    const messageId = message.id ?? `history-${index}`
+    const uiMessage = {
+      id: messageId,
+      role: normalizeRole(message.role),
+      blocks: normalizeContent(message.content ?? message, messageId),
+      createdAt: message.createdAt ?? message.timestamp,
+    }
+    normalized.push(uiMessage)
+    lastAssistant = uiMessage.role === 'assistant' ? uiMessage : lastAssistant
+  })
+
+  return normalized
+}
+
+function isToolResultMessage(message: any) {
+  return message?.role === 'toolResult' || message?.role === 'tool'
+}
+
+function createSyntheticAssistantMessage(message: any, index: number): UiMessage {
+  const messageId = `history-tool-host-${message.id ?? index}`
+  return {
+    id: messageId,
+    role: 'assistant',
+    blocks: [],
     createdAt: message.createdAt ?? message.timestamp,
-  }))
+  }
+}
+
+function appendToolResultToMessage(message: UiMessage, toolResult: any, index: number) {
+  const toolCallId = extractToolCallId(toolResult) ?? `tool-${index}`
+  const toolName = toolResult.toolName ?? toolResult.name ?? toolResult.tool ?? 'tool'
+  const callBlockId = `${message.id}:tool:${toolCallId}:call`
+  const resultBlockId = `${message.id}:tool:${toolCallId}:result`
+  const existingCall = findToolCallBlock(message, toolCallId)
+
+  if (existingCall) {
+    existingCall.id = callBlockId
+    existingCall.toolName = existingCall.toolName || toolName
+    existingCall.input ??= extractToolInput(toolResult)
+    existingCall.status = toolResult.isError ? 'error' : 'completed'
+  } else {
+    message.blocks.push({
+      id: callBlockId,
+      type: 'tool_call',
+      toolCallId,
+      toolName,
+      input: extractToolInput(toolResult),
+      status: toolResult.isError ? 'error' : 'completed',
+    })
+  }
+
+  const resultBlock: UiBlock = {
+    id: resultBlockId,
+    type: 'tool_result',
+    toolCallId,
+    content: normalizeToolResultContent(toolResult),
+    isError: toolResult.isError ?? Boolean(toolResult.error),
+  }
+  const existingIndex = message.blocks.findIndex((block) => block.id === resultBlockId)
+  if (existingIndex === -1) {
+    message.blocks.push(resultBlock)
+  } else {
+    message.blocks[existingIndex] = resultBlock
+  }
+}
+
+function normalizeToolResultContent(toolResult: any) {
+  const content = toolResult.content ?? toolResult.result ?? toolResult.output ?? toolResult.error ?? toolResult
+  return flattenText(content)
 }
 
 function normalizeRole(role: unknown): UiMessage['role'] {
-  return role === 'user' || role === 'assistant' || role === 'tool' || role === 'system' ? role : 'system'
+  if (role === 'user' || role === 'assistant' || role === 'tool' || role === 'system') return role
+  if (role === 'toolResult') return 'tool'
+  return 'system'
 }
 
-function extractText(content: unknown): string {
+/**
+ * Converts Pi SDK message content into normalized UiBlock entries.
+ *
+ * Handles string content, arrays of structured content parts (text, thinking, tool_call,
+ * tool_result), and falls back to JSON serialization for unknown shapes.
+ */
+function normalizeContent(content: unknown, messageId: string): UiBlock[] {
+  if (typeof content === 'string') {
+    return [{ id: `${messageId}:text:0`, type: 'text', text: content }]
+  }
+  if (Array.isArray(content)) {
+    const blocks = content.map((part, index) => normalizeContentPart(part, messageId, index)).filter(Boolean) as UiBlock[]
+    if (blocks.length === 0) {
+      return [{ id: `${messageId}:text:0`, type: 'text', text: '' }]
+    }
+    return blocks
+  }
+  return [{ id: `${messageId}:text:0`, type: 'text', text: flattenText(content) }]
+}
+
+function normalizeContentPart(part: any, messageId: string, index: number): UiBlock | null {
+  if (typeof part === 'string') {
+    return { id: `${messageId}:text:${index}`, type: 'text', text: part }
+  }
+
+  const type = part?.type
+
+  if (type === 'text') {
+    return { id: part.id ?? `${messageId}:text:${index}`, type: 'text', text: part.text ?? '' }
+  }
+
+  if (type === 'thinking') {
+    return { id: part.id ?? `${messageId}:thinking:${index}`, type: 'thinking', text: part.thinking ?? part.text ?? '', collapsed: part.collapsed ?? true }
+  }
+
+  if (type === 'tool_call' || type === 'toolCall') {
+    const toolCallId = extractToolCallId(part) ?? `tool-${index}`
+    return {
+      id: `${messageId}:tool:${toolCallId}:call`,
+      type: 'tool_call',
+      toolCallId,
+      toolName: part.toolName ?? part.name ?? part.tool ?? '',
+      input: extractToolInput(part),
+      status: part.status ?? 'completed',
+    }
+  }
+
+  if (type === 'tool_result' || type === 'toolResult') {
+    const toolCallId = extractToolCallId(part) ?? `tool-${index}`
+    return {
+      id: `${messageId}:tool:${toolCallId}:result`,
+      type: 'tool_result',
+      toolCallId,
+      content: typeof part.content === 'string' ? part.content : flattenText(part.content),
+      isError: part.isError ?? false,
+    }
+  }
+
+  if (part?.text) {
+    return { id: part.id ?? `${messageId}:text:${index}`, type: 'text', text: part.text }
+  }
+
+  return null
+}
+
+function extractToolCallId(value: any): string | undefined {
+  const id = value?.toolCallId
+    ?? value?.tool_call_id
+    ?? value?.callID
+    ?? value?.callId
+    ?? value?.toolUseId
+    ?? value?.tool_use_id
+    ?? value?.toolCall?.id
+    ?? value?.toolCall?.toolCallId
+    ?? value?.call?.id
+    ?? value?.execution?.toolCallId
+    ?? value?.execution?.id
+    ?? value?.id
+  return id === undefined || id === null || id === '' ? undefined : String(id)
+}
+
+function extractToolInput(value: any): unknown {
+  return value?.input ?? value?.args ?? value?.params ?? value?.arguments ?? value?.toolInput ?? value?.toolCall?.arguments
+}
+
+function findToolCallBlock(message: UiMessage, toolCallId: string) {
+  return message.blocks.find((block): block is Extract<UiBlock, { type: 'tool_call' }> => block.type === 'tool_call' && block.toolCallId === toolCallId)
+}
+
+function areSameToolBlock(left: UiBlock, right: UiBlock) {
+  if (left.type === 'tool_call' && right.type === 'tool_call') return left.toolCallId === right.toolCallId
+  if (left.type === 'tool_result' && right.type === 'tool_result') return left.toolCallId === right.toolCallId
+  return false
+}
+
+function flattenText(content: unknown): string {
   if (typeof content === 'string') return content
   if (Array.isArray(content)) {
     return content.map((part) => typeof part === 'string' ? part : part?.text ?? '').join('')
@@ -829,6 +1152,6 @@ function toUiModel(model: any): UiModel {
 }
 
 function summarizeToolResult(result: unknown) {
-  const text = typeof result === 'string' ? result : JSON.stringify(result)
+  const text = flattenText(result)
   return text.length > 500 ? `${text.slice(0, 500)}...` : text
 }

@@ -22,7 +22,6 @@ apps/web/server/api/agent/
 apps/web/server/routes/api/agent/ws.ts
 apps/web/server/utils/pi-session-registry.ts
 apps/web/server/utils/ws-agent-hub.ts
-apps/web/server/utils/pi-agent-service.ts
 apps/web/server/utils/extension-ui-context.ts
 apps/web/server/utils/permission-config.ts
 apps/web/types/protocol.ts
@@ -142,11 +141,9 @@ Current important server events include:
 - `sessions_snapshot`
 - `active_session_changed`
 - `session_control_changed`
-- `message_delta`
 - `message_upsert`
-- `tool_start`
-- `tool_update`
-- `tool_end`
+- `message_block_upsert`
+- `message_block_delta`
 - `permission_decision`
 - `queue_update`
 - extension UI request/notify events

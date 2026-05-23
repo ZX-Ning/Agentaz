@@ -14,6 +14,7 @@ import type {
   UiModel,
   UiRequestResponseRequest,
   UiSessionSummary,
+  UiBlock,
 } from '../types/protocol'
 
 type SessionModelState = {
@@ -47,6 +48,19 @@ const promptText = ref('')
 const lastError = ref<string | null>(null)
 const socket = shallowRef<WebSocket | null>(null)
 
+const isSidebarOpen = ref(false)
+const isStatusMenuOpen = ref(false)
+
+function onStatusMenuOpenChange(open: boolean) {
+  isStatusMenuOpen.value = open
+}
+
+function formatTime(timestamp?: number) {
+  if (!timestamp) return ''
+  const date = new Date(timestamp)
+  return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+}
+
 const thinkingOptions: Array<{ value: ThinkingLevel, label: string }> = [
   { value: 'off', label: 'Off' },
   { value: 'minimal', label: 'Minimal' },
@@ -60,7 +74,86 @@ const activeLoadedSession = computed(() => loadedSessions.value.find((session) =
 const activeMessages = computed(() => activeSessionId.value ? messagesBySessionId.value[activeSessionId.value] ?? [] : [])
 const activeModelState = computed(() => activeSessionId.value ? ensureModelState(activeSessionId.value) : defaultModelState())
 const activePendingUiRequests = computed(() => activeSessionId.value ? pendingUiRequestsBySessionId.value[activeSessionId.value] ?? [] : [])
-const recentSessions = computed(() => persistedSessions.value.slice(0, 10))
+const unifiedSessions = computed(() => {
+  const list: Array<{
+    id: string
+    file: string | null
+    sessionId: string | null
+    isLoaded: boolean
+    isStreaming: boolean
+    pendingApprovalCount: number
+    controlledByThisClient: boolean
+    controlledByClientId?: string
+    title: string
+    updatedAt?: number
+  }> = []
+
+  const matchedLoadedIds = new Set<string>()
+
+  // 1. Process persisted sessions
+  for (const p of persistedSessions.value) {
+    const loaded = loadedSessions.value.find(
+      (l) => l.file === p.file || l.sessionFile === p.file || l.sessionId === p.file
+    )
+
+    if (loaded) {
+      matchedLoadedIds.add(loaded.sessionId)
+      list.push({
+        id: loaded.sessionId,
+        file: p.file,
+        sessionId: loaded.sessionId,
+        isLoaded: true,
+        isStreaming: loaded.isStreaming,
+        pendingApprovalCount: loaded.pendingApprovalCount,
+        controlledByThisClient: !!loaded.controlledByThisClient,
+        controlledByClientId: loaded.controlledByClientId,
+        title: sessionTitle(loaded),
+        updatedAt: p.updatedAt || p.createdAt,
+      })
+    } else {
+      list.push({
+        id: p.file,
+        file: p.file,
+        sessionId: null,
+        isLoaded: false,
+        isStreaming: false,
+        pendingApprovalCount: 0,
+        controlledByThisClient: false,
+        title: sessionTitle(p),
+        updatedAt: p.updatedAt || p.createdAt,
+      })
+    }
+  }
+
+  // 2. Add loaded sessions that didn't match persisted
+  for (const l of loadedSessions.value) {
+    if (!matchedLoadedIds.has(l.sessionId)) {
+      list.push({
+        id: l.sessionId,
+        file: l.file || l.sessionFile || null,
+        sessionId: l.sessionId,
+        isLoaded: true,
+        isStreaming: l.isStreaming,
+        pendingApprovalCount: l.pendingApprovalCount,
+        controlledByThisClient: !!l.controlledByThisClient,
+        controlledByClientId: l.controlledByClientId,
+        title: sessionTitle(l),
+        updatedAt: l.updatedAt || l.createdAt,
+      })
+    }
+  }
+
+  // Sort by updatedAt descending
+  return list.sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))
+})
+
+async function handleSessionClick(session: typeof unifiedSessions.value[number]) {
+  if (session.isLoaded && session.sessionId) {
+    await focusSessionAndClose(session.sessionId)
+  } else if (session.file) {
+    await openPersistedSessionAndClose(session.file)
+  }
+}
 const models = computed(() => activeModelState.value.models)
 const currentModel = computed(() => activeModelState.value.currentModel)
 const currentThinkingLevel = computed(() => activeModelState.value.thinkingLevel)
@@ -107,6 +200,23 @@ function defaultModelState(): SessionModelState {
   }
 }
 
+const collapsedStates = ref<Record<string, boolean>>({})
+
+function getBlockKey(messageId: string, block: UiBlock, index: number): string {
+  return block.id || `${messageId}-${index}`
+}
+
+function isBlockCollapsed(key: string, defaultState = true) {
+  if (collapsedStates.value[key] === undefined) {
+    collapsedStates.value[key] = defaultState
+  }
+  return collapsedStates.value[key]
+}
+
+function toggleBlock(key: string) {
+  collapsedStates.value[key] = !collapsedStates.value[key]
+}
+
 function ensureModelState(sessionId: string) {
   modelStateBySessionId.value[sessionId] ??= defaultModelState()
   return modelStateBySessionId.value[sessionId]
@@ -129,18 +239,6 @@ function roleLabel(role: UiMessage['role']) {
   if (role === 'assistant') return 'ai'
   if (role === 'user') return 'You'
   return role
-}
-
-function blockText(message: UiMessage) {
-  return message.blocks
-    .map((block) => {
-      if (block.type === 'text' || block.type === 'thinking') return block.text
-      if (block.type === 'tool_call') return `[tool:${block.toolName}] ${block.status}`
-      if (block.type === 'tool_result') return block.content
-      return ''
-    })
-    .filter(Boolean)
-    .join('\n')
 }
 
 function sessionTitle(session: UiLoadedSession | UiSessionSummary) {
@@ -190,6 +288,8 @@ async function refreshSessionDetails(sessionId: string) {
 }
 
 async function refreshHistory(sessionId: string) {
+  const session = loadedSessions.value.find((item) => item.sessionId === sessionId)
+  if (session?.isStreaming && messagesBySessionId.value[sessionId]?.length) return
   const history = await agentFetch<SessionHistoryResponse>(sessionUrl(sessionId, '/history'))
   messagesBySessionId.value[sessionId] = history.messages
 }
@@ -209,10 +309,11 @@ async function sendPrompt() {
   const text = promptText.value.trim()
   if (!sessionId || !text) return
 
+  const localMessageId = `local-${Date.now()}`
   ensureMessageBucket(sessionId).push({
-    id: `local-${Date.now()}`,
+    id: localMessageId,
     role: 'user',
-    blocks: [{ type: 'text', text }],
+    blocks: [{ id: `${localMessageId}:text`, type: 'text', text }],
     createdAt: Date.now(),
   })
 
@@ -277,6 +378,21 @@ async function focusSession(sessionId: string) {
   await postSessionOperation(sessionUrl(sessionId, '/focus'), { method: 'POST' })
 }
 
+async function createSessionAndClose() {
+  await createSession()
+  isSidebarOpen.value = false
+}
+
+async function openPersistedSessionAndClose(sessionFile: string) {
+  await openPersistedSession(sessionFile)
+  isSidebarOpen.value = false
+}
+
+async function focusSessionAndClose(sessionId: string) {
+  await focusSession(sessionId)
+  isSidebarOpen.value = false
+}
+
 async function acquireSession(sessionId = activeSessionId.value) {
   if (sessionId) await postSessionOperation(sessionUrl(sessionId, '/control'), { method: 'POST', body: { action: 'acquire' } })
 }
@@ -315,6 +431,50 @@ function upsertLoadedSession(sessionId: string, patch: Partial<UiLoadedSession>)
     ...current,
     ...patch,
     file: patch.file ?? patch.sessionFile ?? current.file,
+  }
+}
+
+function upsertMessage(sessionId: string, message: UiMessage) {
+  const bucket = ensureMessageBucket(sessionId)
+  const index = bucket.findIndex((item) => item.id === message.id)
+  if (index === -1) bucket.push(message)
+  else bucket[index] = message
+}
+
+function ensureTranscriptMessage(sessionId: string, messageId: string) {
+  const bucket = ensureMessageBucket(sessionId)
+  let message = bucket.find((item) => item.id === messageId)
+  if (!message) {
+    message = { id: messageId, role: 'assistant', blocks: [], createdAt: Date.now() }
+    bucket.push(message)
+  }
+  return message
+}
+
+function upsertMessageBlock(sessionId: string, messageId: string, block: UiBlock) {
+  const message = ensureTranscriptMessage(sessionId, messageId)
+  const index = message.blocks.findIndex((item) => item.id === block.id || areSameToolBlock(item, block))
+  if (index === -1) message.blocks.push(block)
+  else message.blocks[index] = block
+}
+
+function areSameToolBlock(left: UiBlock, right: UiBlock) {
+  if (left.type === 'tool_call' && right.type === 'tool_call') return left.toolCallId === right.toolCallId
+  if (left.type === 'tool_result' && right.type === 'tool_result') return left.toolCallId === right.toolCallId
+  return false
+}
+
+function appendMessageBlockDelta(sessionId: string, messageId: string, blockId: string, blockType: 'text' | 'thinking', delta: string) {
+  const message = ensureTranscriptMessage(sessionId, messageId)
+  let block = message.blocks.find((item) => item.id === blockId)
+  if (!block) {
+    block = blockType === 'text'
+      ? { id: blockId, type: 'text', text: '' }
+      : { id: blockId, type: 'thinking', text: '', collapsed: true }
+    message.blocks.push(block)
+  }
+  if (block.type === 'text' || block.type === 'thinking') {
+    block.text += delta
   }
 }
 
@@ -379,23 +539,17 @@ function handleEvent(event: ServerEvent) {
   }
 
   if (event.type === 'message_upsert') {
-    const bucket = ensureMessageBucket(event.sessionId)
-    const index = bucket.findIndex((message) => message.id === event.message.id)
-    if (index === -1) bucket.push(event.message)
-    else bucket[index] = event.message
+    upsertMessage(event.sessionId, event.message)
     return
   }
 
-  if (event.type === 'message_delta') {
-    const bucket = ensureMessageBucket(event.sessionId)
-    let message = bucket.find((item) => item.id === event.messageId)
-    if (!message) {
-      message = { id: event.messageId, role: 'assistant', blocks: [], createdAt: Date.now() }
-      bucket.push(message)
-    }
-    const block = message.blocks.find((item) => item.type === event.blockType)
-    if (block && (block.type === 'text' || block.type === 'thinking')) block.text += event.delta
-    else message.blocks.push({ type: event.blockType, text: event.delta })
+  if (event.type === 'message_block_upsert') {
+    upsertMessageBlock(event.sessionId, event.messageId, event.block)
+    return
+  }
+
+  if (event.type === 'message_block_delta') {
+    appendMessageBlockDelta(event.sessionId, event.messageId, event.blockId, event.blockType, event.delta)
     return
   }
 
@@ -473,7 +627,18 @@ onBeforeUnmount(() => {
 <template>
   <UApp>
     <div class="chat-shell flex h-screen overflow-hidden bg-background text-foreground">
-      <aside class="hidden w-80 shrink-0 flex-col border-r border-sidebar-border bg-sidebar p-3 text-sidebar-foreground lg:flex">
+      <!-- Sidebar Drawer Backdrop (only visible on mobile lg:hidden) -->
+      <div
+        v-if="isSidebarOpen"
+        class="fixed inset-0 z-40 bg-black/40 backdrop-blur-sm transition-opacity duration-300 lg:hidden"
+        @click="isSidebarOpen = false"
+      />
+
+      <!-- Sidebar Drawer Container (Fixed overlay on mobile, Static sidebar on desktop) -->
+      <aside
+        class="fixed inset-y-0 left-0 z-50 flex w-80 flex-col border-r border-sidebar-border bg-sidebar p-4 text-sidebar-foreground shadow-2xl transition-transform duration-300 ease-in-out lg:static lg:z-0 lg:translate-x-0 lg:shadow-none shrink-0"
+        :class="isSidebarOpen ? 'translate-x-0' : '-translate-x-full'"
+      >
         <div class="mb-4 flex items-center justify-between px-2 pt-1">
           <div class="flex items-center gap-2">
             <div class="flex size-8 items-center justify-center rounded-lg bg-sidebar-primary text-sm font-semibold text-sidebar-primary-foreground">
@@ -481,114 +646,242 @@ onBeforeUnmount(() => {
             </div>
             <div>
               <div class="text-sm font-semibold">Agentaz</div>
-              <div class="text-xs text-muted-foreground">{{ clientId ? `Client ${clientId.slice(0, 8)}` : 'Connecting' }}</div>
+              <div class="text-xs text-muted-foreground font-normal">{{ clientId ? `Client ${clientId.slice(0, 8)}` : 'Connecting' }}</div>
             </div>
           </div>
+          <UButton
+            color="neutral"
+            variant="ghost"
+            icon="i-lucide-x"
+            size="sm"
+            class="text-muted-foreground hover:text-foreground lg:hidden"
+            @click="isSidebarOpen = false"
+          />
         </div>
 
-        <UButton block color="neutral" variant="soft" class="mb-4 justify-start border border-sidebar-border bg-sidebar-accent text-sidebar-accent-foreground hover:bg-secondary" @click="createSession">
+        <UButton block color="neutral" variant="soft" class="mb-4 justify-start border border-sidebar-border bg-sidebar-accent text-sidebar-accent-foreground hover:bg-secondary" @click="createSessionAndClose">
+          <template #leading>
+            <UIcon name="i-lucide-plus" class="size-4" />
+          </template>
           New loaded session
         </UButton>
 
         <div class="space-y-2 px-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-          Status
-        </div>
-        <div class="mt-2 space-y-2 rounded-lg border border-sidebar-border bg-sidebar-accent p-3 text-sm text-sidebar-accent-foreground">
-          <div class="flex items-center justify-between gap-3">
-            <span class="text-muted-foreground">Connection</span>
-            <UBadge :color="statusColor" variant="soft" size="xs">{{ statusLabel }}</UBadge>
-          </div>
-          <div class="flex items-center justify-between gap-3">
-            <span class="text-muted-foreground">Queue</span>
-            <span class="font-medium">{{ pendingMessageCount }}</span>
-          </div>
-          <div class="flex items-center justify-between gap-3">
-            <span class="text-muted-foreground">Approvals</span>
-            <span class="font-medium">{{ pendingApprovalCount }}</span>
-          </div>
-          <div class="flex items-center justify-between gap-3">
-            <span class="text-muted-foreground">Models</span>
-            <span class="font-medium">{{ models.length }}</span>
-          </div>
-        </div>
-
-        <div class="mt-6 px-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-          Loaded sessions
-        </div>
-        <div class="mt-2 space-y-1">
-          <button
-            v-for="session in loadedSessions"
-            :key="session.sessionId"
-            class="w-full rounded-lg px-3 py-2 text-left text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/35"
-            :class="session.sessionId === activeSessionId ? 'bg-sidebar-accent text-sidebar-accent-foreground' : 'text-sidebar-foreground hover:bg-sidebar-accent'"
-            @click="focusSession(session.sessionId)"
-          >
-            <div class="flex items-center justify-between gap-2">
-              <span class="truncate">{{ sessionTitle(session) }}</span>
-              <span class="flex shrink-0 items-center gap-1">
-                <UBadge v-if="session.isStreaming" color="success" variant="soft" size="xs">run</UBadge>
-                <UBadge v-if="session.pendingApprovalCount" color="warning" variant="soft" size="xs">{{ session.pendingApprovalCount }}</UBadge>
-              </span>
-            </div>
-            <div class="mt-1 flex items-center justify-between gap-2 text-xs text-muted-foreground">
-              <span class="truncate">{{ session.sessionId }}</span>
-              <span>{{ session.controlledByThisClient ? 'control' : session.controlledByClientId ? 'readonly' : 'free' }}</span>
-            </div>
-          </button>
-          <div v-if="loadedSessions.length === 0" class="rounded-lg px-3 py-2 text-sm text-muted-foreground">
-            No loaded sessions
-          </div>
-        </div>
-
-        <div class="mt-4 grid grid-cols-2 gap-2">
-          <UButton color="neutral" variant="soft" size="xs" @click="acquireSession()">Acquire</UButton>
-          <UButton color="neutral" variant="soft" size="xs" @click="releaseSession()">Release</UButton>
-          <UButton color="neutral" variant="soft" size="xs" @click="clearActiveQueue">Clear queue</UButton>
-          <UButton color="error" variant="soft" size="xs" @click="closeActiveSession">Close</UButton>
-        </div>
-
-        <div class="mt-6 px-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-          Persisted sessions
+          Sessions
         </div>
         <div class="mt-2 min-h-0 flex-1 space-y-1 overflow-y-auto">
           <button
-            v-for="session in recentSessions"
-            :key="session.file"
-            class="w-full truncate rounded-lg px-3 py-2 text-left text-sm text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/35"
-            @click="openPersistedSession(session.file)"
+            v-for="session in unifiedSessions"
+            :key="session.id"
+            class="w-full rounded-lg px-3 py-2 text-left text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/35"
+            :class="session.sessionId && session.sessionId === activeSessionId ? 'bg-sidebar-accent text-sidebar-accent-foreground font-medium' : 'text-sidebar-foreground hover:bg-sidebar-accent'"
+            @click="handleSessionClick(session)"
           >
-            {{ sessionTitle(session) }}
+            <div class="flex items-center justify-between gap-2">
+              <span class="truncate">{{ session.title }}</span>
+              <span class="flex shrink-0 items-center gap-1">
+                <UBadge v-if="session.isStreaming" color="success" variant="soft" size="xs">run</UBadge>
+                <UBadge v-if="session.pendingApprovalCount" color="warning" variant="soft" size="xs">{{ session.pendingApprovalCount }}</UBadge>
+                <UBadge v-if="session.isLoaded" color="neutral" variant="soft" size="xs">loaded</UBadge>
+              </span>
+            </div>
+            <div class="mt-1 flex items-center justify-between gap-2 text-xs text-muted-foreground font-normal">
+              <span class="truncate">{{ session.sessionId || session.file }}</span>
+              <span v-if="session.isLoaded">
+                {{ session.controlledByThisClient ? 'control' : session.controlledByClientId ? 'readonly' : 'free' }}
+              </span>
+              <span v-else class="text-[10px] uppercase font-semibold tracking-wider opacity-60">
+                persisted
+              </span>
+            </div>
           </button>
-          <div v-if="recentSessions.length === 0" class="rounded-lg px-3 py-2 text-sm text-muted-foreground">
-            No persisted sessions yet
+          <div v-if="unifiedSessions.length === 0" class="rounded-lg px-3 py-2 text-sm text-muted-foreground">
+            No sessions found
           </div>
         </div>
 
-        <div class="mt-4 rounded-lg border border-sidebar-border bg-sidebar-accent p-3 text-xs text-muted-foreground">
-          <div class="mb-1 font-medium text-sidebar-foreground">Working directory</div>
-          <div class="truncate">{{ hello?.cwd ?? 'Waiting for backend...' }}</div>
+        <div class="mt-auto pt-4 border-t border-sidebar-border">
+          <div class="rounded-lg bg-sidebar-accent p-3 text-xs text-muted-foreground">
+            <div class="mb-1 font-medium text-sidebar-foreground">Working directory</div>
+            <div class="truncate">{{ hello?.cwd ?? 'Waiting for backend...' }}</div>
+          </div>
         </div>
       </aside>
 
       <main class="flex min-w-0 flex-1 flex-col bg-background text-foreground">
         <header class="flex h-14 shrink-0 items-center justify-between border-b border-border bg-background/90 px-4 backdrop-blur sm:px-6">
-          <div class="min-w-0">
-            <div class="flex items-center gap-2">
-              <h1 class="truncate text-base font-semibold">Agentaz</h1>
-              <UBadge :color="statusColor" variant="soft" size="xs">{{ statusLabel }}</UBadge>
-              <UBadge v-if="activeLoadedSession" :color="canControlActiveSession ? 'success' : 'neutral'" variant="soft" size="xs">
-                {{ canControlActiveSession ? 'controller' : 'readonly' }}
-              </UBadge>
-            </div>
-            <div class="truncate text-xs text-muted-foreground">
-              {{ activeSessionId ? `Session ${activeSessionId}` : 'No active session' }}
+          <div class="flex items-center min-w-0">
+            <UButton
+              color="neutral"
+              variant="ghost"
+              icon="i-lucide-menu"
+              size="sm"
+              class="mr-2.5 lg:hidden"
+              @click="isSidebarOpen = true"
+            />
+            <div class="min-w-0">
+              <div class="flex items-center gap-2">
+                <h1 class="truncate text-base font-semibold">Agentaz</h1>
+                <UBadge v-if="activeLoadedSession" :color="canControlActiveSession ? 'success' : 'neutral'" variant="soft" size="xs">
+                  {{ canControlActiveSession ? 'controller' : 'readonly' }}
+                </UBadge>
+              </div>
+              <div class="truncate text-xs text-muted-foreground font-normal">
+                {{ activeSessionId ? `Session ${activeSessionId}` : 'No active session' }}
+              </div>
             </div>
           </div>
 
           <div class="flex items-center gap-2">
-            <UButton color="neutral" variant="ghost" size="sm" class="text-foreground hover:bg-accent hover:text-accent-foreground" @click="toggleTheme">
-              {{ isDark ? 'Light' : 'Dark' }}
-            </UButton>
+            <UPopover
+              :open="isStatusMenuOpen"
+              :content="{ side: 'bottom', align: 'end', sideOffset: 8, collisionPadding: 12 }"
+              :modal="false"
+              class="shrink-0"
+              :ui="{
+                content: 'w-72 overflow-hidden rounded-lg border border-border bg-popover p-0 text-popover-foreground shadow-xl shadow-foreground/10 dark:shadow-black/30',
+              }"
+              @update:open="onStatusMenuOpenChange"
+            >
+              <template #content>
+                <div class="p-4 space-y-4 text-left">
+                  <div class="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                    System Status
+                  </div>
+
+                  <div class="space-y-2.5">
+                    <div class="flex items-center justify-between text-sm">
+                      <span class="text-muted-foreground flex items-center gap-1.5">
+                        <UIcon name="i-lucide-activity" class="size-4 text-muted-foreground" />
+                        Connection
+                      </span>
+                      <UBadge :color="statusColor" variant="soft" size="xs">{{ statusLabel }}</UBadge>
+                    </div>
+
+                    <div class="flex items-center justify-between text-sm">
+                      <span class="text-muted-foreground flex items-center gap-1.5">
+                        <UIcon name="i-lucide-layers" class="size-4 text-muted-foreground" />
+                        Queue
+                      </span>
+                      <span class="font-medium bg-secondary px-1.5 py-0.5 rounded text-xs text-secondary-foreground font-sans">{{ pendingMessageCount }} messages</span>
+                    </div>
+
+                    <div class="flex items-center justify-between text-sm">
+                      <span class="text-muted-foreground flex items-center gap-1.5">
+                        <UIcon name="i-lucide-shield-alert" class="size-4 text-muted-foreground" />
+                        Approvals
+                      </span>
+                      <UBadge v-if="pendingApprovalCount > 0" color="warning" variant="solid" size="xs">
+                        {{ pendingApprovalCount }} pending
+                      </UBadge>
+                      <span v-else class="font-medium text-xs text-muted-foreground">0 pending</span>
+                    </div>
+
+                    <div class="flex items-center justify-between text-sm">
+                      <span class="text-muted-foreground flex items-center gap-1.5">
+                        <UIcon name="i-lucide-cpu" class="size-4 text-muted-foreground" />
+                        Available Models
+                      </span>
+                      <span class="font-medium text-xs text-muted-foreground font-sans">{{ models.length }} models</span>
+                    </div>
+                  </div>
+
+                  <div v-if="activeSessionId" class="pt-3 border-t border-border space-y-2">
+                    <div class="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">
+                      Session Control
+                    </div>
+
+                    <div class="grid grid-cols-2 gap-2">
+                      <UButton
+                        color="neutral"
+                        variant="soft"
+                        size="sm"
+                        icon="i-lucide-lock"
+                        :disabled="!canControlActiveSession"
+                        class="justify-center"
+                        @click="acquireSession()"
+                      >
+                        Acquire
+                      </UButton>
+                      <UButton
+                        color="neutral"
+                        variant="soft"
+                        size="sm"
+                        icon="i-lucide-unlock"
+                        :disabled="!canControlActiveSession"
+                        class="justify-center"
+                        @click="releaseSession()"
+                      >
+                        Release
+                      </UButton>
+                    </div>
+
+                    <div class="grid grid-cols-2 gap-2">
+                      <UButton
+                        color="neutral"
+                        variant="soft"
+                        size="sm"
+                        icon="i-lucide-trash-2"
+                        :disabled="!canControlActiveSession"
+                        class="justify-center"
+                        @click="clearActiveQueue"
+                      >
+                        Clear Queue
+                      </UButton>
+                      <UButton
+                        color="error"
+                        variant="soft"
+                        size="sm"
+                        icon="i-lucide-x-circle"
+                        class="justify-center"
+                        @click="closeActiveSession"
+                      >
+                        Close
+                      </UButton>
+                    </div>
+                  </div>
+                </div>
+              </template>
+
+              <!-- Dropdown Trigger Button -->
+              <UButton
+                type="button"
+                color="neutral"
+                variant="outline"
+                size="sm"
+                class="flex items-center gap-2"
+              >
+                <!-- Small status indicator dot -->
+                <span class="relative flex h-2 w-2">
+                  <span
+                    v-if="status === 'connected' && isStreaming"
+                    class="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75"
+                    :class="status === 'connected' ? 'bg-emerald-400' : 'bg-amber-400'"
+                  ></span>
+                  <span
+                    class="relative inline-flex rounded-full h-2 w-2"
+                    :class="{
+                      'bg-emerald-500': status === 'connected',
+                      'bg-amber-500': status === 'connecting',
+                      'bg-rose-500': status === 'error',
+                      'bg-slate-500': status === 'disconnected'
+                    }"
+                  ></span>
+                </span>
+
+                <span class="text-xs font-medium">{{ statusLabel }}</span>
+                <UIcon name="i-lucide-chevron-down" class="size-4 shrink-0 opacity-60" />
+              </UButton>
+            </UPopover>
+
+            <UButton
+              color="neutral"
+              variant="ghost"
+              :icon="isDark ? 'i-lucide-sun' : 'i-lucide-moon'"
+              size="sm"
+              class="text-foreground hover:bg-accent hover:text-accent-foreground"
+              @click="toggleTheme"
+            />
           </div>
         </header>
 
@@ -631,22 +924,148 @@ onBeforeUnmount(() => {
             <article
               v-for="message in activeMessages"
               :key="message.id"
-              class="flex gap-3"
-              :class="message.role === 'user' ? 'justify-end' : 'justify-start'"
+              class="flex gap-4 px-4 py-3 hover:bg-muted/30 transition-colors duration-150 rounded-lg text-left"
             >
-              <div v-if="message.role !== 'user'" class="mt-1 flex size-8 shrink-0 items-center justify-center rounded-full bg-secondary text-sm font-semibold text-secondary-foreground">
-                AZ
-              </div>
-
-              <div class="max-w-[82%] space-y-1 sm:max-w-[74%]">
-                <div class="px-1 text-xs font-medium text-muted-foreground">
-                  {{ roleLabel(message.role) }}
+              <!-- Avatar -->
+              <div class="flex-shrink-0">
+                <div
+                  v-if="message.role === 'user'"
+                  class="flex size-9 items-center justify-center rounded-lg bg-secondary text-secondary-foreground font-semibold text-sm"
+                >
+                  U
                 </div>
                 <div
-                  class="rounded-lg border border-border px-4 py-3 text-sm leading-6"
-                  :class="message.role === 'user' ? 'bg-primary text-primary-foreground' : 'bg-card text-card-foreground'"
+                  v-else
+                  class="flex size-9 items-center justify-center rounded-lg bg-primary text-primary-foreground font-semibold text-sm"
                 >
-                  <pre class="whitespace-pre-wrap break-words font-sans text-inherit">{{ blockText(message) }}</pre>
+                  AZ
+                </div>
+              </div>
+
+              <!-- Content Area -->
+              <div class="flex-1 min-w-0 space-y-1.5">
+                <!-- Header -->
+                <div class="flex items-baseline gap-2">
+                  <span class="text-sm font-semibold text-foreground">
+                    {{ roleLabel(message.role) }}
+                  </span>
+                  <span v-if="message.createdAt" class="text-[11px] text-muted-foreground font-normal font-sans">
+                    {{ formatTime(message.createdAt) }}
+                  </span>
+                </div>
+
+                <!-- Render blocks sequentially -->
+                <div class="space-y-1">
+                  <div v-for="(block, index) in message.blocks" :key="block.id">
+                    <!-- Text Block -->
+                    <div v-if="block.type === 'text'">
+                      <!-- Special styling for tool messages -->
+                      <div v-if="message.role === 'tool'" class="my-1.5 rounded-lg border border-border bg-slate-950 overflow-hidden shadow-inner">
+                        <div class="flex items-center justify-between px-3 py-1.5 bg-slate-900 border-b border-slate-800 text-[11px] font-mono text-slate-400 select-none">
+                          <span class="flex items-center gap-1.5">
+                            <UIcon name="i-lucide-terminal" class="size-3.5 text-slate-400" />
+                            Tool Output
+                          </span>
+                        </div>
+                        <div class="p-3 bg-slate-950 font-mono text-xs leading-normal text-left">
+                          <pre class="overflow-y-auto max-h-72 whitespace-pre-wrap break-all text-slate-100 font-mono text-[11px] leading-relaxed">{{ block.text }}</pre>
+                        </div>
+                      </div>
+
+                      <!-- Standard text block -->
+	                      <div v-else class="text-sm text-foreground/90 leading-relaxed font-sans whitespace-pre-wrap break-words">
+	                        {{ block.text }}
+	                      </div>
+	                    </div>
+
+	                    <!-- Thinking Block -->
+	                    <div v-else-if="block.type === 'thinking' && block.text" class="my-1.5 rounded-lg border border-border bg-muted/20 overflow-hidden">
+	                      <button
+	                        type="button"
+	                        class="flex w-full items-center gap-2 px-3 py-2 text-xs font-semibold text-muted-foreground hover:bg-muted/30 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring/35"
+	                        @click="toggleBlock(getBlockKey(message.id, block, index))"
+	                      >
+	                        <UIcon name="i-lucide-brain" class="size-4 shrink-0" />
+	                        <span>Thinking</span>
+	                        <UIcon
+	                          :name="isBlockCollapsed(getBlockKey(message.id, block, index), block.collapsed ?? true) ? 'i-lucide-chevron-right' : 'i-lucide-chevron-down'"
+	                          class="size-3 shrink-0 opacity-60 ml-auto"
+	                        />
+	                      </button>
+	                      <div
+	                        v-show="!isBlockCollapsed(getBlockKey(message.id, block, index), block.collapsed ?? true)"
+	                        class="border-t border-border/30 p-3"
+	                      >
+	                        <pre class="whitespace-pre-wrap break-words text-xs leading-relaxed text-muted-foreground font-sans">{{ block.text }}</pre>
+	                      </div>
+	                    </div>
+
+	                    <!-- Tool Call Block -->
+	                    <div v-else-if="block.type === 'tool_call'" class="my-1.5 rounded-lg border overflow-hidden" :class="{
+	                      'border-amber-500/30 bg-amber-50/5 dark:bg-amber-950/5': block.status === 'pending',
+	                      'border-blue-500/30 bg-blue-50/5 dark:bg-blue-950/5': block.status === 'running',
+                      'border-emerald-500/30 bg-emerald-50/5 dark:bg-emerald-950/5': block.status === 'completed',
+                      'border-red-500/30 bg-red-50/5 dark:bg-red-950/5': block.status === 'error',
+                      'border-border bg-muted/10': block.status === 'blocked',
+                    }">
+                      <button
+                        type="button"
+                        class="flex w-full items-center gap-2 px-3 py-2 text-xs font-semibold hover:bg-muted/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring/35"
+                        @click="toggleBlock(getBlockKey(message.id, block, index))"
+                      >
+                        <UIcon name="i-lucide-wrench" class="size-4 shrink-0" :class="{
+                          'text-amber-500': block.status === 'pending',
+                          'text-blue-500 animate-pulse': block.status === 'running',
+                          'text-emerald-500': block.status === 'completed',
+                          'text-red-500': block.status === 'error',
+                          'text-muted-foreground': block.status === 'blocked',
+                        }" />
+                        <span class="min-w-0 truncate">{{ block.toolName }}</span>
+                        <UBadge size="xs" variant="soft" :color="{
+                          'pending': 'warning',
+                          'running': 'info',
+                          'completed': 'success',
+                          'error': 'error',
+                          'blocked': 'neutral',
+                        }[block.status] as any">
+                          {{ block.status }}
+                        </UBadge>
+	                        <UIcon
+	                          :name="isBlockCollapsed(getBlockKey(message.id, block, index), true) ? 'i-lucide-chevron-right' : 'i-lucide-chevron-down'"
+	                          class="size-3 shrink-0 opacity-60 ml-auto"
+	                        />
+                      </button>
+                      <div
+	                        v-show="!isBlockCollapsed(getBlockKey(message.id, block, index), true)"
+                        class="border-t border-border/30 p-3"
+                      >
+                        <pre class="overflow-x-auto text-xs text-foreground/80 font-mono whitespace-pre-wrap break-all leading-relaxed">{{ JSON.stringify(block.input, null, 2) }}</pre>
+                      </div>
+                    </div>
+
+                    <!-- Tool Result Block -->
+                    <div v-else-if="block.type === 'tool_result'" class="my-1.5 rounded-lg border overflow-hidden" :class="block.isError ? 'border-red-500/30 bg-red-50/5 dark:bg-red-950/5' : 'border-border bg-slate-950'">
+                      <button
+                        type="button"
+                        class="flex w-full items-center gap-2 px-3 py-2 text-xs font-semibold focus:outline-none focus-visible:ring-2 focus-visible:ring-ring/35"
+                        :class="block.isError ? 'text-red-600 dark:text-red-400 hover:bg-red-50/20' : 'text-slate-400 hover:bg-slate-900'"
+                        @click="toggleBlock(getBlockKey(message.id, block, index))"
+                      >
+                        <UIcon name="i-lucide-terminal" class="size-4 shrink-0" />
+                        <span>{{ block.isError ? 'Tool Error' : 'Tool Result' }}</span>
+	                        <UIcon
+	                          :name="isBlockCollapsed(getBlockKey(message.id, block, index), true) ? 'i-lucide-chevron-right' : 'i-lucide-chevron-down'"
+	                          class="size-3 shrink-0 opacity-60 ml-auto"
+	                        />
+                      </button>
+                      <div
+	                        v-show="!isBlockCollapsed(getBlockKey(message.id, block, index), true)"
+                        class="border-t border-border/10 p-3"
+                      >
+                        <pre class="overflow-y-auto max-h-72 whitespace-pre-wrap break-all text-xs font-mono leading-relaxed" :class="block.isError ? 'text-red-700/80 dark:text-red-300/80' : 'text-slate-100'">{{ block.content }}</pre>
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </div>
             </article>
