@@ -4,7 +4,7 @@ This document describes the current frontend direction for Agentaz. It is intent
 
 ## Scope
 
-The frontend is a Nuxt/Vue browser UI for a local Pi SDK agent. The MVP should feel like a simple ChatGPT-style coding assistant:
+The frontend is a Nuxt/Vue browser UI for a Pi SDK agent. The current UI should feel like a simple ChatGPT-style coding assistant:
 
 - one active chat surface
 - a sidebar for status and sessions
@@ -12,7 +12,7 @@ The frontend is a Nuxt/Vue browser UI for a local Pi SDK agent. The MVP should f
 - a bottom composer for prompts
 - web approval UI for dangerous operations
 
-The frontend should not introduce multi-user, authentication, project switching, or database-backed concepts unless the product plan changes.
+The frontend should not introduce multi-user, authentication, project switching, or database-backed concepts unless the product plan changes. The project is beyond its original MVP phase, but larger server-agent and multi-session UI semantics are still design work until recorded in `docs/plan.md`.
 
 ## Location
 
@@ -138,7 +138,7 @@ Avoid implementing a complex markdown/diff renderer until the basic agent loop a
 
 ## Composer Behavior
 
-MVP behavior:
+Current behavior:
 
 - Send normal prompt when idle.
 - Support `Ctrl/⌘ + Enter` to send.

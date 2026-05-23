@@ -2,17 +2,19 @@
 
 This document captures likely future directions for Agentaz. It is not a commitment list; use it to preserve ideas without turning them into immediate implementation tasks.
 
-## Current MVP Theme
+## Current Product Theme
 
-Build a reliable personal local web UI for Pi:
+Build a reliable personal local/server-hosted agent experience powered by Pi:
 
-- localhost-first
+- local-first by default
 - one configured project directory
 - one browser controller
 - simple ChatGPT-like UX
 - safe approval flow for dangerous tools
 - session list/new/open
 - model and thinking controls
+
+The original MVP baseline is no longer the product boundary. This roadmap should capture possible directions without turning unconfirmed architecture into committed work.
 
 ## Near-Term Priorities
 
@@ -46,7 +48,7 @@ Build a reliable personal local web UI for Pi:
 - Add model picker UI.
 - Add thinking level picker UI.
 - Show pending model/thinking changes when a run is active.
-- Clarify that choices are session-only in MVP.
+- Clarify whether choices are session-only or can be promoted to defaults.
 
 ### 5. Protocol Hardening
 
@@ -78,7 +80,7 @@ Build a reliable personal local web UI for Pi:
 
 ## Safety and Security
 
-MVP intentionally has no auth and binds to localhost by default. Before any non-localhost or multi-user use:
+The current app has no auth and binds to localhost by default. Before any non-localhost or multi-user use:
 
 - add authentication
 - add CSRF/origin checks as appropriate
@@ -89,7 +91,7 @@ MVP intentionally has no auth and binds to localhost by default. Before any non-
 
 Do not make the app network-accessible by default without this work.
 
-## Potential Post-MVP Features
+## Potential Future Features
 
 ### Multiple Clients
 
@@ -145,7 +147,7 @@ Potential packaging directions:
 
 ## Documentation To Keep Updated
 
-- `docs/plan.md`: product decisions and MVP scope.
+- `docs/plan.md`: product decisions and current baseline scope.
 - `docs/frontend.md`: frontend structure, theming, protocol handling.
 - `docs/backend.md`: backend architecture and Pi integration.
 - `AGENTS.md`: instructions for coding agents working in this repo.

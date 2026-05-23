@@ -1,31 +1,33 @@
-# Pi Web Agent MVP Plan
+# Pi Web Agent Product Plan
 
 ## 1. Goal
 
-Build a personal, local-first Web UI for a Pi-based AI coding agent.
+Build a personal, local-first agent application powered by the Pi SDK, with a browser UI for interaction.
 
-The product is initially a browser-accessible version of Pi for one local user. It should let the user run Pi against a chosen project directory, stream assistant output, inspect tool execution, approve dangerous operations from the browser, manage sessions, and switch model/thinking settings.
+The product began as a browser-accessible version of Pi for one local user. It should let the user run Pi against a chosen project directory, stream assistant output, inspect tool execution, approve dangerous operations from the browser, manage sessions, and switch model/thinking settings.
 
-This is **not** initially a multi-user SaaS or team platform.
+The project has moved beyond the original MVP planning phase. This document now records confirmed product and architecture decisions plus known baseline behavior. Larger runtime changes, including richer multi-session/server-agent behavior, should be added only after the design is finalized.
 
-## 2. Confirmed Decisions
+This is **not** currently a multi-user SaaS or team platform.
+
+## 2. Confirmed Decisions And Baseline
 
 ### Primary use case
 
-- Target: **personal local Web Pi**.
-- Not initially multi-user.
-- Not initially SaaS.
+- Target: **personal local/server-hosted Pi agent with a Web UI**.
+- Local-first remains the default trust model.
+- Multi-user SaaS/team behavior is not a confirmed product goal.
 
 ### Working directory
 
 - The agent operates on a **startup-specified `cwd`**.
-- The Web UI does not choose or switch project directories in MVP.
+- The Web UI does not currently choose or switch project directories.
 - Future cwd switching may require `createAgentSessionRuntime()` because cwd-bound resources need rebuilding.
 
 ### Framework and process model
 
 - Use **Nuxt**.
-- Use **Nuxt fullstack single process** for MVP.
+- Use **Nuxt fullstack single process** for the current implementation.
 - Pi SDK runs on the Nuxt/Nitro server side.
 - Frontend and backend communicate via WebSocket.
 
@@ -73,15 +75,15 @@ GET  /api/health
 
 ### WebSocket client policy
 
-- MVP allows **one active browser client**.
+- Current implementation allows **one active browser client**.
 - If a second client connects while one is active, reject the new connection.
 - Add heartbeat ping/pong to clean up dead connections.
 - Allow explicit force takeover as an escape hatch.
-- Post-MVP: support multiple tabs, likely multiple viewers plus one controller.
+- Multi-client behavior is an open design area.
 
 ### Security / binding
 
-- MVP has no login/auth.
+- Current implementation has no login/auth.
 - Default bind host should be `127.0.0.1`.
 - Allow env override, e.g. `HOST=0.0.0.0`, but print a strong warning because the app has no authentication.
 
@@ -92,34 +94,35 @@ GET  /api/health
   - `~/.pi/agent/auth.json`
   - environment variables
   - existing Pi settings/models
-- MVP does not implement API key management UI.
+- Current implementation does not implement API key management UI.
 
 ### Model and thinking settings
 
-- MVP supports model selection in Web UI.
+- The Web UI supports model selection.
 - Available models come from `modelRegistry.getAvailable()`.
 - Use `session.setModel(model)` to change model.
-- MVP supports thinking level selection via `session.setThinkingLevel(level)`.
+- The Web UI supports thinking level selection via `session.setThinkingLevel(level)`.
 - If the agent is currently running or has pending queued messages, model/thinking changes are queued and applied only after the current workflow is fully idle.
-- Model/thinking choices affect only the current session. They are not written to Pi settings in MVP.
+- Model/thinking choices affect only the current session. They are not written to Pi settings.
 
 ### Session behavior
 
-- MVP supports:
+- Current implementation supports:
   - new session
   - list sessions for current `cwd`
   - resume/open selected session
-- MVP starts with a **new session by default**.
+- The app starts with a **new session by default**.
 - Historical sessions are restored manually from the session list.
 - Session list scope: current `cwd` only, using `SessionManager.list(cwd)`.
 - When restoring a session, backend sends normalized history derived from `session.messages`.
 - If switching/new session while agent is running, show confirmation; if confirmed, abort current run, dispose old session, then switch.
-- MVP does not support true background multi-session execution.
-- MVP does not support fork/tree/clone.
+- Current implementation does not support true background multi-session execution.
+- Current implementation does not support fork/tree/clone.
+- Server-side multi-session runtime behavior is under design and should not be treated as finalized by this document.
 
 ### Pi SDK layer
 
-MVP can use `createAgentSession()` plus explicit service-level switching:
+Current implementation uses `createAgentSession()` plus explicit service-level switching:
 
 - create new session with `SessionManager.create(cwd)`
 - open existing session with `SessionManager.open(path)`
@@ -127,13 +130,13 @@ MVP can use `createAgentSession()` plus explicit service-level switching:
 - dispose old session on switch
 - rebind extensions and event subscriptions after each new/open
 
-Post-MVP may migrate to `createAgentSessionRuntime()` for first-class session replacement, fork, clone, and tree navigation.
+The project may migrate to `createAgentSessionRuntime()` or a server-side session registry for first-class session replacement, fork, clone, tree navigation, and richer multi-session behavior after the design is settled.
 
 ### Tools and permission model
 
 - Use full coding tool capability, but dangerous operations require approval.
 - Use `@gotgenes/pi-permission-system` as the permission engine.
-- Do not build a custom tool-wrapper approval layer for MVP.
+- Do not build a custom tool-wrapper approval layer unless the product plan explicitly changes.
 - Generate project-level permission config at startup if missing.
 - Dangerous defaults:
   - read-like tools: allow
@@ -198,13 +201,13 @@ When the user clicks Stop while an approval is pending:
 
 Approval timeout policy:
 
-- WebSocket disconnect cancels all pending approvals immediately.
+- Current implementation cancels pending approvals on WebSocket disconnect.
 - Pending approval also times out after a fixed duration, e.g. 5 minutes.
 - Timeout defaults to cancellation/deny, never allow.
 
 ### Events shown in UI
 
-MVP frontend displays:
+Current frontend displays or is expected to display:
 
 - assistant text streaming
 - tool lifecycle: start/update/end
@@ -213,7 +216,7 @@ MVP frontend displays:
 - queue state
 - errors
 
-MVP does not need a raw debug event panel.
+The app does not currently need a raw debug event panel.
 
 ### Message model
 
@@ -245,7 +248,7 @@ The frontend should not read session files directly.
 
 ### Queueing behavior
 
-MVP supports both:
+Current protocol supports both:
 
 - `steer`
 - `followUp`
@@ -267,22 +270,22 @@ Abort controls:
 ### Images
 
 - Protocol should reserve an `images` field.
-- MVP UI does not implement image upload/paste.
+- Current UI does not implement image upload/paste.
 
 ### File browser
 
-- MVP does not implement a file tree or file browser.
+- Current UI does not implement a file tree or file browser.
 - Users refer to paths in prompts; Pi tools handle file inspection.
 
 ### Diff display
 
-- MVP does not render diffs.
+- Current UI does not render diffs.
 - For `edit/write`, show only tool execution status/summary.
-- Post-MVP can add a diff viewer.
+- A future version can add a diff viewer.
 
 ### Logs and debugging
 
-- MVP logs to server console.
+- Current implementation logs to server console.
 - No debug panel initially.
 - `pi-permission-system` can keep its permission review log.
 
@@ -303,7 +306,7 @@ Do not encode system errors as assistant messages, because that pollutes Pi conv
 
 ### Responsive UI
 
-- MVP should have basic responsive behavior.
+- The UI should have basic responsive behavior.
 - Desktop browser remains the primary target.
 
 ## 3. Architecture
@@ -381,7 +384,7 @@ Implements Pi `ExtensionUIContext` server-side. Important methods:
 - `confirm(title, message)` → send `ui_confirm_request`, await response
 - `notify(message, type)` → send `ui_notify`
 
-TUI-specific methods can be no-ops for MVP.
+TUI-specific methods can be no-ops until the Web UI exposes equivalent surfaces.
 
 ### Permission config generator
 
@@ -394,7 +397,7 @@ At startup:
    <cwd>/.pi/extensions/pi-permission-system/
    ```
 
-3. If `config.json` does not exist, write default MVP config.
+3. If `config.json` does not exist, write the default project config.
 4. Do not overwrite an existing config.
 
 ## 5. WebSocket Protocol Draft
@@ -516,9 +519,9 @@ Use a frontend state store, likely Pinia, because the app needs centralized stat
 - thinking level
 - errors/toasts
 
-UI component library and visual design are deferred. The MVP UI only needs to support the required interaction surfaces.
+UI component library and visual design can evolve independently as long as the required interaction surfaces remain supported.
 
-## 7. MVP Scope
+## 7. Current Baseline Scope
 
 ### Included
 
@@ -560,9 +563,9 @@ UI component library and visual design are deferred. The MVP UI only needs to su
 - mobile-first design
 - writing model choices to Pi settings
 
-## 8. Post-MVP Roadmap
+## 8. Open Product Directions
 
-- True multi-session/runtime support:
+- Multi-session/runtime support:
   - background sessions
   - event routing per session
   - concurrent runs

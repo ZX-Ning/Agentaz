@@ -63,7 +63,7 @@ function modelKey(model: UiModel) {
 }
 
 function roleLabel(role: UiMessage['role']) {
-  if (role === 'assistant') return 'Pi'
+  if (role === 'assistant') return 'ai'
   if (role === 'user') return 'You'
   return role
 }
@@ -267,11 +267,10 @@ onBeforeUnmount(() => {
         <div class="mb-4 flex items-center justify-between px-2 pt-1">
           <div class="flex items-center gap-2">
             <div class="flex size-8 items-center justify-center rounded-lg bg-sidebar-primary text-sm font-semibold text-sidebar-primary-foreground">
-              π
+              AZ
             </div>
             <div>
               <div class="text-sm font-semibold">Agentaz</div>
-              <div class="text-xs text-muted-foreground">Local Pi agent</div>
             </div>
           </div>
         </div>
@@ -325,7 +324,7 @@ onBeforeUnmount(() => {
         <header class="flex h-14 shrink-0 items-center justify-between border-b border-border bg-background/90 px-4 backdrop-blur sm:px-6">
           <div class="min-w-0">
             <div class="flex items-center gap-2">
-              <h1 class="truncate text-base font-semibold">Pi Web Agent</h1>
+              <h1 class="truncate text-base font-semibold">Agentaz</h1>
               <UBadge :color="statusColor" variant="soft" size="xs" class="lg:hidden">{{ statusLabel }}</UBadge>
             </div>
           </div>

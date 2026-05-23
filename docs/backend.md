@@ -4,13 +4,15 @@ This document describes the Nitro backend for Agentaz.
 
 ## Scope
 
-The backend runs the Pi SDK server-side and exposes a browser-facing WebSocket protocol. The MVP is intentionally local-first and single-user:
+The backend runs the Pi SDK server-side and exposes a browser-facing WebSocket protocol. The current implementation is local-first and single-user by default:
 
 - one startup-configured working directory
 - one active browser client at a time
 - no authentication
 - local bind by default
 - dangerous tool approvals routed to the browser
+
+The product has moved beyond the original MVP planning phase. Treat this guide as documentation of the current backend shape, not as a permanent constraint on future server-side multi-session/runtime work.
 
 ## Main Files
 
@@ -41,7 +43,7 @@ runtimeConfig: {
 Important constraints:
 
 - `cwd` is startup-configured.
-- The web UI should not switch cwd in MVP.
+- The web UI does not currently switch cwd.
 - Non-localhost bind should warn because there is no auth.
 
 ## WebSocket Endpoint
@@ -73,7 +75,7 @@ The route should stay thin. Put connection/session logic in utilities, not the r
 - disposing service state on close/error
 - cancelling pending approvals when needed
 
-The hub is intentionally a process singleton for the MVP. Configuration is separated from lookup:
+The hub is currently a process singleton. Configuration is separated from lookup:
 
 ```ts
 setWsAgentHubConfig(options)
@@ -153,7 +155,7 @@ Do not remove the permission-system integration without updating `docs/plan.md`.
 
 ## Session Behavior
 
-MVP behavior:
+Current behavior:
 
 - start with a new session by default
 - list sessions for current cwd
@@ -162,6 +164,8 @@ MVP behavior:
 - no fork/tree UI
 
 When switching sessions while running, frontend should confirm. Backend should abort/dispose before switching when requested.
+
+Server-resident multi-session behavior is an open design area. Do not encode a new lifecycle model here until the product decision is finalized in `docs/plan.md`.
 
 ## Error Handling
 

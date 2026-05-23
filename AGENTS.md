@@ -4,7 +4,7 @@ Guidance for AI coding agents working in this repository.
 
 ## Project Summary
 
-Agentaz is a local-first Nuxt web UI for a Pi SDK-powered coding agent. The MVP is a personal browser version of Pi running against one startup-selected working directory.
+Agentaz is a local-first Nuxt app for a Pi SDK-powered coding agent with a browser UI. The project has moved beyond the original MVP phase; docs should distinguish current implementation constraints from future product decisions.
 
 Core architecture:
 
@@ -15,7 +15,7 @@ Core architecture:
 - `apps/web/server/utils/pi-agent-service.ts`: Pi SDK session orchestration.
 - `apps/web/server/utils/ws-agent-hub.ts`: process-wide WebSocket hub and single-client policy.
 - `apps/web/types/protocol.ts`: browser/server wire protocol types.
-- `docs/plan.md`: detailed MVP decisions and product plan.
+- `docs/plan.md`: confirmed product decisions and current baseline.
 
 ## Common Commands
 
@@ -41,9 +41,9 @@ Do not run `pnpm build` by default because it is slower. Run build only when req
 - Keep the app local-first and single-user unless explicitly asked otherwise.
 - Do not add authentication or multi-user concepts without updating docs/plan.
 - The backend should bind to `127.0.0.1` by default. Non-localhost bind is allowed only through env override and should warn loudly.
-- The WebSocket hub is intentionally a process singleton for the MVP.
+- The WebSocket hub is currently a process singleton.
 - There is only one active browser client at a time. `?force=1` may be used for takeover.
-- The agent `cwd` is startup-configured, not selected in the web UI for MVP.
+- The agent `cwd` is startup-configured and is not currently selected in the web UI.
 - Dangerous tool permissions should route through the web approval path, currently using `@gotgenes/pi-permission-system`.
 
 ## Code Style Expectations
@@ -103,10 +103,10 @@ pnpm smoke:backend
 
 Update docs when changing product decisions or architecture:
 
-- `docs/plan.md`: canonical MVP/product decisions.
+- `docs/plan.md`: canonical product decisions and current baseline.
 - `docs/frontend.md`: frontend implementation guidance.
 - `docs/backend.md`: backend implementation guidance.
-- `docs/roadmap.md`: post-MVP ideas and future direction.
+- `docs/roadmap.md`: future ideas and direction.
 
 ## Things Not To Do Without Asking
 
