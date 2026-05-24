@@ -88,6 +88,7 @@ class PiSessionController {
     private readonly getServices: () => Promise<AgentSessionServices>,
     private readonly send: SendEvent,
     private readonly approvalTimeoutMs: number,
+    private readonly onSessionMetadataChanged: () => void | Promise<void>,
   ) {}
 
   /** Creates a fresh persisted session for the configured working directory. */
@@ -98,8 +99,9 @@ class PiSessionController {
     getServices: () => Promise<AgentSessionServices>
     send: SendEvent
     approvalTimeoutMs: number
+    onSessionMetadataChanged: () => void | Promise<void>
   }) {
-    const controller = new PiSessionController(options.cwd, options.authStorage, options.modelRegistry, options.getServices, options.send, options.approvalTimeoutMs)
+    const controller = new PiSessionController(options.cwd, options.authStorage, options.modelRegistry, options.getServices, options.send, options.approvalTimeoutMs, options.onSessionMetadataChanged)
     const sessionManager = SessionManager.create(options.cwd)
     sessionManager.newSession()
     await controller.init(sessionManager)
@@ -114,9 +116,10 @@ class PiSessionController {
     getServices: () => Promise<AgentSessionServices>
     send: SendEvent
     approvalTimeoutMs: number
+    onSessionMetadataChanged: () => void | Promise<void>
     sessionFile: string
   }) {
-    const controller = new PiSessionController(options.cwd, options.authStorage, options.modelRegistry, options.getServices, options.send, options.approvalTimeoutMs)
+    const controller = new PiSessionController(options.cwd, options.authStorage, options.modelRegistry, options.getServices, options.send, options.approvalTimeoutMs, options.onSessionMetadataChanged)
     controller.sessionManager = SessionManager.open(options.sessionFile, undefined, options.cwd)
     return controller
   }
@@ -171,15 +174,18 @@ class PiSessionController {
     const session = this.session
     const sessionId = this.sessionId
     const sessionFile = this.sessionFile
+    const summary = summarizeSessionManager(this.requireSessionManager())
     return {
       file: sessionFile ?? sessionId,
+      ...summary,
       sessionId,
       sessionFile,
+      isWorking: this.isBusy(),
       isStreaming: session?.isStreaming ?? false,
       pendingMessageCount: session?.pendingMessageCount ?? 0,
       pendingApprovalCount: this.uiContext?.pendingCount ?? 0,
       controlledByClientId: this._controlledByClientId,
-      controlledByThisClient: true,
+      controlledByThisClient: this._controlledByClientId === _clientId,
     }
   }
 
@@ -406,9 +412,20 @@ class PiSessionController {
         case 'thinking_level_changed':
           this.sendStatus()
           break
+        case 'session_info_changed':
+          void this.notifySessionMetadataChanged()
+          break
       }
     } catch (error) {
       console.error('[pi-web] failed to forward session event', error)
+    }
+  }
+
+  private async notifySessionMetadataChanged() {
+    try {
+      await this.onSessionMetadataChanged()
+    } catch (error) {
+      console.error('[pi-web] failed to refresh session metadata', error)
     }
   }
 
@@ -748,7 +765,8 @@ export class PiSessionRegistry {
     task.catch((error) => {
       console.error('[pi-web] message task failed', error)
       this.broadcast({ type: 'error', code: 'message_failed', message: error instanceof Error ? error.message : String(error), recoverable: true })
-    }).finally(() => {
+    }).finally(async () => {
+      await this.refreshPersistedSessionCache()
       this.broadcastSnapshots()
     })
     this.broadcastSnapshots()
@@ -803,6 +821,7 @@ export class PiSessionRegistry {
       getServices: () => this.getServices(),
       send: (event) => this.broadcast(event),
       approvalTimeoutMs: this.options.approvalTimeoutMs,
+      onSessionMetadataChanged: () => this.refreshPersistedSessionCache().then(() => this.broadcastSnapshots()),
     })
     this.sessions.set(controller.sessionId, controller)
     controller.acquireControl(clientId)
@@ -828,6 +847,7 @@ export class PiSessionRegistry {
       getServices: () => this.getServices(),
       send: (event) => this.broadcast(event),
       approvalTimeoutMs: this.options.approvalTimeoutMs,
+      onSessionMetadataChanged: () => this.refreshPersistedSessionCache().then(() => this.broadcastSnapshots()),
       sessionFile: normalizedSessionFile,
     })
     this.sessions.set(controller.sessionId, controller)
@@ -1238,10 +1258,10 @@ function toPiImages(images?: ImagePayload[]): any[] | undefined {
 
 function toUiSessionSummary(info: any): UiSessionSummary {
   return {
-    file: info.file ?? info.path ?? info.sessionFile,
+    file: info.path ?? info.file ?? info.sessionFile,
     name: info.name,
-    createdAt: info.createdAt,
-    updatedAt: info.updatedAt ?? info.mtimeMs,
+    createdAt: toTimestamp(info.created ?? info.createdAt),
+    updatedAt: toTimestamp(info.modified ?? info.updatedAt ?? info.mtimeMs),
     firstMessage: info.firstMessage ?? info.preview,
   }
 }
@@ -1251,11 +1271,54 @@ function toUiModel(model: any): UiModel {
     provider: model.provider,
     id: model.id,
     name: model.name,
+    availableThinkingLevels: supportedThinkingLevels(model),
   }
 }
 
 function normalizeThinkingLevel(level: unknown): ThinkingLevel {
   return DEFAULT_THINKING_LEVELS.includes(level as ThinkingLevel) ? level as ThinkingLevel : 'off'
+}
+
+function supportedThinkingLevels(model: any): ThinkingLevel[] {
+  if (!model?.reasoning) return ['off']
+  return DEFAULT_THINKING_LEVELS.filter((level) => {
+    const mapped = model.thinkingLevelMap?.[level]
+    if (mapped === null) return false
+    if (level === 'xhigh') return mapped !== undefined
+    return true
+  })
+}
+
+function summarizeSessionManager(sessionManager: SessionManager): Omit<UiSessionSummary, 'file'> {
+  const header = sessionManager.getHeader()
+  const entries = sessionManager.getEntries()
+  const latestEntry = entries.at(-1)
+  return {
+    name: sessionManager.getSessionName(),
+    createdAt: toTimestamp(header?.timestamp),
+    updatedAt: toTimestamp(latestEntry?.timestamp ?? header?.timestamp),
+    firstMessage: firstUserMessage(entries),
+  }
+}
+
+function firstUserMessage(entries: any[]) {
+  for (const entry of entries) {
+    const message = entry?.type === 'message' ? entry.message : undefined
+    if (message?.role !== 'user') continue
+    const text = flattenText(message.content)
+    if (text) return text
+  }
+  return undefined
+}
+
+function toTimestamp(value: unknown): number | undefined {
+  if (typeof value === 'number') return value
+  if (value instanceof Date) return value.getTime()
+  if (typeof value === 'string') {
+    const timestamp = Date.parse(value)
+    return Number.isNaN(timestamp) ? undefined : timestamp
+  }
+  return undefined
 }
 
 function summarizeToolResult(result: unknown) {

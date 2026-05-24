@@ -38,6 +38,7 @@ type SessionListItem = {
   isDraft: boolean
   isLoaded: boolean
   isActive: boolean
+  isWorking: boolean
   isStreaming: boolean
   pendingApprovalCount: number
   title: string
@@ -101,6 +102,7 @@ const unifiedSessions = computed(() => {
       isDraft: true,
       isLoaded: false,
       isActive: true,
+      isWorking: false,
       isStreaming: false,
       pendingApprovalCount: 0,
       title: 'New session',
@@ -124,7 +126,7 @@ const unifiedSessions = computed(() => {
     list.push(toSessionListItem(loaded, loaded))
   }
 
-  return list.sort((left, right) => Number(right.isActive) - Number(left.isActive) || Number(right.isStreaming) - Number(left.isStreaming) || (right.updatedAt ?? 0) - (left.updatedAt ?? 0))
+  return list.sort((left, right) => (right.updatedAt ?? 0) - (left.updatedAt ?? 0))
 })
 
 async function handleSessionClick(session: SessionListItem) {
@@ -236,7 +238,7 @@ function createDraftSession() {
         models: previousModelState.models,
         currentModel: previousModelState.currentModel,
         thinkingLevel: previousModelState.thinkingLevel,
-        availableThinkingLevels: previousModelState.availableThinkingLevels,
+        availableThinkingLevels: [...previousModelState.availableThinkingLevels],
         pendingModelChange: false,
         pendingThinkingChange: false,
       }
@@ -251,6 +253,8 @@ function ensureDraftSession() {
 
 async function materializeDraftSession(draftSessionId: string) {
   const draftModelState = modelStateBySessionId.value[draftSessionId]
+  const draftModel = draftModelState?.currentModel ? { ...draftModelState.currentModel } : null
+  const draftThinkingLevel = draftModelState?.thinkingLevel
   const state = await agentFetch<SessionOperationResponse>('/api/agent/sessions', { method: 'POST' })
   const sessionId = state.sessionId ?? state.activeSessionId
   if (!sessionId) throw new Error('Backend did not return a created session id.')
@@ -262,12 +266,12 @@ async function materializeDraftSession(draftSessionId: string) {
   activeSessionId.value = sessionId
   applyState(state)
   activeSessionId.value = sessionId
-  if (draftModelState?.currentModel) {
-    const body: ModelSetRequest = { provider: draftModelState.currentModel.provider, id: draftModelState.currentModel.id }
+  if (draftModel) {
+    const body: ModelSetRequest = { provider: draftModel.provider, id: draftModel.id }
     applyModelState(await agentFetch<ModelStateResponse>(sessionUrl(sessionId, '/model'), { method: 'PUT', body }))
   }
-  if (draftModelState?.thinkingLevel) {
-    applyModelState(await agentFetch<ModelStateResponse>(sessionUrl(sessionId, '/thinking'), { method: 'PUT', body: { level: draftModelState.thinkingLevel } }))
+  if (draftThinkingLevel) {
+    applyModelState(await agentFetch<ModelStateResponse>(sessionUrl(sessionId, '/thinking'), { method: 'PUT', body: { level: draftThinkingLevel } }))
   }
   return sessionId
 }
@@ -287,7 +291,7 @@ function roleLabel(role: UiMessage['role']) {
 }
 
 function sessionTitle(session: UiLoadedSession | UiSessionSummary) {
-  return session.firstMessage || session.name || ('sessionId' in session ? session.sessionId.slice(0, 8) : 'Untitled session')
+  return session.name || session.firstMessage || ('sessionId' in session ? session.sessionId.slice(0, 8) : 'Untitled session')
 }
 
 function findLoadedSessionByFile(file: string, indexedByFile?: Map<string, UiLoadedSession>) {
@@ -306,10 +310,11 @@ function toSessionListItem(source: UiLoadedSession | UiSessionSummary, loaded?: 
     isDraft: false,
     isLoaded: Boolean(loaded),
     isActive: Boolean(sessionId && sessionId === activeSessionId.value),
+    isWorking: loaded?.isWorking ?? false,
     isStreaming: loaded?.isStreaming ?? false,
     pendingApprovalCount: loaded?.pendingApprovalCount ?? 0,
     title: loaded ? sessionTitle({ ...persisted, ...loaded }) : sessionTitle(source),
-    updatedAt: persisted?.updatedAt ?? persisted?.createdAt ?? ('updatedAt' in source ? source.updatedAt : undefined) ?? ('createdAt' in source ? source.createdAt : undefined),
+    updatedAt: loaded?.updatedAt ?? persisted?.updatedAt ?? persisted?.createdAt ?? ('updatedAt' in source ? source.updatedAt : undefined) ?? ('createdAt' in source ? source.createdAt : undefined),
   }
 }
 
@@ -423,8 +428,22 @@ function updateThinkingState(sessionId: string, level?: ThinkingLevel, levels?: 
   if (levels?.length) state.availableThinkingLevels = levels
   if (level) state.thinkingLevel = level
   if (!state.availableThinkingLevels.includes(state.thinkingLevel)) {
-    state.thinkingLevel = state.availableThinkingLevels[0] ?? 'off'
+    state.thinkingLevel = closestThinkingLevel(state.thinkingLevel, state.availableThinkingLevels)
   }
+}
+
+function closestThinkingLevel(level: ThinkingLevel, availableLevels: ThinkingLevel[]) {
+  if (availableLevels.includes(level)) return level
+  const requestedIndex = thinkingOptions.findIndex((option) => option.value === level)
+  for (let index = requestedIndex; index < thinkingOptions.length; index++) {
+    const option = thinkingOptions[index]
+    if (option && availableLevels.includes(option.value)) return option.value
+  }
+  for (let index = requestedIndex - 1; index >= 0; index--) {
+    const option = thinkingOptions[index]
+    if (option && availableLevels.includes(option.value)) return option.value
+  }
+  return availableLevels[0] ?? 'off'
 }
 
 async function handleModelSelect(value: unknown) {
@@ -436,6 +455,7 @@ async function handleModelSelect(value: unknown) {
     const state = ensureModelState(sessionId)
     state.currentModel = option.model
     state.pendingModelChange = false
+    updateThinkingState(sessionId, state.thinkingLevel, option.model.availableThinkingLevels)
     return
   }
 
@@ -486,6 +506,7 @@ function loadDummySession() {
       file: sessionId,
       sessionId,
       sessionFile: undefined,
+      isWorking: false,
       isStreaming: false,
       pendingMessageCount: 0,
       pendingApprovalCount: 0,
@@ -558,6 +579,7 @@ function upsertLoadedSession(sessionId: string, patch: Partial<UiLoadedSession>)
       file: patch.file ?? patch.sessionFile ?? sessionId,
       sessionId,
       sessionFile: patch.sessionFile,
+      isWorking: patch.isWorking ?? false,
       isStreaming: patch.isStreaming ?? false,
       pendingMessageCount: patch.pendingMessageCount ?? 0,
       pendingApprovalCount: patch.pendingApprovalCount ?? 0,
@@ -838,7 +860,7 @@ onBeforeUnmount(() => {
             <div class="mt-1 flex items-center justify-between gap-2 text-xs text-muted-foreground font-normal">
               <span class="truncate">{{ session.sessionId || session.file }}</span>
               <span v-if="session.isLoaded" class="text-[10px] uppercase font-semibold tracking-wider opacity-60">
-                {{ session.isActive ? 'opened' : 'working' }}
+                {{ session.isWorking ? 'working' : 'loaded' }}
               </span>
               <span v-else class="text-[10px] uppercase font-semibold tracking-wider opacity-60">
                 available

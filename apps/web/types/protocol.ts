@@ -45,6 +45,7 @@ export type UiSessionSummary = {
 export type UiLoadedSession = UiSessionSummary & {
   sessionId: string
   sessionFile?: string
+  isWorking: boolean
   isStreaming: boolean
   pendingMessageCount: number
   pendingApprovalCount: number
@@ -57,6 +58,7 @@ export type UiModel = {
   provider: string
   id: string
   name?: string
+  availableThinkingLevels?: ThinkingLevel[]
 }
 
 /** Shared capability flags exposed by the local agent backend. */
