@@ -17,6 +17,7 @@ const props = defineProps<{
   promptText: string;
   isStreaming: boolean;
   isConnected: boolean;
+  isDraftSession: boolean;
   modelOptions: ModelOption[];
   selectedModelKey: string;
   currentThinkingLevel: ThinkingLevel;
@@ -44,10 +45,10 @@ const maxHeight = 224;
 const maxVisibleModels = 50;
 
 const selectedModelLabel = computed(() => {
-  return (
-    props.modelOptions.find((option) => option.value === props.selectedModelKey)?.label ??
-    "Model loading..."
-  );
+  const selectedLabel = props.modelOptions.find((option) => option.value === props.selectedModelKey)?.label;
+  if (selectedLabel) return selectedLabel;
+  if (props.isDraftSession) return "Default model";
+  return "Model loading...";
 });
 
 const filteredModelOptions = computed(() => {

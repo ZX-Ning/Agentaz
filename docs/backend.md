@@ -57,6 +57,7 @@ Browser-initiated actions and snapshots use HTTP:
 
 ```txt
 GET    /api/agent/state
+GET    /api/agent/models
 POST   /api/agent/sessions
 POST   /api/agent/sessions/:sessionId/focus
 DELETE /api/agent/sessions/:sessionId
@@ -112,12 +113,21 @@ The first config wins. Reconfiguration with different values should fail loudly.
 `PiSessionRegistry` owns server-resident Pi SDK session lifecycle and browser-facing state:
 
 - create/open/list the loaded working set and available persisted sessions for the current cwd
+- return state and WebSocket hello/snapshots without creating a Pi session
+- return global model picker defaults without creating a Pi session
 - normalize Pi messages/events into `ServerEvent`
 - accept prompt/steer/follow-up over HTTP and stream output over WebSocket
 - abort and clear queue
 - return/set model and thinking state over HTTP
 - bind extension UI context
 - dispose loaded sessions explicitly
+
+The registry creates Pi SDK services once for the configured `cwd` and reuses those services across
+loaded sessions. This avoids reloading SDK extensions, skills, prompts, themes, and context files on
+every new session.
+
+For the performance investigation and measured SDK costs behind this choice, see
+`docs/session-performance.md`.
 
 Keep Pi SDK details out of the frontend and route handlers.
 
@@ -179,7 +189,8 @@ Do not remove the permission-system integration without updating `docs/plan.md`.
 
 Current behavior:
 
-- start with a new opened session by default
+- start with no loaded session unless one already exists in the process
+- create a real Pi session only when the frontend opens a persisted session or materializes a draft
 - list sessions for current cwd
 - open/resume selected session
 - keep loaded sessions server-resident across focus changes and WebSocket disconnects

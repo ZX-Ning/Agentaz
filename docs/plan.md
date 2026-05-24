@@ -52,6 +52,7 @@ Current HTTP endpoints:
 ```txt
 GET    /api/health
 GET    /api/agent/state
+GET    /api/agent/models
 POST   /api/agent/sessions
 POST   /api/agent/sessions/:sessionId/focus
 DELETE /api/agent/sessions/:sessionId
@@ -72,7 +73,10 @@ WS     /api/agent/ws
 - The server owns a small loaded Pi session working set in a process-wide `PiSessionRegistry`.
 - Loaded sessions stay resident across focus changes and WebSocket detach until the working set reaches `maxLoadedSessions`.
 - When the loaded-session cap is reached, the registry evicts one idle, non-active session before opening another persisted session.
-- The app creates an initial loaded session when needed.
+- Pi SDK services/resources are initialized once per configured `cwd` and reused across loaded sessions.
+- The backend does not create an initial loaded session for `GET /api/agent/state` or WebSocket attach.
+- The frontend represents startup/New session as a local draft and creates the real Pi session on the first user prompt.
+- Draft sessions fetch global model options without creating a Pi session and apply the selected model/thinking settings when materialized.
 - Users can create new sessions and open available persisted sessions for the configured `cwd`.
 - Session list scope is current `cwd`, using Pi `SessionManager.list(cwd)`.
 - Focusing a session changes the active browser view and then the frontend fetches history over HTTP.

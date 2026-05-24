@@ -35,6 +35,7 @@ type SessionListItem = {
   id: string
   file: string | null
   sessionId: string | null
+  isDraft: boolean
   isLoaded: boolean
   isActive: boolean
   isStreaming: boolean
@@ -43,6 +44,7 @@ type SessionListItem = {
   updatedAt?: number
 }
 
+const DRAFT_SESSION_PREFIX = 'draft-session-'
 const toast = useToast()
 const colorMode = useColorMode()
 const isDark = computed(() => colorMode.value === 'dark')
@@ -83,12 +85,28 @@ const thinkingOptions: Array<{ value: ThinkingLevel, label: string }> = [
 ]
 
 const activeLoadedSession = computed(() => loadedSessions.value.find((session) => session.sessionId === activeSessionId.value) ?? null)
+const isActiveDraftSession = computed(() => isDraftSessionId(activeSessionId.value))
 const activeMessages = computed(() => activeSessionId.value ? messagesBySessionId.value[activeSessionId.value] ?? [] : [])
 const activeModelState = computed(() => activeSessionId.value ? ensureModelState(activeSessionId.value) : defaultModelState())
 const activePendingUiRequests = computed(() => activeSessionId.value ? pendingUiRequestsBySessionId.value[activeSessionId.value] ?? [] : [])
 const unifiedSessions = computed(() => {
   const list: SessionListItem[] = []
   const loadedByFile = new Map<string, UiLoadedSession>()
+
+  if (isActiveDraftSession.value && activeSessionId.value) {
+    list.push({
+      id: activeSessionId.value,
+      file: null,
+      sessionId: activeSessionId.value,
+      isDraft: true,
+      isLoaded: false,
+      isActive: true,
+      isStreaming: false,
+      pendingApprovalCount: 0,
+      title: 'New session',
+      updatedAt: Date.now(),
+    })
+  }
 
   for (const session of loadedSessions.value) {
     const file = session.sessionFile ?? session.file
@@ -110,6 +128,11 @@ const unifiedSessions = computed(() => {
 })
 
 async function handleSessionClick(session: SessionListItem) {
+  if (session.isDraft && session.sessionId) {
+    activeSessionId.value = session.sessionId
+    isSidebarOpen.value = false
+    return
+  }
   if (session.isLoaded && session.sessionId) {
     await focusSessionAndClose(session.sessionId)
   } else if (session.file) {
@@ -130,7 +153,8 @@ const pendingThinkingChange = computed(() => activeModelState.value.pendingThink
 const isStreaming = computed(() => Boolean(activeLoadedSession.value?.isStreaming))
 const pendingMessageCount = computed(() => activeLoadedSession.value?.pendingMessageCount ?? 0)
 const pendingApprovalCount = computed(() => activeLoadedSession.value?.pendingApprovalCount ?? activePendingUiRequests.value.length)
-const canControlActiveSession = computed(() => Boolean(activeSessionId.value))
+const canControlActiveSession = computed(() => Boolean(activeLoadedSession.value))
+const canSubmitToActiveSession = computed(() => Boolean(activeSessionId.value))
 const hasMessages = computed(() => activeMessages.value.length > 0)
 const selectedModelKey = computed(() => currentModel.value ? modelKey(currentModel.value) : '')
 const visibleThinkingOptions = computed(() => {
@@ -194,6 +218,60 @@ function ensureMessageBucket(sessionId: string) {
   return messagesBySessionId.value[sessionId]
 }
 
+function isDraftSessionId(sessionId?: string | null) {
+  return Boolean(sessionId?.startsWith(DRAFT_SESSION_PREFIX))
+}
+
+function createDraftSessionId() {
+  return `${DRAFT_SESSION_PREFIX}${Date.now()}`
+}
+
+function createDraftSession() {
+  const previousModelState = activeSessionId.value ? modelStateBySessionId.value[activeSessionId.value] : undefined
+  const sessionId = createDraftSessionId()
+  activeSessionId.value = sessionId
+  ensureMessageBucket(sessionId)
+  modelStateBySessionId.value[sessionId] = previousModelState
+    ? {
+        models: previousModelState.models,
+        currentModel: previousModelState.currentModel,
+        thinkingLevel: previousModelState.thinkingLevel,
+        availableThinkingLevels: previousModelState.availableThinkingLevels,
+        pendingModelChange: false,
+        pendingThinkingChange: false,
+      }
+    : defaultModelState()
+  return sessionId
+}
+
+function ensureDraftSession() {
+  if (!activeSessionId.value) return createDraftSession()
+  return activeSessionId.value
+}
+
+async function materializeDraftSession(draftSessionId: string) {
+  const draftModelState = modelStateBySessionId.value[draftSessionId]
+  const state = await agentFetch<SessionOperationResponse>('/api/agent/sessions', { method: 'POST' })
+  const sessionId = state.sessionId ?? state.activeSessionId
+  if (!sessionId) throw new Error('Backend did not return a created session id.')
+
+  messagesBySessionId.value[sessionId] = messagesBySessionId.value[draftSessionId] ?? []
+  delete messagesBySessionId.value[draftSessionId]
+  modelStateBySessionId.value[sessionId] = modelStateBySessionId.value[draftSessionId] ?? defaultModelState()
+  delete modelStateBySessionId.value[draftSessionId]
+  activeSessionId.value = sessionId
+  applyState(state)
+  activeSessionId.value = sessionId
+  if (draftModelState?.currentModel) {
+    const body: ModelSetRequest = { provider: draftModelState.currentModel.provider, id: draftModelState.currentModel.id }
+    applyModelState(await agentFetch<ModelStateResponse>(sessionUrl(sessionId, '/model'), { method: 'PUT', body }))
+  }
+  if (draftModelState?.thinkingLevel) {
+    applyModelState(await agentFetch<ModelStateResponse>(sessionUrl(sessionId, '/thinking'), { method: 'PUT', body: { level: draftModelState.thinkingLevel } }))
+  }
+  return sessionId
+}
+
 function modelKey(model: UiModel) {
   return JSON.stringify([model.provider, model.id])
 }
@@ -225,6 +303,7 @@ function toSessionListItem(source: UiLoadedSession | UiSessionSummary, loaded?: 
     id: sessionId ?? sessionFile ?? sessionTitle(source),
     file: sessionFile,
     sessionId,
+    isDraft: false,
     isLoaded: Boolean(loaded),
     isActive: Boolean(sessionId && sessionId === activeSessionId.value),
     isStreaming: loaded?.isStreaming ?? false,
@@ -247,7 +326,7 @@ async function agentFetch<T>(url: string, options?: Parameters<typeof $fetch<T>>
 }
 
 function applyState(state: AgentStateResponse | SessionOperationResponse) {
-  activeSessionId.value = state.activeSessionId ?? null
+  activeSessionId.value = state.activeSessionId ?? (isDraftSessionId(activeSessionId.value) ? activeSessionId.value : null)
   loadedSessions.value = state.loadedSessions
   persistedSessions.value = state.persistedSessions
 }
@@ -266,10 +345,13 @@ async function refreshState() {
   applyState(state)
   if (state.activeSessionId) {
     await refreshSessionDetails(state.activeSessionId)
+  } else {
+    await refreshDraftModelState(ensureDraftSession())
   }
 }
 
 async function refreshSessionDetails(sessionId: string) {
+  if (isDraftSessionId(sessionId)) return
   await Promise.all([
     refreshHistory(sessionId),
     refreshModelState(sessionId),
@@ -277,13 +359,21 @@ async function refreshSessionDetails(sessionId: string) {
 }
 
 async function refreshHistory(sessionId: string) {
+  if (isDraftSessionId(sessionId)) return
   if (messagesBySessionId.value[sessionId]?.length) return
   const history = await agentFetch<SessionHistoryResponse>(sessionUrl(sessionId, '/history'))
   messagesBySessionId.value[sessionId] = history.messages
 }
 
 async function refreshModelState(sessionId: string) {
+  if (isDraftSessionId(sessionId)) return
   applyModelState(await agentFetch<ModelStateResponse>(sessionUrl(sessionId, '/models')))
+}
+
+async function refreshDraftModelState(sessionId: string) {
+  if (!isDraftSessionId(sessionId) || modelStateBySessionId.value[sessionId]?.models.length) return
+  const state = await agentFetch<ModelStateResponse>('/api/agent/models')
+  applyModelState({ ...state, sessionId })
 }
 
 async function postSessionOperation(path: string, options?: Parameters<typeof $fetch<SessionOperationResponse>>[1]) {
@@ -293,7 +383,7 @@ async function postSessionOperation(path: string, options?: Parameters<typeof $f
 }
 
 async function sendPrompt() {
-  const sessionId = activeSessionId.value
+  let sessionId = activeSessionId.value
   const text = promptText.value.trim()
   if (!sessionId || !text) return
 
@@ -305,6 +395,10 @@ async function sendPrompt() {
     createdAt: Date.now(),
   })
 
+  if (isDraftSessionId(sessionId)) {
+    sessionId = await materializeDraftSession(sessionId)
+  }
+
   const body: MessageSubmitRequest = { mode: 'prompt', text }
   await agentFetch(sessionUrl(sessionId, '/messages'), { method: 'POST', body })
   promptText.value = ''
@@ -313,7 +407,7 @@ async function sendPrompt() {
 async function submitComposer() {
   const sessionId = activeSessionId.value
   if (!sessionId) return
-  if (isStreaming.value) {
+  if (!isDraftSessionId(sessionId) && isStreaming.value) {
     await agentFetch(sessionUrl(sessionId, '/abort'), { method: 'POST' })
     return
   }
@@ -338,6 +432,12 @@ async function handleModelSelect(value: unknown) {
   if (!sessionId || typeof value !== 'string') return
   const option = modelOptions.value.find((item) => item.value === value)
   if (!option || modelKey(option.model) === selectedModelKey.value) return
+  if (isDraftSessionId(sessionId)) {
+    const state = ensureModelState(sessionId)
+    state.currentModel = option.model
+    state.pendingModelChange = false
+    return
+  }
 
   const body: ModelSetRequest = { provider: option.model.provider, id: option.model.id }
   applyModelState(await agentFetch<ModelStateResponse>(sessionUrl(sessionId, '/model'), { method: 'PUT', body }))
@@ -346,6 +446,10 @@ async function handleModelSelect(value: unknown) {
 async function handleThinkingSelect(value: unknown) {
   const sessionId = activeSessionId.value
   if (!sessionId || !isThinkingLevel(value)) return
+  if (isDraftSessionId(sessionId)) {
+    updateThinkingState(sessionId, value)
+    return
+  }
   applyModelState(await agentFetch<ModelStateResponse>(sessionUrl(sessionId, '/thinking'), { method: 'PUT', body: { level: value } }))
 }
 
@@ -354,7 +458,7 @@ function isThinkingLevel(value: unknown): value is ThinkingLevel {
 }
 
 async function createSession() {
-  await postSessionOperation('/api/agent/sessions', { method: 'POST' })
+  await refreshDraftModelState(createDraftSession())
 }
 
 async function openPersistedSession(sessionFile: string) {
@@ -424,19 +528,26 @@ async function focusSessionAndClose(sessionId: string) {
 }
 
 async function acquireSession(sessionId = activeSessionId.value) {
-  if (sessionId) await postSessionOperation(sessionUrl(sessionId, '/control'), { method: 'POST', body: { action: 'acquire' } })
+  if (sessionId && !isDraftSessionId(sessionId)) await postSessionOperation(sessionUrl(sessionId, '/control'), { method: 'POST', body: { action: 'acquire' } })
 }
 
 async function releaseSession(sessionId = activeSessionId.value) {
-  if (sessionId) await postSessionOperation(sessionUrl(sessionId, '/control'), { method: 'POST', body: { action: 'release' } })
+  if (sessionId && !isDraftSessionId(sessionId)) await postSessionOperation(sessionUrl(sessionId, '/control'), { method: 'POST', body: { action: 'release' } })
 }
 
 async function clearActiveQueue() {
-  if (activeSessionId.value) await agentFetch(sessionUrl(activeSessionId.value, '/queue/clear'), { method: 'POST' })
+  if (activeSessionId.value && !isDraftSessionId(activeSessionId.value)) await agentFetch(sessionUrl(activeSessionId.value, '/queue/clear'), { method: 'POST' })
 }
 
 async function closeActiveSession() {
   if (!activeSessionId.value) return
+  if (isDraftSessionId(activeSessionId.value)) {
+    delete messagesBySessionId.value[activeSessionId.value]
+    delete modelStateBySessionId.value[activeSessionId.value]
+    activeSessionId.value = null
+    ensureDraftSession()
+    return
+  }
   await postSessionOperation(`${sessionUrl(activeSessionId.value)}?abortCurrent=1`, { method: 'DELETE' })
 }
 
@@ -544,10 +655,12 @@ function handleEvent(event: ServerEvent) {
 
   if (event.type === 'sessions_snapshot') {
     const previousActiveSessionId = activeSessionId.value
-    activeSessionId.value = event.activeSessionId ?? activeSessionId.value
+    if (!isDraftSessionId(activeSessionId.value)) {
+      activeSessionId.value = event.activeSessionId ?? activeSessionId.value
+    }
     loadedSessions.value = event.loadedSessions
     if (event.persistedSessions.length > 0) persistedSessions.value = event.persistedSessions
-    if (activeSessionId.value && activeSessionId.value !== previousActiveSessionId) {
+    if (activeSessionId.value && !isDraftSessionId(activeSessionId.value) && activeSessionId.value !== previousActiveSessionId) {
       void refreshSessionDetails(activeSessionId.value)
     }
     return
@@ -764,7 +877,7 @@ onBeforeUnmount(() => {
                 </UBadge>
               </div>
               <div class="truncate text-xs text-muted-foreground font-normal">
-                {{ activeSessionId ? `Session ${activeSessionId}` : 'No active session' }}
+                {{ isActiveDraftSession ? 'New session' : activeSessionId ? `Session ${activeSessionId}` : 'No active session' }}
               </div>
             </div>
           </div>
@@ -823,7 +936,7 @@ onBeforeUnmount(() => {
                     </div>
                   </div>
 
-                  <div v-if="activeSessionId" class="pt-3 border-t border-border space-y-2">
+                  <div v-if="activeLoadedSession" class="pt-3 border-t border-border space-y-2">
                     <div class="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">
                       Session Control
                     </div>
@@ -1114,7 +1227,8 @@ onBeforeUnmount(() => {
           <MessageComposer
             :prompt-text="promptText"
             :is-streaming="isStreaming"
-            :is-connected="status === 'connected' && canControlActiveSession"
+            :is-connected="status === 'connected' && canSubmitToActiveSession"
+            :is-draft-session="isActiveDraftSession"
             :model-options="modelOptions"
             :selected-model-key="selectedModelKey"
             :current-thinking-level="currentThinkingLevel"

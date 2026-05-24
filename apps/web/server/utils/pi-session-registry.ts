@@ -1,8 +1,10 @@
 import {
   AuthStorage,
-  createAgentSession,
+  createAgentSessionFromServices,
+  createAgentSessionServices,
   ModelRegistry,
   SessionManager,
+  type AgentSessionServices,
   type CreateAgentSessionResult,
 } from '@earendil-works/pi-coding-agent'
 import { resolve } from 'node:path'
@@ -83,6 +85,7 @@ class PiSessionController {
     private readonly cwd: string,
     private readonly authStorage: ReturnType<typeof AuthStorage.create>,
     private readonly modelRegistry: ReturnType<typeof ModelRegistry.create>,
+    private readonly getServices: () => Promise<AgentSessionServices>,
     private readonly send: SendEvent,
     private readonly approvalTimeoutMs: number,
   ) {}
@@ -92,10 +95,11 @@ class PiSessionController {
     cwd: string
     authStorage: ReturnType<typeof AuthStorage.create>
     modelRegistry: ReturnType<typeof ModelRegistry.create>
+    getServices: () => Promise<AgentSessionServices>
     send: SendEvent
     approvalTimeoutMs: number
   }) {
-    const controller = new PiSessionController(options.cwd, options.authStorage, options.modelRegistry, options.send, options.approvalTimeoutMs)
+    const controller = new PiSessionController(options.cwd, options.authStorage, options.modelRegistry, options.getServices, options.send, options.approvalTimeoutMs)
     const sessionManager = SessionManager.create(options.cwd)
     sessionManager.newSession()
     await controller.init(sessionManager)
@@ -107,11 +111,12 @@ class PiSessionController {
     cwd: string
     authStorage: ReturnType<typeof AuthStorage.create>
     modelRegistry: ReturnType<typeof ModelRegistry.create>
+    getServices: () => Promise<AgentSessionServices>
     send: SendEvent
     approvalTimeoutMs: number
     sessionFile: string
   }) {
-    const controller = new PiSessionController(options.cwd, options.authStorage, options.modelRegistry, options.send, options.approvalTimeoutMs)
+    const controller = new PiSessionController(options.cwd, options.authStorage, options.modelRegistry, options.getServices, options.send, options.approvalTimeoutMs)
     controller.sessionManager = SessionManager.open(options.sessionFile, undefined, options.cwd)
     return controller
   }
@@ -326,10 +331,8 @@ class PiSessionController {
   private async initializeSession() {
     await ensurePermissionConfig(this.cwd)
 
-    this.sessionResult = await createAgentSession({
-      cwd: this.cwd,
-      authStorage: this.authStorage,
-      modelRegistry: this.modelRegistry,
+    this.sessionResult = await createAgentSessionFromServices({
+      services: await this.getServices(),
       sessionManager: this.requireSessionManager(),
     })
 
@@ -573,23 +576,42 @@ class PiSessionController {
 export class PiSessionRegistry {
   private authStorage = AuthStorage.create()
   private modelRegistry = ModelRegistry.create(this.authStorage)
+  private servicesPromise?: Promise<AgentSessionServices>
   private sessions = new Map<string, PiSessionController>()
   private clients = new Map<string, WsPeer>()
   private activeSessionByClient = new Map<string, string>()
   private lastActiveSessionId?: string
   private persistedSessionCache: UiSessionSummary[] = []
 
-  constructor(private readonly options: RegistryOptions) {}
+  constructor(private readonly options: RegistryOptions) {
+    void this.getServices().catch((error) => {
+      console.error('[pi-web] failed to prewarm Pi SDK services', error)
+    })
+  }
+
+  /** Returns SDK services shared by all loaded sessions for the configured cwd. */
+  private getServices() {
+    this.servicesPromise ??= createAgentSessionServices({
+      cwd: this.options.cwd,
+      authStorage: this.authStorage,
+      modelRegistry: this.modelRegistry,
+    }).catch((error) => {
+      this.servicesPromise = undefined
+      throw error
+    })
+    return this.servicesPromise
+  }
 
   /** Attaches a browser client and sends its initial session snapshot. */
   async attachClient(peer: WsPeer) {
     const clientId = this.getClientId(peer)
     this.clients.set(clientId, peer)
-    const hadLoadedSessions = this.sessions.size > 0
-    const initial = await this.ensureInitialSession(clientId)
-    this.activeSessionByClient.set(clientId, initial.sessionId)
-    if (!hadLoadedSessions && !initial.controlledByClientId) {
-      initial.acquireControl(clientId)
+    const active = this.sessionForClient(clientId, this.lastActiveSessionId, false)
+    if (active) {
+      this.activeSessionByClient.set(clientId, active.sessionId)
+      if (!active.controlledByClientId) {
+        active.acquireControl(clientId)
+      }
     }
     await this.refreshPersistedSessionCache()
     this.sendHello(clientId)
@@ -609,7 +631,6 @@ export class PiSessionRegistry {
 
   /** Returns the current lightweight backend state for HTTP clients. */
   async getState(clientId = LOCAL_CLIENT_ID): Promise<AgentStateResponse> {
-    await this.ensureInitialSession(clientId)
     return {
       protocolVersion: PROTOCOL_VERSION,
       cwd: this.options.cwd,
@@ -691,6 +712,16 @@ export class PiSessionRegistry {
     return this.sessionForClient(LOCAL_CLIENT_ID, sessionId).getModelState()
   }
 
+  /** Returns model picker defaults without creating or initializing a Pi session. */
+  getDefaultModelState(): ModelStateResponse {
+    return {
+      sessionId: '',
+      models: this.modelRegistry.getAvailable().map(toUiModel),
+      thinkingLevel: 'off',
+      availableThinkingLevels: DEFAULT_THINKING_LEVELS,
+    }
+  }
+
   /** Sets the model for one loaded session and returns the updated HTTP model state. */
   async setSessionModel(sessionId: string, provider: string, id: string): Promise<ModelStateResponse> {
     const state = await this.mutableSession(sessionId).setModel(provider, id)
@@ -762,12 +793,6 @@ export class PiSessionRegistry {
     await Promise.all(controllers.map((controller) => controller.dispose()))
   }
 
-  private async ensureInitialSession(clientId: string) {
-    const existing = this.sessionForClient(clientId, this.lastActiveSessionId, false)
-    if (existing) return existing
-    return this.createSession(clientId)
-  }
-
   private async createSession(clientId: string) {
     await this.releaseOneAvailableSessionIfAtCapacity()
     this.assertCanLoadAnotherSession()
@@ -775,6 +800,7 @@ export class PiSessionRegistry {
       cwd: this.options.cwd,
       authStorage: this.authStorage,
       modelRegistry: this.modelRegistry,
+      getServices: () => this.getServices(),
       send: (event) => this.broadcast(event),
       approvalTimeoutMs: this.options.approvalTimeoutMs,
     })
@@ -799,6 +825,7 @@ export class PiSessionRegistry {
       cwd: this.options.cwd,
       authStorage: this.authStorage,
       modelRegistry: this.modelRegistry,
+      getServices: () => this.getServices(),
       send: (event) => this.broadcast(event),
       approvalTimeoutMs: this.options.approvalTimeoutMs,
       sessionFile: normalizedSessionFile,
