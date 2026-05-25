@@ -737,8 +737,8 @@ function upsertLoadedSession(
       isStreaming: patch.isStreaming ?? false,
       pendingMessageCount: patch.pendingMessageCount ?? 0,
       pendingApprovalCount: patch.pendingApprovalCount ?? 0,
-      controlledByClientId: patch.controlledByClientId,
-      controlledByThisClient: patch.controlledByThisClient,
+      controlOwnerClientId: patch.controlOwnerClientId,
+      controlledByCurrentClient: patch.controlledByCurrentClient,
     });
     return;
   }
@@ -862,17 +862,19 @@ function handleEvent(event: ServerEvent) {
   if (event.type === "hello") {
     hello.value = event;
     clientId.value = event.clientId;
+    applyState(event.state);
     return;
   }
 
-  if (event.type === "sessions_snapshot") {
+  if (event.type === "state_snapshot") {
     const previousActiveSessionId = activeSessionId.value;
+    const state = event.state;
     if (!isDraftSessionId(activeSessionId.value)) {
-      activeSessionId.value = event.activeSessionId ?? activeSessionId.value;
+      activeSessionId.value = state.activeSessionId ?? activeSessionId.value;
     }
-    loadedSessions.value = event.loadedSessions;
-    if (event.persistedSessions.length > 0)
-      persistedSessions.value = event.persistedSessions;
+    loadedSessions.value = state.loadedSessions;
+    if (state.persistedSessions.length > 0)
+      persistedSessions.value = state.persistedSessions;
     if (
       activeSessionId.value &&
       !isDraftSessionId(activeSessionId.value) &&
@@ -883,19 +885,10 @@ function handleEvent(event: ServerEvent) {
     return;
   }
 
-  if (event.type === "active_session_changed") {
-    activeSessionId.value = event.sessionId;
+  if (event.type === "control_changed") {
     upsertLoadedSession(event.sessionId, {
-      file: event.sessionFile ?? event.sessionId,
-      sessionFile: event.sessionFile,
-    });
-    return;
-  }
-
-  if (event.type === "session_control_changed") {
-    upsertLoadedSession(event.sessionId, {
-      controlledByClientId: event.controlledByClientId,
-      controlledByThisClient: event.controlledByThisClient,
+      controlOwnerClientId: event.controlOwnerClientId,
+      controlledByCurrentClient: event.controlOwnerClientId === clientId.value,
     });
     return;
   }

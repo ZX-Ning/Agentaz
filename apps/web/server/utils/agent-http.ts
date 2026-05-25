@@ -5,18 +5,11 @@ import {
   readBody,
   type H3Event,
 } from "h3";
-import { getPiSessionRegistry } from "./pi-session-registry";
-import { setWsAgentHubConfig } from "./ws-agent-hub";
+import { getAgentRuntime } from "./agent-runtime";
 
-/** Configures and returns the process-wide agent registry for an HTTP or WebSocket request. */
+/** Configures and returns the process-wide Pi session workspace for an HTTP request. */
 export function getConfiguredAgentRegistry() {
-  const config = useRuntimeConfig();
-  setWsAgentHubConfig({
-    cwd: String(config.piWeb.cwd),
-    approvalTimeoutMs: Number(config.piWeb.approvalTimeoutMs),
-    maxLoadedSessions: Number(config.piWeb.maxLoadedSessions),
-  });
-  return getPiSessionRegistry();
+  return getAgentRuntime().workspace;
 }
 
 /** Reads a required route parameter or throws a structured HTTP error. */

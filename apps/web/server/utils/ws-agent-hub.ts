@@ -1,41 +1,48 @@
 import type { ServerEvent } from "../../types/protocol";
-import {
-  getPiSessionRegistry,
-  setPiSessionRegistryConfig,
-} from "./pi-session-registry";
+import type { AgentEventBus, AgentRuntimeEvent } from "./agent-event-bus";
+import type { ClientPresence } from "./client-presence";
+import type { SessionProjector } from "./session-projector";
 
-/** Startup options shared by WebSocket handlers and the process-wide session registry. */
-type HubOptions = {
-  cwd: string;
-  approvalTimeoutMs: number;
-  maxLoadedSessions?: number;
+/** Minimal WebSocket peer surface needed by the realtime hub. */
+export type WsPeer = {
+  id?: string;
+  send: (data: string) => void;
 };
 
 /**
- * Browser WebSocket connection manager for the server-resident Pi session registry.
+ * Browser WebSocket connection manager for realtime agent events.
  *
- * The hub owns client attachment and heartbeat snapshots. It deliberately does
- * not own Pi session lifetime: closing a browser connection detaches that client and releases its
- * per-session control leases, while loaded sessions continue running in the registry.
+ * The hub owns peer lifecycle and event forwarding only. Session lifecycle lives in
+ * PiSessionWorkspace, and client focus/control state lives in ClientPresence.
  */
 export class WsAgentHub {
-  private peers = new Set<WsPeer>();
+  private peers = new Map<string, WsPeer>();
   private heartbeat?: NodeJS.Timeout;
+  private unsubscribe?: () => void;
 
-  constructor(private readonly options: HubOptions) {}
+  constructor(
+    private readonly eventBus: AgentEventBus,
+    private readonly presence: ClientPresence,
+    private readonly projector: SessionProjector,
+  ) {}
 
-  /** Opens a browser connection and attaches it to the process-wide session registry. */
+  /** Opens a browser connection, attaches presence, and sends the initial state snapshot. */
   async open(peer: WsPeer, _force = false) {
-    this.peers.add(peer);
-    await getPiSessionRegistry().attachClient(peer);
+    const clientId = this.getClientId(peer);
+    this.peers.set(clientId, peer);
+    this.presence.attachClient(clientId);
+    await this.projector.refresh();
+    this.send(peer, this.projector.hello(clientId));
+    this.sendStateSnapshot(clientId);
+    this.startEventSubscription();
     this.startHeartbeat();
   }
 
   /** Rejects legacy application commands because browser-initiated actions now use HTTP. */
   async message(peer: WsPeer, raw: unknown) {
-    if (!this.peers.has(peer)) return;
+    if (!this.peers.has(this.getClientId(peer))) return;
     console.warn(
-      "[pi-web] ignored legacy websocket command",
+      "[agentaz-server] ignored legacy websocket command",
       String(raw).slice(0, 200),
     );
     this.send(peer, {
@@ -48,16 +55,71 @@ export class WsAgentHub {
 
   /** Detaches a browser client without aborting or disposing loaded Pi sessions. */
   async close(peer: WsPeer) {
-    if (!this.peers.has(peer)) return;
-    this.peers.delete(peer);
-    getPiSessionRegistry().detachClient(peer);
+    const clientId = this.getClientId(peer);
+    if (!this.peers.has(clientId)) return;
+    this.peers.delete(clientId);
+    const changedSessionIds = this.presence.detachClient(clientId);
+    for (const sessionId of changedSessionIds) this.broadcastControl(sessionId);
+    this.broadcastStateSnapshots();
     if (this.peers.size === 0) this.stopHeartbeat();
   }
 
   /** Logs a WebSocket error and detaches the failed browser client. */
   async error(peer: WsPeer, error: unknown) {
-    console.error("[pi-web] websocket error", error);
+    console.error("[agentaz-server] websocket error", error);
     await this.close(peer);
+  }
+
+  private startEventSubscription() {
+    if (this.unsubscribe) return;
+    this.unsubscribe = this.eventBus.subscribe((event) =>
+      this.handleRuntimeEvent(event),
+    );
+  }
+
+  private handleRuntimeEvent(event: AgentRuntimeEvent) {
+    if (event.type === "server_event") {
+      this.broadcast(event.event);
+      return;
+    }
+    if (event.type === "control_changed") {
+      this.broadcast({
+        type: "control_changed",
+        sessionId: event.sessionId,
+        controlOwnerClientId: event.controlOwnerClientId,
+      });
+      this.broadcastStateSnapshots();
+      return;
+    }
+    if (event.type === "session_removed") {
+      return;
+    }
+    this.broadcastStateSnapshots();
+  }
+
+  private broadcastStateSnapshots() {
+    for (const clientId of this.peers.keys()) this.sendStateSnapshot(clientId);
+  }
+
+  private sendStateSnapshot(clientId: string) {
+    const peer = this.peers.get(clientId);
+    if (!peer) return;
+    this.send(peer, {
+      type: "state_snapshot",
+      state: this.projector.getState(clientId),
+    });
+  }
+
+  private broadcastControl(sessionId: string) {
+    this.broadcast({
+      type: "control_changed",
+      sessionId,
+      controlOwnerClientId: this.presence.ownerOf(sessionId),
+    });
+  }
+
+  private broadcast(event: ServerEvent) {
+    for (const peer of this.peers.values()) this.send(peer, event);
   }
 
   private send(peer: WsPeer, event: ServerEvent) {
@@ -66,55 +128,16 @@ export class WsAgentHub {
 
   private startHeartbeat() {
     if (this.heartbeat) return;
-    this.heartbeat = setInterval(() => {
-      getPiSessionRegistry().pushSnapshots();
-    }, 15_000);
+    this.heartbeat = setInterval(() => this.broadcastStateSnapshots(), 15_000);
   }
 
   private stopHeartbeat() {
     if (this.heartbeat) clearInterval(this.heartbeat);
     this.heartbeat = undefined;
   }
-}
 
-let hub: WsAgentHub | undefined;
-let hubOptions: HubOptions | undefined;
-
-/**
- * Sets the process-wide WebSocket hub and session registry configuration.
- *
- * The first call fixes runtime configuration for the current process. Repeating the call with the same
- * values is allowed so route handlers can be idempotent, but changing values after initialization fails
- * loudly instead of reusing a registry with stale cwd or approval timeout settings.
- */
-export function setWsAgentHubConfig(options: HubOptions) {
-  if (!hubOptions) {
-    hubOptions = options;
-    setPiSessionRegistryConfig({
-      cwd: options.cwd,
-      approvalTimeoutMs: options.approvalTimeoutMs,
-      maxLoadedSessions: options.maxLoadedSessions,
-    });
-    return;
+  private getClientId(peer: WsPeer) {
+    if (!peer.id) peer.id = crypto.randomUUID();
+    return peer.id;
   }
-
-  if (
-    hubOptions.cwd !== options.cwd ||
-    hubOptions.approvalTimeoutMs !== options.approvalTimeoutMs ||
-    hubOptions.maxLoadedSessions !== options.maxLoadedSessions
-  ) {
-    throw new Error(
-      "WsAgentHub configuration cannot be changed after it has been set.",
-    );
-  }
-}
-
-/** Returns the process-wide WebSocket hub used by Nitro route handlers. */
-export function getWsAgentHub() {
-  if (!hubOptions) {
-    throw new Error("WsAgentHub configuration has not been set.");
-  }
-
-  hub ??= new WsAgentHub(hubOptions);
-  return hub;
 }

@@ -1,5 +1,5 @@
 /** Current wire protocol version used by the browser and backend handshake. */
-export const PROTOCOL_VERSION = 3;
+export const PROTOCOL_VERSION = 4;
 
 /** Supported Pi thinking levels exposed through the web UI. */
 export type ThinkingLevel =
@@ -61,8 +61,8 @@ export type UiLoadedSession = UiSessionSummary & {
   isStreaming: boolean;
   pendingMessageCount: number;
   pendingApprovalCount: number;
-  controlledByClientId?: string;
-  controlledByThisClient?: boolean;
+  controlOwnerClientId?: string;
+  controlledByCurrentClient?: boolean;
 };
 
 /** Model metadata needed by the browser model picker. */
@@ -89,17 +89,10 @@ export type AgentCapabilities = {
 /** Initial server-to-client handshake that declares protocol version and backend capabilities. */
 export type ServerHello = {
   type: "hello";
-  protocolVersion: 3;
+  protocolVersion: 4;
   cwd: string;
-  activeSessionId?: string;
-  loadedSessions: UiLoadedSession[];
-  persistedSessions: UiSessionSummary[];
   clientId: string;
-  /** Legacy alias for the active session while older clients migrate to v3. */
-  sessionId: string;
-  /** Legacy alias for the active session file while older clients migrate to v3. */
-  sessionFile?: string;
-  capabilities: AgentCapabilities;
+  state: AgentStateResponse;
 };
 
 /** Standard error event used for recoverable and fatal backend failures. */
@@ -114,17 +107,13 @@ export type ServerErrorEvent = {
 export type ServerEvent =
   | ServerHello
   | {
-      type: "sessions_snapshot";
-      activeSessionId?: string;
-      loadedSessions: UiLoadedSession[];
-      persistedSessions: UiSessionSummary[];
+      type: "state_snapshot";
+      state: AgentStateResponse;
     }
-  | { type: "active_session_changed"; sessionId: string; sessionFile?: string }
   | {
-      type: "session_control_changed";
+      type: "control_changed";
       sessionId: string;
-      controlledByClientId?: string;
-      controlledByThisClient: boolean;
+      controlOwnerClientId?: string;
     }
   | { type: "message_upsert"; sessionId: string; message: UiMessage }
   | {
@@ -197,7 +186,7 @@ export type ServerEvent =
 
 /** Full backend state snapshot returned by HTTP. */
 export type AgentStateResponse = {
-  protocolVersion: 3;
+  protocolVersion: 4;
   cwd: string;
   activeSessionId?: string;
   loadedSessions: UiLoadedSession[];

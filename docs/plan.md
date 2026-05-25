@@ -34,7 +34,11 @@ Important backend pieces:
 ```txt
 apps/web/server/api/agent/                HTTP agent API routes
 apps/web/server/routes/api/agent/ws.ts    WebSocket event route
-apps/web/server/utils/pi-session-registry.ts
+apps/web/server/utils/agent-runtime.ts
+apps/web/server/utils/pi-session-workspace.ts
+apps/web/server/utils/client-presence.ts
+apps/web/server/utils/session-projector.ts
+apps/web/server/utils/agent-event-bus.ts
 apps/web/server/utils/ws-agent-hub.ts
 apps/web/server/utils/extension-ui-context.ts
 apps/web/server/utils/permission-config.ts
@@ -70,9 +74,9 @@ WS     /api/agent/ws
 
 ### Session Behavior
 
-- The server owns a small loaded Pi session working set in a process-wide `PiSessionRegistry`.
+- The server owns a small loaded Pi session working set in a process-wide `PiSessionWorkspace`.
 - Loaded sessions stay resident across focus changes and WebSocket detach until the working set reaches `maxLoadedSessions`.
-- When the loaded-session cap is reached, the registry evicts one idle, non-active session before opening another persisted session.
+- When the loaded-session cap is reached, the workspace evicts one idle, non-active session before opening another persisted session.
 - Pi SDK services/resources are initialized once per configured `cwd` and reused across loaded sessions.
 - The backend does not create an initial loaded session for `GET /api/agent/state` or WebSocket attach.
 - The frontend represents startup/New session as a local draft and creates the real Pi session on the first user prompt.
@@ -147,7 +151,11 @@ Browser / Nuxt Frontend
 Nuxt/Nitro Server
   ├─ HTTP agent routes
   ├─ WebSocket route /api/agent/ws
-  ├─ PiSessionRegistry
+  ├─ AgentRuntime
+  ├─ PiSessionWorkspace
+  ├─ ClientPresence
+  ├─ SessionProjector
+  ├─ AgentEventBus
   ├─ WsAgentHub
   ├─ WebExtensionUIContext
   ├─ Permission config generator
@@ -196,9 +204,8 @@ WebSocket is server-to-client for realtime events. Browser commands should not b
 Current important events:
 
 - `hello`
-- `sessions_snapshot`
-- `active_session_changed`
-- `session_control_changed`
+- `state_snapshot`
+- `control_changed`
 - `message_upsert`
 - `message_block_upsert`
 - `message_block_delta`
@@ -227,7 +234,7 @@ REST-only data must not be emitted as WS result events:
 - server-side Pi SDK integration
 - HTTP agent API for actions and snapshots
 - WebSocket server event stream
-- process-wide server-resident working session registry
+- process-wide server-resident working session workspace
 - new/open/focus/close sessions, with capped server-resident loaded session retention
 - persisted session listing for current `cwd`
 - history loading over HTTP

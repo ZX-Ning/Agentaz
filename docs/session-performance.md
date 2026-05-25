@@ -89,9 +89,9 @@ Measured SDK costs with this split:
 - `createAgentSessionServices`: about `988ms`.
 - `createAgentSessionFromServices` for new sessions after services are ready: about `0.3ms` to `3ms`.
 
-Agentaz now keeps a process-wide `PiSessionRegistry` with a cached services promise for the configured `cwd`. Session controllers use those services instead of calling full `createAgentSession()` for every loaded session.
+Agentaz now keeps a process-wide `PiSessionWorkspace` with a cached services promise for the configured `cwd`. Session controllers use those services instead of calling full `createAgentSession()` for every loaded session.
 
-The registry also starts service initialization in the background when it is constructed. The first user request can still wait for this work if it arrives before prewarm finishes, but subsequent session creation should not reload SDK extensions.
+The workspace also starts service initialization in the background when it is constructed. The first user request can still wait for this work if it arrives before prewarm finishes, but subsequent session creation should not reload SDK extensions.
 
 ## Debugging Guidance
 

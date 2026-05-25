@@ -2,6 +2,8 @@
 
 This document describes the Nitro backend for Agentaz.
 
+For server runtime diagrams, see `docs/server-runtime-architecture.md`.
+
 ## Scope
 
 The backend runs the Pi SDK server-side and exposes browser-facing HTTP APIs plus a WebSocket event stream. The current implementation is local-first and single-user by default:
@@ -20,7 +22,11 @@ The product has moved beyond the original MVP planning phase. Treat this guide a
 apps/web/server/api/health.get.ts
 apps/web/server/api/agent/
 apps/web/server/routes/api/agent/ws.ts
-apps/web/server/utils/pi-session-registry.ts
+apps/web/server/utils/agent-runtime.ts
+apps/web/server/utils/pi-session-workspace.ts
+apps/web/server/utils/client-presence.ts
+apps/web/server/utils/session-projector.ts
+apps/web/server/utils/agent-event-bus.ts
 apps/web/server/utils/ws-agent-hub.ts
 apps/web/server/utils/extension-ui-context.ts
 apps/web/server/utils/permission-config.ts
@@ -46,7 +52,7 @@ Important constraints:
 
 - `cwd` is startup-configured.
 - `maxLoadedSessions` limits the in-memory working set. Loaded sessions stay resident across focus
-  changes; when the cap is reached, the registry evicts one idle, non-active session before loading
+  changes; when the cap is reached, the workspace evicts one idle, non-active session before loading
   another available session.
 - The web UI does not currently switch cwd.
 - Non-localhost bind should warn because there is no auth.
@@ -71,7 +77,7 @@ POST   /api/agent/sessions/:sessionId/queue/clear
 POST   /api/agent/sessions/:sessionId/ui-requests/:requestId/response
 ```
 
-Route files should stay thin. Put session/runtime behavior in `PiSessionRegistry`, not the route layer.
+Route files should stay thin. Put session/runtime behavior in the runtime services, not the route layer.
 
 ## WebSocket Endpoint
 
@@ -83,8 +89,7 @@ Endpoint:
 
 Responsibilities:
 
-- Read Nuxt runtime config during `open`.
-- Configure the process-wide WebSocket hub.
+- Resolve the configured `AgentRuntime`.
 - Forward lifecycle events to `WsAgentHub`.
 - Emit realtime server events to connected browser subscribers.
 
@@ -97,23 +102,30 @@ The route should stay thin. Put connection/session logic in utilities, not the r
 - client attach/detach
 - heartbeat snapshots
 - rejecting legacy WebSocket command messages
-- leaving loaded session lifecycle to `PiSessionRegistry` when browsers disconnect
+- leaving loaded session lifecycle to `PiSessionWorkspace` when browsers disconnect
 
-The hub is currently a process singleton. Configuration is separated from lookup:
+The hub is owned by the process-wide `AgentRuntime`. Configuration is centralized there:
 
 ```ts
-setWsAgentHubConfig(options);
-getWsAgentHub();
+configureAgentRuntime(options); // startup plugin
+getAgentRuntime().hub;          // routes/helpers
 ```
 
 The first config wins. Reconfiguration with different values should fail loudly.
 
-## PiSessionRegistry
+## Agent Runtime Services
 
-`PiSessionRegistry` owns server-resident Pi SDK session lifecycle and browser-facing state:
+`AgentRuntime` is the process-wide composition root. It owns:
+
+- `PiSessionWorkspace`: Pi SDK services and loaded session lifecycle.
+- `ClientPresence`: browser client ids, focus, and control leases.
+- `SessionProjector`: client-specific HTTP/WS state snapshots.
+- `AgentEventBus`: typed in-process pub/sub between session runtime and realtime transport.
+- `WsAgentHub`: WebSocket peer lifecycle and event forwarding.
+
+`PiSessionWorkspace` owns server-resident Pi SDK session lifecycle:
 
 - create/open/list the loaded working set and available persisted sessions for the current cwd
-- return state and WebSocket hello/snapshots without creating a Pi session
 - return global model picker defaults without creating a Pi session
 - normalize Pi messages/events into `ServerEvent`
 - accept prompt/steer/follow-up over HTTP and stream output over WebSocket
@@ -122,7 +134,7 @@ The first config wins. Reconfiguration with different values should fail loudly.
 - bind extension UI context
 - dispose loaded sessions explicitly
 
-The registry creates Pi SDK services once for the configured `cwd` and reuses those services across
+The workspace creates Pi SDK services once for the configured `cwd` and reuses those services across
 loaded sessions. This avoids reloading SDK extensions, skills, prompts, themes, and context files on
 every new session.
 
@@ -150,9 +162,8 @@ Rules:
 Current important server events include:
 
 - `hello`
-- `sessions_snapshot`
-- `active_session_changed`
-- `session_control_changed`
+- `state_snapshot`
+- `control_changed`
 - `message_upsert`
 - `message_block_upsert`
 - `message_block_delta`
@@ -231,7 +242,7 @@ The smoke test assumes the dev server is already running. It checks:
 - health endpoint
 - REST state/history/models/session lifecycle endpoints
 - lightweight control, queue clear, and abort endpoints
-- WebSocket `hello` and `sessions_snapshot`
+- WebSocket `hello` and `state_snapshot`
 - that REST-only payloads such as history/model list are not emitted over WebSocket
 
 ## Verification

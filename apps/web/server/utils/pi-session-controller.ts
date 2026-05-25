@@ -20,14 +20,8 @@ import type {
 import { WebExtensionUIContext } from "./extension-ui-context";
 import { ensurePermissionConfig } from "./permission-config";
 
-/** Minimal WebSocket peer surface needed by the session registry. */
-export type WsPeer = {
-  id?: string;
-  send: (data: string) => void;
-};
-
-/** Emits a normalized server event to connected browser clients. */
-export type SendEvent = (event: ServerEvent) => void;
+/** Emits a normalized server event to the runtime event bus. */
+export type EmitEvent = (event: ServerEvent) => void;
 
 /** Model and thinking-level changes requested while a session is still busy. */
 type PendingSettings = {
@@ -65,7 +59,6 @@ export class PiSessionController {
   private unsubscribe?: () => void;
   private uiContext?: WebExtensionUIContext;
   private pendingSettings: PendingSettings = {};
-  private _controlledByClientId?: string;
   private currentAssistantMessageId: string = crypto.randomUUID();
   private currentTextBlockId?: string;
   private currentThinkingBlockId?: string;
@@ -80,7 +73,7 @@ export class PiSessionController {
     private readonly authStorage: ReturnType<typeof AuthStorage.create>,
     private readonly modelRegistry: ReturnType<typeof ModelRegistry.create>,
     private readonly getServices: () => Promise<AgentSessionServices>,
-    private readonly send: SendEvent,
+    private readonly emit: EmitEvent,
     private readonly approvalTimeoutMs: number,
     private readonly onSessionMetadataChanged: () => void | Promise<void>,
   ) {}
@@ -91,7 +84,7 @@ export class PiSessionController {
     authStorage: ReturnType<typeof AuthStorage.create>;
     modelRegistry: ReturnType<typeof ModelRegistry.create>;
     getServices: () => Promise<AgentSessionServices>;
-    send: SendEvent;
+    emit: EmitEvent;
     approvalTimeoutMs: number;
     onSessionMetadataChanged: () => void | Promise<void>;
   }) {
@@ -100,7 +93,7 @@ export class PiSessionController {
       options.authStorage,
       options.modelRegistry,
       options.getServices,
-      options.send,
+      options.emit,
       options.approvalTimeoutMs,
       options.onSessionMetadataChanged,
     );
@@ -116,7 +109,7 @@ export class PiSessionController {
     authStorage: ReturnType<typeof AuthStorage.create>;
     modelRegistry: ReturnType<typeof ModelRegistry.create>;
     getServices: () => Promise<AgentSessionServices>;
-    send: SendEvent;
+    emit: EmitEvent;
     approvalTimeoutMs: number;
     onSessionMetadataChanged: () => void | Promise<void>;
     sessionFile: string;
@@ -126,7 +119,7 @@ export class PiSessionController {
       options.authStorage,
       options.modelRegistry,
       options.getServices,
-      options.send,
+      options.emit,
       options.approvalTimeoutMs,
       options.onSessionMetadataChanged,
     );
@@ -157,31 +150,6 @@ export class PiSessionController {
     );
   }
 
-  /** Current client that may mutate this session, if any. */
-  get controlledByClientId() {
-    return this._controlledByClientId;
-  }
-
-  /** Acquires mutation control for a client unless another connected client owns it. */
-  acquireControl(clientId: string) {
-    if (this._controlledByClientId && this._controlledByClientId !== clientId) {
-      throw new Error("Session is controlled by another browser client.");
-    }
-    this._controlledByClientId = clientId;
-  }
-
-  /** Releases mutation control if it is currently owned by the given client. */
-  releaseControl(clientId: string) {
-    if (this._controlledByClientId === clientId) {
-      this._controlledByClientId = undefined;
-    }
-  }
-
-  /** Releases mutation control regardless of owner. */
-  clearControl() {
-    this._controlledByClientId = undefined;
-  }
-
   /** Returns whether the session must remain loaded because work is still in flight. */
   isBusy() {
     return (
@@ -192,7 +160,7 @@ export class PiSessionController {
   }
 
   /** Converts this loaded session into a browser sidebar/status row. */
-  toLoadedSession(_clientId: string): UiLoadedSession {
+  toLoadedSession(): UiLoadedSession {
     const session = this.session;
     const sessionId = this.sessionId;
     const sessionFile = this.sessionFile;
@@ -206,8 +174,6 @@ export class PiSessionController {
       isStreaming: session?.isStreaming ?? false,
       pendingMessageCount: session?.pendingMessageCount ?? 0,
       pendingApprovalCount: this.uiContext?.pendingCount ?? 0,
-      controlledByClientId: this._controlledByClientId,
-      controlledByThisClient: this._controlledByClientId === _clientId,
     };
   }
 
@@ -247,14 +213,14 @@ export class PiSessionController {
   async clearQueue() {
     await this.ensureInitialized();
     const cleared = this.requireSession().clearQueue();
-    this.send({
+    this.emit({
       type: "queue_update",
       sessionId: this.sessionId,
       steering: [],
       followUp: [],
     });
     this.sendStatus();
-    console.log("[pi-web] cleared queue", cleared);
+    console.log("[agentaz-server] cleared queue", cleared);
   }
 
   /** Returns the model list and current model state for this session. */
@@ -360,15 +326,6 @@ export class PiSessionController {
   }
 
   /** Sends lightweight active-session and status events for a focused loaded session. */
-  sendFocusState(send: SendEvent = this.send) {
-    send({
-      type: "active_session_changed",
-      sessionId: this.sessionId,
-      sessionFile: this.sessionFile,
-    });
-    this.sendStatus(send);
-  }
-
   private async init(sessionManager: SessionManager) {
     this.sessionManager = sessionManager;
     await this.ensureInitialized();
@@ -397,14 +354,14 @@ export class PiSessionController {
     const session = this.requireSession();
     this.uiContext = new WebExtensionUIContext(
       session.sessionId,
-      this.send,
+      this.emit,
       this.approvalTimeoutMs,
     );
     await session.bindExtensions({
       uiContext: this.uiContext as any,
       onError: (error) => {
-        console.error("[pi-web] extension error", error);
-        this.send({
+        console.error("[agentaz-server] extension error", error);
+        this.emit({
           type: "error",
           code: "extension_error",
           message: error instanceof Error ? error.message : String(error),
@@ -457,7 +414,7 @@ export class PiSessionController {
           this.invalidateHistoryCache();
           break;
         case "queue_update":
-          this.send({
+          this.emit({
             type: "queue_update",
             sessionId,
             steering: [...event.steering],
@@ -485,7 +442,7 @@ export class PiSessionController {
           break;
       }
     } catch (error) {
-      console.error("[pi-web] failed to forward session event", error);
+      console.error("[agentaz-server] failed to forward session event", error);
     }
   }
 
@@ -493,7 +450,7 @@ export class PiSessionController {
     try {
       await this.onSessionMetadataChanged();
     } catch (error) {
-      console.error("[pi-web] failed to refresh session metadata", error);
+      console.error("[agentaz-server] failed to refresh session metadata", error);
     }
   }
 
@@ -530,7 +487,7 @@ export class PiSessionController {
         ? this.ensureTextBlock(sessionId, message)
         : this.ensureThinkingBlock(sessionId, message);
     block.text += delta;
-    this.send({
+    this.emit({
       type: "message_block_delta",
       sessionId,
       messageId: message.id,
@@ -571,7 +528,7 @@ export class PiSessionController {
       status,
     };
     this.upsertBlock(message, block);
-    this.send({
+    this.emit({
       type: "message_block_upsert",
       sessionId,
       messageId: message.id,
@@ -597,7 +554,7 @@ export class PiSessionController {
       isError,
     };
     this.upsertBlock(message, resultBlock);
-    this.send({
+    this.emit({
       type: "message_block_upsert",
       sessionId,
       messageId: message.id,
@@ -621,7 +578,7 @@ export class PiSessionController {
         createdAt: Date.now(),
       };
       this.transcript.set(messageId, message);
-      this.send({ type: "message_upsert", sessionId, message });
+      this.emit({ type: "message_upsert", sessionId, message });
     }
     return message;
   }
@@ -655,7 +612,7 @@ export class PiSessionController {
         ? { id: blockId, type: "text", text: "" }
         : { id: blockId, type: "thinking", text: "", collapsed: true };
     this.upsertBlock(message, block);
-    this.send({
+    this.emit({
       type: "message_block_upsert",
       sessionId,
       messageId: message.id,
@@ -703,14 +660,14 @@ export class PiSessionController {
   private flushCurrentAssistantMessage(sessionId: string) {
     const message = this.transcript.get(this.currentAssistantMessageId);
     if (message) {
-      this.send({ type: "message_upsert", sessionId, message });
+      this.emit({ type: "message_upsert", sessionId, message });
     }
   }
 
-  private sendStatus(send: SendEvent = this.send) {
+  private sendStatus(emit: EmitEvent = this.emit) {
     const session = this.session;
     if (!session) return;
-    send({
+    emit({
       type: "status",
       sessionId: session.sessionId,
       isStreaming: session.isStreaming,
