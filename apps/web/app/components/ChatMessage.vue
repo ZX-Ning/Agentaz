@@ -1,11 +1,25 @@
 <script setup lang="ts">
 import security from "@comark/nuxt/plugins/security";
-import { ref } from "vue";
+import { computed, ref } from "vue";
 import type { UiBlock, UiMessage } from "../../types/protocol";
 
 type MarkdownNode =
   | string
   | [string | null, Record<string, unknown>, ...MarkdownNode[]];
+
+type ToolCallBlock = Extract<UiBlock, { type: "tool_call" }>;
+type ToolResultBlock = Extract<UiBlock, { type: "tool_result" }>;
+type RenderBlock =
+  | Exclude<UiBlock, { type: "tool_call" | "tool_result" }>
+  | {
+      id: string;
+      type: "tool";
+      toolCallId: string;
+      toolName: string;
+      status: ToolCallBlock["status"];
+      input: unknown;
+      result?: ToolResultBlock;
+    };
 
 const props = defineProps<{
   message: UiMessage;
@@ -50,6 +64,49 @@ const allowedMarkdownTags = new Set([
   "tr",
   "ul",
 ]);
+const renderedBlocks = computed<RenderBlock[]>(() => {
+  const resultByCallId = new Map<string, ToolResultBlock>();
+  const callIds = new Set<string>();
+
+  for (const block of props.message.blocks) {
+    if (block.type === "tool_call") callIds.add(block.toolCallId);
+    if (block.type === "tool_result") resultByCallId.set(block.toolCallId, block);
+  }
+
+  return props.message.blocks.flatMap((block): RenderBlock[] => {
+    if (block.type === "tool_call") {
+      const result = resultByCallId.get(block.toolCallId);
+      return [
+        {
+          id: block.id,
+          type: "tool",
+          toolCallId: block.toolCallId,
+          toolName: block.toolName || "tool",
+          status: result?.isError ? "error" : block.status,
+          input: block.input,
+          result,
+        },
+      ];
+    }
+
+    if (block.type === "tool_result") {
+      if (callIds.has(block.toolCallId)) return [];
+      return [
+        {
+          id: block.id,
+          type: "tool",
+          toolCallId: block.toolCallId,
+          toolName: "tool",
+          status: block.isError ? "error" : "completed",
+          input: undefined,
+          result: block,
+        },
+      ];
+    }
+
+    return [block];
+  });
+});
 
 function getBlockKey(block: UiBlock, index: number): string {
   return block.id || `${props.message.id}-${index}`;
@@ -64,6 +121,108 @@ function isBlockCollapsed(key: string, defaultState = true) {
 
 function toggleBlock(key: string) {
   collapsedStates.value[key] = !collapsedStates.value[key];
+}
+
+function toolCardKey(block: Extract<RenderBlock, { type: "tool" }>) {
+  return `${block.id}:combined`;
+}
+
+function toolStatusLabel(status: ToolCallBlock["status"]) {
+  if (status === "pending") return "pending";
+  if (status === "running") return "running";
+  if (status === "completed") return "done";
+  if (status === "error") return "error";
+  return "blocked";
+}
+
+function formatToolInput(input: unknown) {
+  if (input === undefined || input === null) return "No input.";
+  if (isEmptyObject(input)) return "No input.";
+  return formatHumanReadable(input);
+}
+
+function formatToolResult(result?: ToolResultBlock) {
+  if (!result) return "Waiting for output.";
+  if (!result.content.trim()) return result.isError ? "No error details." : "No output.";
+  return formatHumanReadable(result.content);
+}
+
+function formatHumanReadable(value: unknown, depth = 0): string {
+  const parsed = parseJsonString(value);
+  if (parsed !== value) return formatHumanReadable(parsed, depth);
+
+  if (value === null) return "null";
+  if (value === undefined) return "";
+  if (typeof value === "string") return value.trimEnd();
+  if (typeof value === "number" || typeof value === "boolean")
+    return String(value);
+  if (Array.isArray(value)) return formatArray(value, depth);
+  if (typeof value === "object") return formatObject(value, depth);
+  return String(value);
+}
+
+function formatArray(values: unknown[], depth: number) {
+  if (values.length === 0) return "None.";
+  if (values.every(isPrimitiveValue)) {
+    return values.map((value) => formatHumanReadable(value, depth)).join(", ");
+  }
+
+  const prefix = "  ".repeat(depth);
+  return values
+    .map((value) => {
+      const formatted = formatHumanReadable(value, depth + 1);
+      if (!formatted.includes("\n")) return `${prefix}- ${formatted}`;
+      return `${prefix}- ${formatted.replaceAll("\n", `\n${prefix}  `)}`;
+    })
+    .join("\n");
+}
+
+function formatObject(value: object, depth: number) {
+  const entries = Object.entries(value).filter(([, item]) => item !== undefined);
+  if (entries.length === 0) return "None.";
+
+  const prefix = "  ".repeat(depth);
+  return entries
+    .map(([key, item]) => {
+      const label = humanizeKey(key);
+      const formatted = formatHumanReadable(item, depth + 1);
+      if (!formatted.includes("\n")) return `${prefix}${label}: ${formatted}`;
+      return `${prefix}${label}:\n${formatted}`;
+    })
+    .join("\n");
+}
+
+function parseJsonString(value: unknown) {
+  if (typeof value !== "string") return value;
+  const trimmed = value.trim();
+  if (!trimmed || (!trimmed.startsWith("{") && !trimmed.startsWith("[")))
+    return value;
+
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    return value;
+  }
+}
+
+function humanizeKey(key: string) {
+  return key
+    .replace(/[_-]+/g, " ")
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function isPrimitiveValue(value: unknown) {
+  return value === null || ["string", "number", "boolean"].includes(typeof value);
+}
+
+function isEmptyObject(value: unknown) {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    !Array.isArray(value) &&
+    Object.keys(value).length === 0
+  );
 }
 
 function formatTime(timestamp?: number) {
@@ -165,7 +324,7 @@ function filterMarkdownAttributes(
       </div>
 
       <div class="space-y-1">
-        <div v-for="(block, index) in message.blocks" :key="block.id">
+        <div v-for="(block, index) in renderedBlocks" :key="block.id">
           <!-- Text Block -->
           <div v-if="block.type === 'text'">
             <div
@@ -247,9 +406,9 @@ function filterMarkdownAttributes(
             </div>
           </div>
 
-          <!-- Tool Call Block -->
+          <!-- Tool Block -->
           <div
-            v-else-if="block.type === 'tool_call'"
+            v-else-if="block.type === 'tool'"
             class="my-1.5 rounded-lg border overflow-hidden"
             :class="{
               'border-amber-500/30 bg-amber-50/5 dark:bg-amber-950/5':
@@ -266,7 +425,7 @@ function filterMarkdownAttributes(
             <button
               type="button"
               class="flex w-full items-center gap-2 px-3 py-2 text-xs font-semibold hover:bg-muted/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring/35"
-              @click="toggleBlock(getBlockKey(block, index))"
+              @click="toggleBlock(toolCardKey(block))"
             >
               <UIcon
                 name="i-lucide-wrench"
@@ -293,11 +452,11 @@ function filterMarkdownAttributes(
                   }[block.status] as any
                 "
               >
-                {{ block.status }}
+                {{ toolStatusLabel(block.status) }}
               </UBadge>
               <UIcon
                 :name="
-                  isBlockCollapsed(getBlockKey(block, index), true)
+                  isBlockCollapsed(toolCardKey(block), true)
                     ? 'i-lucide-chevron-right'
                     : 'i-lucide-chevron-down'
                 "
@@ -305,60 +464,50 @@ function filterMarkdownAttributes(
               />
             </button>
             <div
-              v-show="!isBlockCollapsed(getBlockKey(block, index), true)"
-              class="border-t border-border/30 p-3"
+              v-show="!isBlockCollapsed(toolCardKey(block), true)"
+              class="border-t border-border/30 p-3 space-y-3"
             >
-              <pre
-                class="overflow-x-auto text-xs text-foreground/80 font-mono whitespace-pre-wrap break-all leading-relaxed"
-                >{{ JSON.stringify(block.input, null, 2) }}</pre
-              >
-            </div>
-          </div>
-
-          <!-- Tool Result Block -->
-          <div
-            v-else-if="block.type === 'tool_result'"
-            class="my-1.5 rounded-lg border overflow-hidden"
-            :class="
-              block.isError
-                ? 'border-red-500/30 bg-red-50/5 dark:bg-red-950/5'
-                : 'border-border bg-slate-950'
-            "
-          >
-            <button
-              type="button"
-              class="flex w-full items-center gap-2 px-3 py-2 text-xs font-semibold focus:outline-none focus-visible:ring-2 focus-visible:ring-ring/35"
-              :class="
-                block.isError
-                  ? 'text-red-600 dark:text-red-400 hover:bg-red-50/20'
-                  : 'text-slate-400 hover:bg-slate-900'
-              "
-              @click="toggleBlock(getBlockKey(block, index))"
-            >
-              <UIcon name="i-lucide-terminal" class="size-4 shrink-0" />
-              <span>{{ block.isError ? "Tool Error" : "Tool Result" }}</span>
-              <UIcon
-                :name="
-                  isBlockCollapsed(getBlockKey(block, index), true)
-                    ? 'i-lucide-chevron-right'
-                    : 'i-lucide-chevron-down'
-                "
-                class="size-3 shrink-0 opacity-60 ml-auto"
-              />
-            </button>
-            <div
-              v-show="!isBlockCollapsed(getBlockKey(block, index), true)"
-              class="border-t border-border/10 p-3"
-            >
-              <pre
-                class="overflow-y-auto max-h-72 whitespace-pre-wrap break-all text-xs font-mono leading-relaxed"
-                :class="
-                  block.isError
-                    ? 'text-red-700/80 dark:text-red-300/80'
-                    : 'text-slate-100'
-                "
-                >{{ block.content }}</pre
-              >
+              <section class="space-y-1.5">
+                <div
+                  class="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground"
+                >
+                  <UIcon name="i-lucide-arrow-down-to-line" class="size-3.5" />
+                  <span>Input</span>
+                </div>
+                <pre
+                  class="overflow-x-auto whitespace-pre-wrap break-words rounded-md bg-background/60 p-2.5 text-xs leading-relaxed text-foreground/80 font-mono"
+                  >{{ formatToolInput(block.input) }}</pre
+                >
+              </section>
+              <section class="space-y-1.5">
+                <div
+                  class="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide"
+                  :class="
+                    block.result?.isError
+                      ? 'text-red-600 dark:text-red-400'
+                      : 'text-muted-foreground'
+                  "
+                >
+                  <UIcon
+                    :name="
+                      block.result?.isError
+                        ? 'i-lucide-circle-alert'
+                        : 'i-lucide-arrow-up-from-line'
+                    "
+                    class="size-3.5"
+                  />
+                  <span>{{ block.result?.isError ? "Error" : "Output" }}</span>
+                </div>
+                <pre
+                  class="overflow-y-auto max-h-72 whitespace-pre-wrap break-words rounded-md bg-background/60 p-2.5 text-xs leading-relaxed font-mono"
+                  :class="
+                    block.result?.isError
+                      ? 'text-red-700/90 dark:text-red-300/90'
+                      : 'text-foreground/80'
+                  "
+                  >{{ formatToolResult(block.result) }}</pre
+                >
+              </section>
             </div>
           </div>
         </div>
