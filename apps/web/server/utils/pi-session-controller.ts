@@ -972,6 +972,7 @@ export function toPiImages(images?: ImagePayload[]): any[] | undefined {
 export function toUiSessionSummary(info: any): UiSessionSummary {
   return {
     file: info.path ?? info.file ?? info.sessionFile,
+    sessionId: info.id ?? info.sessionId,
     name: info.name,
     createdAt: toTimestamp(info.created ?? info.createdAt),
     updatedAt: toTimestamp(info.modified ?? info.updatedAt ?? info.mtimeMs),

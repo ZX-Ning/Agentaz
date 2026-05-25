@@ -1,5 +1,5 @@
 /** Current wire protocol version used by the browser and backend handshake. */
-export const PROTOCOL_VERSION = 5;
+export const PROTOCOL_VERSION = 6;
 
 /** Supported Pi thinking levels exposed through the web UI. */
 export type ThinkingLevel =
@@ -47,6 +47,7 @@ export type UiMessage = {
 /** Summary row for the current working directory's persisted Pi sessions. */
 export type UiSessionSummary = {
   file: string;
+  sessionId?: string;
   name?: string;
   createdAt?: number;
   updatedAt?: number;
@@ -54,7 +55,7 @@ export type UiSessionSummary = {
 };
 
 /** Runtime state for a Pi session currently loaded in the server process. */
-export type UiLoadedSession = UiSessionSummary & {
+export type UiLoadedSession = Omit<UiSessionSummary, "sessionId"> & {
   sessionId: string;
   sessionFile?: string;
   isWorking: boolean;
@@ -97,7 +98,7 @@ export type AgentCapabilities = {
 /** Initial server-to-client handshake that declares protocol version and backend capabilities. */
 export type ServerHello = {
   type: "hello";
-  protocolVersion: 5;
+  protocolVersion: 6;
   cwd: string;
   clientId: string;
   state: AgentStateResponse;
@@ -201,7 +202,7 @@ export type ServerEvent =
 
 /** Full backend state snapshot returned by HTTP. */
 export type AgentStateResponse = {
-  protocolVersion: 5;
+  protocolVersion: 6;
   cwd: string;
   activeSessionId?: string;
   loadedSessions: UiLoadedSession[];

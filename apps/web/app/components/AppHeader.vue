@@ -6,6 +6,7 @@ type ConnectionStatus = "connecting" | "connected" | "disconnected" | "error";
 defineProps<{
   isSidebarOpen: boolean;
   activeLoadedSession: UiLoadedSession | null;
+  sessionTitle: string;
   isActiveDraftSession: boolean;
   activeSessionId: string | null;
   isDark: boolean;
@@ -42,7 +43,9 @@ const emit = defineEmits<{
       />
       <div class="min-w-0">
         <div class="flex items-center gap-2">
-          <h1 class="truncate text-base font-semibold">Agentaz</h1>
+          <h1 class="truncate text-base font-semibold">
+            {{ sessionTitle }}
+          </h1>
           <UBadge
             v-if="activeLoadedSession?.controlOwnerClientId"
             :color="

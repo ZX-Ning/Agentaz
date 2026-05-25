@@ -81,6 +81,7 @@ WS     /api/agent/ws
 - Draft sessions fetch global model options without creating a Pi session and apply the selected model/thinking settings when materialized.
 - Users can create new sessions and open available persisted sessions for the configured `cwd`.
 - Session list scope is current `cwd`, using Pi `SessionManager.list(cwd)`.
+- Real sessions use `/session/:sessionId` browser routes. Draft sessions stay at `/`, and the frontend moves to the real session route after the first prompt materializes the draft.
 - Focusing a session changes the active browser view and then the frontend fetches history over HTTP.
 - Loaded-session eviction is an internal cache policy; the UI does not expose loaded/unloaded state as a user action.
 - Fork/tree/clone workflows are not implemented.

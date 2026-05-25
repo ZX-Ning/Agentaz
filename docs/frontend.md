@@ -136,6 +136,7 @@ Current state includes:
 Keep state normalized around `UiMessage` and `UiBlock` rather than raw Pi SDK messages. The backend should translate Pi events into app-level protocol events.
 Treat `loadedSessions` as the server-resident working set. Loaded sessions should be focused with the session-specific focus endpoint; normal persisted sessions should be opened on demand from `persistedSessions`.
 The initial empty chat and the New session button use a frontend-only draft session. The draft fetches model options through `GET /api/agent/models`, which does not create a Pi session. It is not sent to the backend until the user submits the first prompt; at that point the frontend creates a real session, applies the selected model/thinking settings, moves the optimistic user message to the returned session id, and submits the prompt.
+Real sessions are reflected in the browser URL as `/session/:sessionId`. Draft sessions do not get a session route and stay at `/`; after the first prompt materializes a draft, the frontend replaces the URL with the returned real session id. Direct visits to `/session/:sessionId` first focus an already-loaded session, then fall back to the persisted session list by matching `sessionId` and opening the existing `sessionFile`.
 
 ## Chat Transcript
 

@@ -36,6 +36,8 @@ type PendingUiRequest =
 const DRAFT_SESSION_PREFIX = "draft-session-";
 const toast = useToast();
 const colorMode = useColorMode();
+const route = useRoute();
+const router = useRouter();
 const isDark = computed(() => colorMode.value === "dark");
 
 const status = ref<"connecting" | "connected" | "disconnected" | "error">(
@@ -54,6 +56,8 @@ const pendingUiRequestsBySessionId = ref<Record<string, PendingUiRequest[]>>(
 const promptText = ref("");
 const lastError = ref<string | null>(null);
 const socket = shallowRef<WebSocket | null>(null);
+const hasAppliedInitialRoute = ref(false);
+const isSyncingBrowserRoute = ref(false);
 
 const isSidebarOpen = ref(false);
 const isStatusMenuOpen = ref(false);
@@ -73,6 +77,17 @@ const activeLoadedSession = computed(
       (session) => session.sessionId === activeSessionId.value,
     ) ?? null,
 );
+const activeSessionTitle = computed(() => {
+  const sessionId = activeSessionId.value;
+  if (!sessionId || isDraftSessionId(sessionId)) return "New session";
+  const loaded = activeLoadedSession.value;
+  if (loaded) return sessionTitle(loaded);
+  const persisted = persistedSessions.value.find(
+    (session) => session.sessionId === sessionId,
+  );
+  if (persisted) return sessionTitle(persisted);
+  return `Session ${sessionId}`;
+});
 const isActiveDraftSession = computed(() =>
   isDraftSessionId(activeSessionId.value),
 );
@@ -214,6 +229,11 @@ const statusLabel = computed(() => {
   if (status.value === "error") return "Error";
   return "Disconnected";
 });
+const pageTitle = computed(() => `Agentaz-${activeSessionTitle.value}`);
+
+useHead({
+  title: pageTitle,
+});
 
 function defaultModelState(): SessionModelState {
   return {
@@ -238,6 +258,31 @@ function ensureMessageBucket(sessionId: string) {
 
 function isDraftSessionId(sessionId?: string | null) {
   return Boolean(sessionId?.startsWith(DRAFT_SESSION_PREFIX));
+}
+
+function routeSessionId(path = route.path) {
+  const match = /^\/session\/([^/]+)\/?$/.exec(path);
+  return match?.[1] ? decodeURIComponent(match[1]) : null;
+}
+
+function browserPathForSession(sessionId?: string | null) {
+  if (!sessionId || isDraftSessionId(sessionId)) return "/";
+  return `/session/${encodeURIComponent(sessionId)}`;
+}
+
+async function syncBrowserRouteToSession(
+  sessionId?: string | null,
+  mode: "push" | "replace" = "replace",
+) {
+  const targetPath = browserPathForSession(sessionId);
+  if (route.path === targetPath) return;
+  isSyncingBrowserRoute.value = true;
+  try {
+    await router[mode](targetPath);
+  } finally {
+    await nextTick();
+    isSyncingBrowserRoute.value = false;
+  }
 }
 
 function createDraftSessionId() {
@@ -296,6 +341,7 @@ async function materializeDraftSession(draftSessionId: string) {
   activeSessionId.value = sessionId;
   applyState(state);
   activeSessionId.value = sessionId;
+  await syncBrowserRouteToSession(sessionId, "replace");
   if (draftModel) {
     const body: ModelSetRequest = {
       provider: draftModel.provider,
@@ -331,7 +377,7 @@ function sessionTitle(session: UiLoadedSession | UiSessionSummary) {
   return (
     session.name ||
     session.firstMessage ||
-    ("sessionId" in session
+    (session.sessionId
       ? session.sessionId.slice(0, 8)
       : "Untitled session")
   );
@@ -431,6 +477,7 @@ async function refreshState() {
   const state = await agentFetch<AgentStateResponse>("/api/agent/state");
   applyState(state);
   await refreshActiveStateDetails(state);
+  await syncBrowserRouteToSession(activeSessionId.value, "replace");
 }
 
 async function refreshActiveStateDetails(state: AgentStateResponse) {
@@ -479,6 +526,7 @@ async function postSessionOperation(
   const state = await agentFetch<SessionOperationResponse>(path, options);
   applyState(state);
   if (state.activeSessionId) await refreshSessionDetails(state.activeSessionId);
+  return state;
 }
 
 async function sendPrompt() {
@@ -605,20 +653,28 @@ function isThinkingLevel(value: unknown): value is ThinkingLevel {
 
 async function createSession() {
   await refreshDraftModelState(createDraftSession());
+  await syncBrowserRouteToSession(activeSessionId.value, "push");
 }
 
-async function openPersistedSession(sessionFile: string) {
-  await postSessionOperation("/api/agent/sessions", {
+async function openPersistedSession(sessionFile: string, syncRoute = true) {
+  const state = await postSessionOperation("/api/agent/sessions", {
     method: "POST",
     body: { sessionFile },
   });
+  if (syncRoute) {
+    await syncBrowserRouteToSession(
+      state.sessionId ?? state.activeSessionId,
+      "push",
+    );
+  }
 }
 
-async function focusSession(sessionId: string) {
+async function focusSession(sessionId: string, syncRoute = true) {
   activeSessionId.value = sessionId;
   await postSessionOperation(sessionUrl(sessionId, "/focus"), {
     method: "POST",
   });
+  if (syncRoute) await syncBrowserRouteToSession(sessionId, "push");
 }
 
 async function createSessionAndClose() {
@@ -889,6 +945,13 @@ function handleEvent(event: ServerEvent) {
     ) {
       void refreshSessionDetails(activeSessionId.value);
     }
+    if (
+      hasAppliedInitialRoute.value &&
+      activeSessionId.value &&
+      !isDraftSessionId(activeSessionId.value)
+    ) {
+      void syncBrowserRouteToSession(activeSessionId.value, "replace");
+    }
     return;
   }
 
@@ -1014,9 +1077,66 @@ function connectWebSocket() {
   });
 }
 
+async function activateSessionFromRoute(sessionId: string) {
+  if (activeSessionId.value === sessionId && !isDraftSessionId(sessionId)) {
+    await refreshSessionDetails(sessionId);
+    return true;
+  }
+
+  if (loadedSessions.value.some((session) => session.sessionId === sessionId)) {
+    await focusSession(sessionId, false);
+    return true;
+  }
+
+  const persisted = persistedSessions.value.find(
+    (session) => session.sessionId === sessionId,
+  );
+  if (!persisted) return false;
+
+  await openPersistedSession(persisted.file, false);
+  return true;
+}
+
+async function applyBrowserRoute() {
+  const sessionId = routeSessionId();
+  if (sessionId) {
+    const activated = await activateSessionFromRoute(sessionId);
+    if (activated) return;
+
+    toast.add({
+      title: "Session not found",
+      description: `No session is available for ${sessionId}.`,
+      color: "error",
+    });
+  }
+
+  await refreshDraftModelState(createDraftSession());
+  await syncBrowserRouteToSession(activeSessionId.value, "replace");
+}
+
+async function applyInitialRoute(state: AgentStateResponse) {
+  const sessionId = routeSessionId();
+  if (sessionId) {
+    const activated = await activateSessionFromRoute(sessionId);
+    if (!activated) await applyBrowserRoute();
+  } else {
+    await refreshActiveStateDetails(state);
+    await syncBrowserRouteToSession(activeSessionId.value, "replace");
+  }
+  hasAppliedInitialRoute.value = true;
+}
+
+watch(
+  () => route.path,
+  () => {
+    if (!hasAppliedInitialRoute.value || isSyncingBrowserRoute.value) return;
+    void applyBrowserRoute();
+  },
+);
+
 onMounted(() => {
   connectWebSocket()
-    .then((event) => refreshActiveStateDetails(event.state))
+    .then((event) => applyInitialRoute(event.state))
     .catch(() => {
       status.value = "error";
     });
@@ -1046,6 +1166,7 @@ onBeforeUnmount(() => {
         <AppHeader
           :is-sidebar-open="isSidebarOpen"
           :active-loaded-session="activeLoadedSession"
+          :session-title="activeSessionTitle"
           :is-active-draft-session="isActiveDraftSession"
           :active-session-id="activeSessionId"
           :is-dark="isDark"
