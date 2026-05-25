@@ -42,6 +42,29 @@ flowchart TD
   Projector --> Presence
 ```
 
+## Browser Client Identity
+
+```mermaid
+sequenceDiagram
+  participant Browser
+  participant Hub as WsAgentHub
+  participant Presence as ClientPresence
+  participant HTTP as HTTP routes
+  participant Projector as SessionProjector
+
+  Browser->>Hub: open /api/agent/ws
+  Hub->>Presence: attachClient(clientId)
+  Hub-->>Browser: hello(clientId, state)
+
+  Note over Browser: Store hello.clientId for this tab
+
+  Browser->>HTTP: HTTP request with X-Agentaz-Client-Id
+  HTTP->>Presence: focus/control using request clientId
+  HTTP->>Projector: getState(request clientId)
+  Projector-->>HTTP: client-specific state
+  HTTP-->>Browser: HTTP response
+```
+
 ## Startup And Singleton Initialization
 
 ```mermaid
@@ -76,14 +99,14 @@ sequenceDiagram
   participant Bus as AgentEventBus
   participant Hub as WsAgentHub
 
-  Browser->>Route: POST /api/agent/sessions
+  Browser->>Route: POST /api/agent/sessions<br/>X-Agentaz-Client-Id: clientId
   Route->>Runtime: getAgentRuntime()
   Route->>Workspace: createLoadedSession()
   Workspace->>Bus: state_changed
-  Route->>Presence: focus(local-browser, sessionId)
-  Route->>Presence: acquireControl(local-browser, sessionId)
+  Route->>Presence: focus(clientId, sessionId)
+  Route->>Presence: acquireControl(clientId, sessionId)
   Route->>Bus: control_changed
-  Route->>Projector: getState(local-browser)
+  Route->>Projector: getState(clientId)
   Route-->>Browser: SessionOperationResponse
 
   Bus->>Hub: runtime event
@@ -164,6 +187,7 @@ sequenceDiagram
 ```txt
 HTTP routes:
   - get the runtime
+  - read X-Agentaz-Client-Id for client-specific operations
   - call workspace/presence/projector
   - do not manage WebSocket peers
 

@@ -123,6 +123,10 @@ The first config wins. Reconfiguration with different values should fail loudly.
 - `AgentEventBus`: typed in-process pub/sub between session runtime and realtime transport.
 - `WsAgentHub`: WebSocket peer lifecycle and event forwarding.
 
+WebSocket `hello` assigns the browser tab `clientId`. Client-specific HTTP requests should send that
+identity back through `X-Agentaz-Client-Id`; routes fall back to `LOCAL_CLIENT_ID` only for non-browser
+or pre-WebSocket callers.
+
 `PiSessionWorkspace` owns server-resident Pi SDK session lifecycle:
 
 - create/open/list the loaded working set and available persisted sessions for the current cwd

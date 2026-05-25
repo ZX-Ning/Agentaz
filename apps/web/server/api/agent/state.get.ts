@@ -1,14 +1,14 @@
 import {
   agentHttpError,
+  requestClientId,
 } from "../../utils/agent-http";
 import { getAgentRuntime } from "../../utils/agent-runtime";
-import { LOCAL_CLIENT_ID } from "../../utils/client-presence";
 
-export default defineEventHandler(async () => {
+export default defineEventHandler(async (event) => {
   try {
     const runtime = getAgentRuntime();
     await runtime.projector.refresh();
-    return runtime.projector.getState(LOCAL_CLIENT_ID);
+    return runtime.projector.getState(requestClientId(event));
   } catch (error) {
     throw agentHttpError(error);
   }

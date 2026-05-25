@@ -1,11 +1,11 @@
 import { createError } from "h3";
 import {
   agentHttpError,
+  requestClientId,
   readJsonBody,
   requireRouteParam,
 } from "../../../../utils/agent-http";
 import { getAgentRuntime } from "../../../../utils/agent-runtime";
-import { LOCAL_CLIENT_ID } from "../../../../utils/client-presence";
 
 type ControlRequest = {
   action?: "acquire" | "release";
@@ -19,23 +19,24 @@ export default defineEventHandler(async (event) => {
     if (!runtime.workspace.hasSession(sessionId)) {
       throw new Error("No loaded session is available for this command.");
     }
+    const clientId = requestClientId(event);
     if (body.action === "release") {
-      runtime.presence.releaseControl(LOCAL_CLIENT_ID, sessionId);
+      runtime.presence.releaseControl(clientId, sessionId);
       runtime.eventBus.publish({
         type: "control_changed",
         sessionId,
         controlOwnerClientId: runtime.presence.ownerOf(sessionId),
       });
-      return { ...runtime.projector.getState(LOCAL_CLIENT_ID), sessionId };
+      return { ...runtime.projector.getState(clientId), sessionId };
     }
     if (body.action === "acquire") {
-      runtime.presence.acquireControl(LOCAL_CLIENT_ID, sessionId);
+      runtime.presence.acquireControl(clientId, sessionId);
       runtime.eventBus.publish({
         type: "control_changed",
         sessionId,
         controlOwnerClientId: runtime.presence.ownerOf(sessionId),
       });
-      return { ...runtime.projector.getState(LOCAL_CLIENT_ID), sessionId };
+      return { ...runtime.projector.getState(clientId), sessionId };
     }
     throw createError({
       statusCode: 400,

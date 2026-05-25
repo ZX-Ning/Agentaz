@@ -1,15 +1,25 @@
 import {
   createError,
+  getHeader,
   getQuery,
   getRouterParam,
   readBody,
   type H3Event,
 } from "h3";
 import { getAgentRuntime } from "./agent-runtime";
+import { LOCAL_CLIENT_ID } from "./client-presence";
+
+const CLIENT_ID_HEADER = "x-agentaz-client-id";
 
 /** Configures and returns the process-wide Pi session workspace for an HTTP request. */
 export function getConfiguredAgentRegistry() {
   return getAgentRuntime().workspace;
+}
+
+/** Reads the browser tab client id carried by HTTP requests, falling back for non-WS callers. */
+export function requestClientId(event: H3Event) {
+  const clientId = getHeader(event, CLIENT_ID_HEADER);
+  return clientId?.trim() || LOCAL_CLIENT_ID;
 }
 
 /** Reads a required route parameter or throws a structured HTTP error. */

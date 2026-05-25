@@ -388,7 +388,9 @@ async function agentFetch<T>(
   options?: Parameters<typeof $fetch<T>>[1],
 ) {
   try {
-    return await $fetch<T>(url, options);
+    const headers = new Headers(options?.headers as HeadersInit | undefined);
+    if (clientId.value) headers.set("X-Agentaz-Client-Id", clientId.value);
+    return await $fetch<T>(url, { ...options, headers });
   } catch (error) {
     const data = (error as any)?.data?.data ?? (error as any)?.data;
     const message =
@@ -427,6 +429,10 @@ function applyModelState(state: ModelStateResponse) {
 async function refreshState() {
   const state = await agentFetch<AgentStateResponse>("/api/agent/state");
   applyState(state);
+  await refreshActiveStateDetails(state);
+}
+
+async function refreshActiveStateDetails(state: AgentStateResponse) {
   if (state.activeSessionId) {
     await refreshSessionDetails(state.activeSessionId);
   } else {
@@ -972,31 +978,39 @@ function connectWebSocket() {
   const ws = new WebSocket(`${protocol}//${window.location.host}/api/agent/ws`);
   socket.value = ws;
 
-  ws.addEventListener("open", () => {
-    status.value = "connected";
-  });
+  return new Promise<ServerHello>((resolve, reject) => {
+    ws.addEventListener("open", () => {
+      status.value = "connected";
+    });
 
-  ws.addEventListener("message", (message) => {
-    try {
-      handleEvent(JSON.parse(message.data) as ServerEvent);
-    } catch (error) {
-      lastError.value = error instanceof Error ? error.message : String(error);
-    }
-  });
+    ws.addEventListener("message", (message) => {
+      try {
+        const event = JSON.parse(message.data) as ServerEvent;
+        handleEvent(event);
+        if (event.type === "hello") resolve(event);
+      } catch (error) {
+        lastError.value =
+          error instanceof Error ? error.message : String(error);
+        reject(error);
+      }
+    });
 
-  ws.addEventListener("close", () => {
-    status.value = "disconnected";
-  });
+    ws.addEventListener("close", () => {
+      status.value = "disconnected";
+      reject(new Error("WebSocket connection closed before hello."));
+    });
 
-  ws.addEventListener("error", () => {
-    status.value = "error";
-    lastError.value = "WebSocket connection failed.";
+    ws.addEventListener("error", () => {
+      status.value = "error";
+      lastError.value = "WebSocket connection failed.";
+      reject(new Error("WebSocket connection failed."));
+    });
   });
 }
 
 onMounted(() => {
-  refreshState()
-    .then(connectWebSocket)
+  connectWebSocket()
+    .then((event) => refreshActiveStateDetails(event.state))
     .catch(() => {
       status.value = "error";
     });

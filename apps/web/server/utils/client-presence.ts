@@ -40,16 +40,9 @@ export class ClientPresence {
     return changedSessionIds;
   }
 
-  /** Focuses one session for a client; local HTTP focus applies to every connected client. */
+  /** Focuses one session for a single client identity. */
   focus(clientId: string, sessionId: string) {
     this.lastActiveSessionId = sessionId;
-    if (clientId === LOCAL_CLIENT_ID) {
-      this.activeSessionByClient.set(LOCAL_CLIENT_ID, sessionId);
-      for (const connectedClientId of this.connectedClients) {
-        this.activeSessionByClient.set(connectedClientId, sessionId);
-      }
-      return;
-    }
     this.activeSessionByClient.set(clientId, sessionId);
   }
 
