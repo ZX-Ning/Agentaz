@@ -146,7 +146,7 @@ Render user and assistant messages differently:
 - tool events: initially textual summaries; later extract dedicated tool blocks
 - thinking blocks: eventually collapsed by default
 
-Avoid implementing a complex markdown/diff renderer until the basic agent loop and approval flow are stable.
+User and assistant text blocks render Markdown with Comark. Tool output, tool results, and thinking blocks stay in plain `<pre>` rendering so command output and internal reasoning text are not parsed as Markdown.
 
 ## Composer Behavior
 

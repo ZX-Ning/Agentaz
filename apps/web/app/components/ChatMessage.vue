@@ -1,12 +1,53 @@
 <script setup lang="ts">
+import security from '@comark/nuxt/plugins/security'
 import { ref } from 'vue'
 import type { UiBlock, UiMessage } from '../../types/protocol'
+
+type MarkdownNode = string | [string | null, Record<string, unknown>, ...MarkdownNode[]]
 
 const props = defineProps<{
   message: UiMessage
 }>()
 
 const collapsedStates = ref<Record<string, boolean>>({})
+const markdownOptions = { html: false }
+const markdownPlugins = [
+  security({
+    allowDataImages: false,
+    allowedProtocols: ['http', 'https', 'mailto', 'tel'],
+    blockedTags: ['iframe', 'object', 'script', 'style'],
+  }),
+  plainMarkdownOnly(),
+]
+const allowedMarkdownTags = new Set([
+  'a',
+  'blockquote',
+  'br',
+  'code',
+  'del',
+  'em',
+  'h1',
+  'h2',
+  'h3',
+  'h4',
+  'h5',
+  'h6',
+  'hr',
+  'input',
+  'li',
+  'ol',
+  'p',
+  'pre',
+  's',
+  'strong',
+  'table',
+  'tbody',
+  'td',
+  'th',
+  'thead',
+  'tr',
+  'ul',
+])
 
 function getBlockKey(block: UiBlock, index: number): string {
   return block.id || `${props.message.id}-${index}`
@@ -33,6 +74,51 @@ function roleLabel(role: UiMessage['role']) {
   if (role === 'assistant') return 'ai'
   if (role === 'user') return 'You'
   return role
+}
+
+function plainMarkdownOnly() {
+  return {
+    name: 'agentaz-plain-markdown-only',
+    post(state: { tree: { nodes: MarkdownNode[] } }) {
+      state.tree.nodes = filterMarkdownNodes(state.tree.nodes)
+    },
+  }
+}
+
+function filterMarkdownNodes(nodes: MarkdownNode[]): MarkdownNode[] {
+  return nodes.flatMap((node) => {
+    if (typeof node === 'string') return [node]
+
+    const [tag, attributes, ...children] = node
+    if (tag === null) return []
+
+    const filteredChildren = filterMarkdownNodes(children)
+    if (!allowedMarkdownTags.has(tag.toLowerCase())) return filteredChildren
+
+    return [[tag, filterMarkdownAttributes(tag, attributes), ...filteredChildren]]
+  })
+}
+
+function filterMarkdownAttributes(tag: string, attributes: Record<string, unknown>) {
+  const filtered: Record<string, unknown> = {}
+  if (attributes.$) filtered.$ = attributes.$
+
+  if (tag === 'a') {
+    if (typeof attributes.href === 'string') filtered.href = attributes.href
+    if (typeof attributes.title === 'string') filtered.title = attributes.title
+  }
+
+  if (tag === 'code' || tag === 'pre') {
+    if (typeof attributes.class === 'string') filtered.class = attributes.class
+  }
+
+  if (tag === 'input') {
+    if (attributes.type === 'checkbox') filtered.type = attributes.type
+    if (typeof attributes.checked === 'boolean') filtered.checked = attributes.checked
+    if (typeof attributes.disabled === 'boolean') filtered.disabled = attributes.disabled
+  }
+
+  return filtered
 }
 </script>
 
@@ -82,8 +168,14 @@ function roleLabel(role: UiMessage['role']) {
               </div>
             </div>
 
-            <div v-else class="text-sm text-foreground/90 leading-relaxed font-sans whitespace-pre-wrap break-words">
-              {{ block.text }}
+            <div v-else class="min-w-0 text-sm text-foreground/90 leading-relaxed font-sans break-words">
+              <Comark
+                :markdown="block.text"
+                :options="markdownOptions"
+                :plugins="markdownPlugins"
+                streaming
+                class="max-w-full [&>*:first-child]:mt-0 [&>*:last-child]:mb-0 [&_a]:break-words [&_code]:break-words [&_li]:my-0.5 [&_ol]:my-2 [&_ol]:pl-5 [&_p]:my-2 [&_pre]:my-2 [&_pre]:max-w-full [&_pre]:overflow-x-auto [&_pre]:whitespace-pre-wrap [&_pre]:break-words [&_ul]:my-2 [&_ul]:pl-5"
+              />
             </div>
           </div>
 

@@ -62,7 +62,6 @@ The original MVP baseline is no longer the product boundary. This roadmap should
 - Split `app.vue` into components once behavior stabilizes.
 - Add a dedicated socket composable.
 - Add transcript virtualization if long sessions become slow.
-- Add markdown rendering for assistant text.
 - Add code block rendering with copy buttons.
 - Add richer tool cards.
 - Add responsive mobile sidebar/drawer.

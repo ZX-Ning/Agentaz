@@ -8,6 +8,7 @@
     "typecheck": "nuxt typecheck"
   },
   "dependencies": {
+    "@comark/nuxt": "^0.3.1",
     "@earendil-works/pi-coding-agent": "latest",
     "@gotgenes/pi-permission-system": "^7.0.1",
     "@nuxt/ui": "^4.8.0",
