@@ -183,3 +183,18 @@ export type UiRequestResponseRequest =
   | { selected?: string }
   | { value?: string }
   | { confirmed: boolean }
+
+/** Runtime UI representation of a session in the sidebar list. */
+export type SessionListItem = {
+  id: string
+  file: string | null
+  sessionId: string | null
+  isDraft: boolean
+  isLoaded: boolean
+  isActive: boolean
+  isWorking: boolean
+  isStreaming: boolean
+  pendingApprovalCount: number
+  title: string
+  updatedAt?: number
+}
