@@ -1,11 +1,14 @@
 import {
   AuthStorage,
   createAgentSessionServices,
+  getAgentDir,
   ModelRegistry,
   SessionManager,
   type AgentSessionServices,
 } from "@earendil-works/pi-coding-agent";
-import { resolve } from "node:path";
+import { readFileSync } from "node:fs";
+import { createRequire } from "node:module";
+import { dirname, join, resolve } from "node:path";
 import type {
   MessageSubmitRequest,
   ModelStateResponse,
@@ -23,6 +26,9 @@ import {
   toUiModel,
   toUiSessionSummary,
 } from "./pi-session-controller";
+
+const RPIV_TODO_PACKAGE_SOURCE = "npm:@juicesharp/rpiv-todo";
+const requireFromHere = createRequire(import.meta.url);
 
 /** Startup options for the process-wide Pi session workspace. */
 export type PiSessionWorkspaceOptions = {
@@ -70,11 +76,21 @@ export class PiSessionWorkspace {
       cwd: this.options.cwd,
       authStorage: this.authStorage,
       modelRegistry: this.modelRegistry,
+      resourceLoaderOptions: {
+        additionalExtensionPaths: this.getBundledExtensionPaths(),
+      },
     }).catch((error) => {
       this.servicesPromise = undefined;
       throw error;
     });
     return this.servicesPromise;
+  }
+
+  /** Returns bundled extensions that should load when Pi settings do not already include them. */
+  private getBundledExtensionPaths() {
+    return isRpivTodoConfigured(this.options.cwd)
+      ? []
+      : [dirname(requireFromHere.resolve("@juicesharp/rpiv-todo/package.json"))];
   }
 
   /** Returns a readonly projection of currently loaded sessions. */
@@ -304,5 +320,27 @@ export class PiSessionWorkspace {
 
   private emitStateChanged() {
     this.eventBus.publish({ type: "state_changed" });
+  }
+}
+
+function isRpivTodoConfigured(cwd: string) {
+  return [
+    join(cwd, ".pi", "settings.json"),
+    join(getAgentDir(), "settings.json"),
+  ]
+    .map(readConfiguredPackageSources)
+    .some((packages) => packages.includes(RPIV_TODO_PACKAGE_SOURCE));
+}
+
+function readConfiguredPackageSources(settingsPath: string) {
+  try {
+    const settings = JSON.parse(readFileSync(settingsPath, "utf8")) as {
+      packages?: Array<string | { source?: string }>;
+    };
+    return (settings.packages ?? [])
+      .map((entry) => (typeof entry === "string" ? entry : entry.source))
+      .filter((source): source is string => Boolean(source));
+  } catch {
+    return [];
   }
 }

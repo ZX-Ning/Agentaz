@@ -16,6 +16,7 @@ import type {
   UiRequestResponseRequest,
   UiSessionSummary,
   UiBlock,
+  UiExtensionWidget,
 } from "../types/protocol";
 
 type SessionModelState = {
@@ -89,6 +90,9 @@ const activePendingUiRequests = computed(() =>
   activeSessionId.value
     ? (pendingUiRequestsBySessionId.value[activeSessionId.value] ?? [])
     : [],
+);
+const activeExtensionWidgets = computed(() =>
+  activeLoadedSession.value ? activeLoadedSession.value.extensionWidgets : [],
 );
 const unifiedSessions = computed(() => {
   const list: SessionListItem[] = [];
@@ -636,6 +640,7 @@ function loadDummySession() {
       isStreaming: false,
       pendingMessageCount: 0,
       pendingApprovalCount: 0,
+      extensionWidgets: [],
     },
   ];
 
@@ -707,6 +712,7 @@ function upsertLoadedSession(
       isStreaming: patch.isStreaming ?? false,
       pendingMessageCount: patch.pendingMessageCount ?? 0,
       pendingApprovalCount: patch.pendingApprovalCount ?? 0,
+      extensionWidgets: patch.extensionWidgets ?? [],
       controlOwnerClientId: patch.controlOwnerClientId,
       controlledByCurrentClient: patch.controlledByCurrentClient,
     });
@@ -719,6 +725,37 @@ function upsertLoadedSession(
     ...patch,
     file: patch.file ?? patch.sessionFile ?? current.file,
   };
+}
+
+function upsertExtensionWidget(
+  sessionId: string,
+  patch: {
+    key: string;
+    placement?: UiExtensionWidget["placement"];
+    lines?: string[];
+  },
+) {
+  if (!loadedSessions.value.some((item) => item.sessionId === sessionId)) {
+    upsertLoadedSession(sessionId, {});
+  }
+  const currentSession = loadedSessions.value.find(
+    (item) => item.sessionId === sessionId,
+  );
+  if (!currentSession) return;
+
+  const widgets = currentSession.extensionWidgets ?? [];
+  const nextWidgets =
+    patch.lines === undefined
+      ? widgets.filter((widget) => widget.key !== patch.key)
+      : [
+          ...widgets.filter((widget) => widget.key !== patch.key),
+          {
+            key: patch.key,
+            placement: patch.placement ?? "aboveEditor",
+            lines: patch.lines,
+          },
+        ];
+  upsertLoadedSession(sessionId, { extensionWidgets: nextWidgets });
 }
 
 function upsertMessage(sessionId: string, message: UiMessage) {
@@ -934,6 +971,11 @@ function handleEvent(event: ServerEvent) {
             ? "warning"
             : "info",
     });
+    return;
+  }
+
+  if (event.type === "extension_widget_update") {
+    upsertExtensionWidget(event.sessionId, event);
   }
 }
 
@@ -1037,6 +1079,8 @@ onBeforeUnmount(() => {
               :requests="activePendingUiRequests"
               @respond="respondToUiRequest"
             />
+
+            <ExtensionWidgets :widgets="activeExtensionWidgets" />
 
             <section
               v-if="!hasMessages"

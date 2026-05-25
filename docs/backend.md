@@ -173,6 +173,7 @@ Current important server events include:
 - `permission_decision`
 - `queue_update`
 - extension UI request/notify events
+- extension widget update events
 - `status`
 - `error`
 
@@ -186,7 +187,7 @@ Dangerous tool approvals use `@gotgenes/pi-permission-system`.
 <cwd>/.pi/extensions/pi-permission-system/config.json
 ```
 
-`WebExtensionUIContext` bridges extension UI prompts to the browser by emitting protocol events and waiting for browser responses.
+`WebExtensionUIContext` bridges extension UI prompts to the browser by emitting protocol events and waiting for browser responses. It also renders extension widgets as plain text lines for browser display, currently used by `@juicesharp/rpiv-todo`.
 
 Expected approval behavior:
 

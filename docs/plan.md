@@ -113,6 +113,8 @@ WS     /api/agent/ws
   - `ui_select_request`
   - `ui_input_request`
   - `ui_confirm_request`
+- Browser-backed extension text widgets are emitted over WebSocket:
+  - `extension_widget_update`
 - Browser responses are submitted over HTTP:
 
 ```txt
@@ -164,7 +166,8 @@ Pi SDK
   ├─ SessionManager
   ├─ AuthStorage / ModelRegistry
   ├─ Extensions
-  │   └─ @gotgenes/pi-permission-system
+  │   ├─ @gotgenes/pi-permission-system
+  │   └─ @juicesharp/rpiv-todo
   ├─ Tools
   └─ Agent events
 ```
@@ -213,6 +216,7 @@ Current important events:
 - `ui_input_request`
 - `ui_confirm_request`
 - `ui_notify`
+- `extension_widget_update`
 - `status`
 - `error`
 

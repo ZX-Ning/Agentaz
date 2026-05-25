@@ -173,6 +173,10 @@ Dangerous tool approvals are routed through backend extension UI events. Fronten
 
 Approval UI should be prominent, modal or docked near the composer, and must clearly show the action being approved.
 
+## Extension Widgets
+
+Extension widgets arrive through `extension_widget_update` events and are rendered as plain text lines near the active transcript. The current implementation is intentionally minimal and exists to support `@juicesharp/rpiv-todo` before a fuller widget design is decided.
+
 ## Error Handling
 
 Use backend `error` events and websocket failures to show:

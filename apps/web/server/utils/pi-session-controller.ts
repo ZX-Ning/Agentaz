@@ -174,6 +174,7 @@ export class PiSessionController {
       isStreaming: session?.isStreaming ?? false,
       pendingMessageCount: session?.pendingMessageCount ?? 0,
       pendingApprovalCount: this.uiContext?.pendingCount ?? 0,
+      extensionWidgets: this.uiContext?.extensionWidgets ?? [],
     };
   }
 

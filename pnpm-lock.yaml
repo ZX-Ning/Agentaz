@@ -18,6 +18,9 @@ importers:
       "@gotgenes/pi-permission-system":
         specifier: ^7.0.1
         version: 7.0.1(@earendil-works/pi-coding-agent@0.75.4(ws@8.20.1)(zod@4.4.3))(@earendil-works/pi-tui@0.75.4)
+      "@juicesharp/rpiv-todo":
+        specifier: ^1.12.0
+        version: 1.12.0(@earendil-works/pi-ai@0.75.4(ws@8.20.1)(zod@4.4.3))(@earendil-works/pi-coding-agent@0.75.4(ws@8.20.1)(zod@4.4.3))(@earendil-works/pi-tui@0.75.4)(typebox@1.1.38)
       "@nuxt/ui":
         specifier: ^4.8.0
         version: 4.8.0(@internationalized/date@3.12.1)(@internationalized/number@3.6.6)(@tiptap/extensions@3.23.6(@tiptap/core@3.23.6(@tiptap/pm@3.23.6))(@tiptap/pm@3.23.6))(@tiptap/y-tiptap@3.0.3(prosemirror-model@1.25.7)(prosemirror-state@1.4.4)(prosemirror-view@1.41.8)(y-protocols@1.0.7(yjs@13.6.30))(yjs@13.6.30))(db0@0.3.4)(embla-carousel@8.6.0)(ioredis@5.10.1)(magicast@0.5.3)(tailwindcss@4.3.0)(typescript@5.9.3)(vite@7.3.3(@types/node@25.9.1)(jiti@2.7.0)(lightningcss@1.32.0)(terser@5.48.0)(yaml@2.9.0))(vue-router@5.0.7(@vue/compiler-sfc@3.5.34)(vue@3.5.34(typescript@5.9.3)))(vue@3.5.34(typescript@5.9.3))(yjs@13.6.30)(zod@4.4.3)
@@ -1137,6 +1140,29 @@ packages:
     peerDependencies:
       "@earendil-works/pi-coding-agent": ">=0.75.0"
       "@earendil-works/pi-tui": ">=0.75.0"
+
+  "@juicesharp/rpiv-config@1.12.0":
+    resolution:
+      {
+        integrity: sha512-AEQMMVp4W1b4cCW3aGY9J5NM4vOtEskHYC9UYZS7o9U3kOZzKilfzgl+cx+mfnkhaTn95WNg5+ugRqm28qNuKQ==,
+      }
+    peerDependencies:
+      typebox: "*"
+
+  "@juicesharp/rpiv-todo@1.12.0":
+    resolution:
+      {
+        integrity: sha512-zTcLymjJkpxEGmkeFczOcK1gr8q6O8yH7lTs8xH+XIUq75SwT9JldgGut1H2rfoe4qwcPcc2BLf9abhCqeygHA==,
+      }
+    peerDependencies:
+      "@earendil-works/pi-ai": "*"
+      "@earendil-works/pi-coding-agent": "*"
+      "@earendil-works/pi-tui": "*"
+      "@juicesharp/rpiv-i18n": "*"
+      typebox: "*"
+    peerDependenciesMeta:
+      "@juicesharp/rpiv-i18n":
+        optional: true
 
   "@iconify/collections@1.0.687":
     resolution:
@@ -8769,6 +8795,18 @@ snapshots:
       web-tree-sitter: 0.26.9
     transitivePeerDependencies:
       - tree-sitter
+
+  "@juicesharp/rpiv-config@1.12.0(typebox@1.1.38)":
+    dependencies:
+      typebox: 1.1.38
+
+  "@juicesharp/rpiv-todo@1.12.0(@earendil-works/pi-ai@0.75.4(ws@8.20.1)(zod@4.4.3))(@earendil-works/pi-coding-agent@0.75.4(ws@8.20.1)(zod@4.4.3))(@earendil-works/pi-tui@0.75.4)(typebox@1.1.38)":
+    dependencies:
+      "@earendil-works/pi-ai": 0.75.4(ws@8.20.1)(zod@4.4.3)
+      "@earendil-works/pi-coding-agent": 0.75.4(ws@8.20.1)(zod@4.4.3)
+      "@earendil-works/pi-tui": 0.75.4
+      "@juicesharp/rpiv-config": 1.12.0(typebox@1.1.38)
+      typebox: 1.1.38
 
   "@iconify/collections@1.0.687":
     dependencies:

@@ -3,7 +3,7 @@ import type {
   TerminalInputHandler,
   WorkingIndicatorOptions,
 } from "@earendil-works/pi-coding-agent";
-import type { ServerEvent } from "../../types/protocol";
+import type { ServerEvent, UiExtensionWidget } from "../../types/protocol";
 
 /** Emits a normalized server event to the active WebSocket client. */
 type SendEvent = (event: ServerEvent) => void;
@@ -15,6 +15,15 @@ type PendingRequest = {
   timer: NodeJS.Timeout;
 };
 
+/** Minimal state for a widget registered by an extension UI context. */
+type RegisteredWidget = UiExtensionWidget & {
+  dispose?: () => void;
+  render?: () => string[];
+};
+
+const DEFAULT_WIDGET_PLACEMENT: UiExtensionWidget["placement"] = "aboveEditor";
+const DEFAULT_WIDGET_WIDTH = 88;
+
 /**
  * Browser-backed implementation of the Pi extension UI surface.
  *
@@ -25,6 +34,7 @@ type PendingRequest = {
  */
 export class WebExtensionUIContext {
   private pending = new Map<string, PendingRequest>();
+  private widgets = new Map<string, RegisteredWidget>();
 
   constructor(
     private readonly sessionId: string,
@@ -35,6 +45,15 @@ export class WebExtensionUIContext {
   /** Number of browser-backed UI requests still waiting for a response. */
   get pendingCount() {
     return this.pending.size;
+  }
+
+  /** Returns a browser-safe snapshot of currently registered extension widgets. */
+  get extensionWidgets(): UiExtensionWidget[] {
+    return [...this.widgets.values()].map(({ key, placement, lines }) => ({
+      key,
+      placement,
+      lines: [...lines],
+    }));
   }
 
   /** Shows a single-choice prompt in the browser and resolves with the selected option. */
@@ -136,6 +155,57 @@ export class WebExtensionUIContext {
   setWorkingIndicator(_options?: WorkingIndicatorOptions): void {}
   /** Hidden-thinking labels are not rendered by the web MVP yet. */
   setHiddenThinkingLabel(_label?: string): void {}
+  /** Renders extension widgets as plain text lines in the browser. */
+  setWidget(
+    key: string,
+    content: string[] | ((tui: any, theme: any) => any) | undefined,
+    options?: { placement?: UiExtensionWidget["placement"] },
+  ): void {
+    this.widgets.get(key)?.dispose?.();
+    this.widgets.delete(key);
+
+    if (content === undefined) {
+      this.send({
+        type: "extension_widget_update",
+        sessionId: this.sessionId,
+        key,
+      });
+      return;
+    }
+
+    const placement = options?.placement ?? DEFAULT_WIDGET_PLACEMENT;
+    if (Array.isArray(content)) {
+      this.setWidgetLines(key, placement, content);
+      return;
+    }
+
+    let component: any;
+    const emitWidget = () => {
+      try {
+        const rendered = component?.render?.(DEFAULT_WIDGET_WIDTH);
+        this.setWidgetLines(
+          key,
+          placement,
+          Array.isArray(rendered) ? rendered : [],
+        );
+      } catch (error) {
+        this.notify(
+          error instanceof Error ? error.message : String(error),
+          "error",
+        );
+      }
+    };
+    const tui = { requestRender: emitWidget };
+    component = content(tui, plainTheme());
+    this.widgets.set(key, {
+      key,
+      placement,
+      lines: [],
+      dispose: component?.dispose?.bind(component),
+      render: () => component?.render?.(DEFAULT_WIDGET_WIDTH) ?? [],
+    });
+    emitWidget();
+  }
 
   private request<T>(
     kind: PendingRequest["kind"],
@@ -165,4 +235,44 @@ export class WebExtensionUIContext {
     this.pending.delete(requestId);
     pending.resolve(value);
   }
+
+  private setWidgetLines(
+    key: string,
+    placement: UiExtensionWidget["placement"],
+    lines: string[],
+  ) {
+    const widget = {
+      key,
+      placement,
+      lines: [...lines],
+      dispose: this.widgets.get(key)?.dispose,
+      render: this.widgets.get(key)?.render,
+    };
+    this.widgets.set(key, widget);
+    this.send({
+      type: "extension_widget_update",
+      sessionId: this.sessionId,
+      key,
+      placement,
+      lines: widget.lines,
+    });
+  }
+}
+
+function plainTheme() {
+  const passthrough = (text: string) => text;
+  return {
+    fg: (_color: string, text: string) => text,
+    bg: (_color: string, text: string) => text,
+    bold: passthrough,
+    italic: passthrough,
+    underline: passthrough,
+    inverse: passthrough,
+    strikethrough: passthrough,
+    getFgAnsi: () => "",
+    getBgAnsi: () => "",
+    getColorMode: () => "truecolor",
+    getThinkingBorderColor: () => passthrough,
+    getBashModeBorderColor: () => passthrough,
+  };
 }

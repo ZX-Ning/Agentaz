@@ -1,5 +1,5 @@
 /** Current wire protocol version used by the browser and backend handshake. */
-export const PROTOCOL_VERSION = 4;
+export const PROTOCOL_VERSION = 5;
 
 /** Supported Pi thinking levels exposed through the web UI. */
 export type ThinkingLevel =
@@ -61,8 +61,16 @@ export type UiLoadedSession = UiSessionSummary & {
   isStreaming: boolean;
   pendingMessageCount: number;
   pendingApprovalCount: number;
+  extensionWidgets: UiExtensionWidget[];
   controlOwnerClientId?: string;
   controlledByCurrentClient?: boolean;
+};
+
+/** Text projection of an extension-owned widget rendered in the browser. */
+export type UiExtensionWidget = {
+  key: string;
+  placement: "aboveEditor" | "belowEditor";
+  lines: string[];
 };
 
 /** Model metadata needed by the browser model picker. */
@@ -89,7 +97,7 @@ export type AgentCapabilities = {
 /** Initial server-to-client handshake that declares protocol version and backend capabilities. */
 export type ServerHello = {
   type: "hello";
-  protocolVersion: 4;
+  protocolVersion: 5;
   cwd: string;
   clientId: string;
   state: AgentStateResponse;
@@ -176,6 +184,13 @@ export type ServerEvent =
       level?: "info" | "warning" | "error";
     }
   | {
+      type: "extension_widget_update";
+      sessionId: string;
+      key: string;
+      placement?: UiExtensionWidget["placement"];
+      lines?: string[];
+    }
+  | {
       type: "status";
       sessionId?: string;
       isStreaming: boolean;
@@ -186,7 +201,7 @@ export type ServerEvent =
 
 /** Full backend state snapshot returned by HTTP. */
 export type AgentStateResponse = {
-  protocolVersion: 4;
+  protocolVersion: 5;
   cwd: string;
   activeSessionId?: string;
   loadedSessions: UiLoadedSession[];
