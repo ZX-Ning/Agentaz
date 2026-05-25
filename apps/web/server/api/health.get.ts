@@ -1,4 +1,4 @@
 export default defineEventHandler(() => ({
   ok: true,
-  service: 'pi-web-agent',
-}))
+  service: "pi-web-agent",
+}));

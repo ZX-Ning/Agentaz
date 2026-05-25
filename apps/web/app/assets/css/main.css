@@ -121,13 +121,14 @@ body {
   font-family: "IBM Plex Sans", sans-serif;
   font-optical-sizing: auto;
   font-variation-settings: "wdth" 100;
-  font-feature-settings: "rlig" 1, "calt" 1;
+  font-feature-settings:
+    "rlig" 1,
+    "calt" 1;
 }
 
-
-[data-state=open] {
+[data-state="open"] {
   animation-duration: 50ms !important;
 }
-[data-state=closed] {
+[data-state="closed"] {
   animation-duration: 50ms !important;
 }

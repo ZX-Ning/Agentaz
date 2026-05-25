@@ -3,7 +3,7 @@
   "type": "module",
   "private": true,
   "scripts": {
-    "dev": "nuxt dev --host ${HOST:-127.0.0.1}",
+    "dev": "nuxt dev",
     "build": "nuxt build",
     "typecheck": "nuxt typecheck"
   },
@@ -16,6 +16,7 @@
     "vue": "^3.5.0"
   },
   "devDependencies": {
+    "@types/node": "^25.9.1",
     "typescript": "^5.9.0",
     "vue-tsc": "^3.0.0"
   }

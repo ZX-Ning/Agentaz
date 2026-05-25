@@ -1,38 +1,40 @@
 <script setup lang="ts">
-import type { UiLoadedSession } from '../../types/protocol'
+import type { UiLoadedSession } from "../../types/protocol";
 
-type ConnectionStatus = 'connecting' | 'connected' | 'disconnected' | 'error'
+type ConnectionStatus = "connecting" | "connected" | "disconnected" | "error";
 
 defineProps<{
-  isSidebarOpen: boolean
-  activeLoadedSession: UiLoadedSession | null
-  canControlActiveSession: boolean
-  isActiveDraftSession: boolean
-  activeSessionId: string | null
-  isDark: boolean
-  isStatusMenuOpen: boolean
-  status: ConnectionStatus
-  isStreaming: boolean
-  statusColor: 'success' | 'warning' | 'error' | 'neutral'
-  statusLabel: string
-  pendingMessageCount: number
-  pendingApprovalCount: number
-  modelsCount: number
-}>()
+  isSidebarOpen: boolean;
+  activeLoadedSession: UiLoadedSession | null;
+  canControlActiveSession: boolean;
+  isActiveDraftSession: boolean;
+  activeSessionId: string | null;
+  isDark: boolean;
+  isStatusMenuOpen: boolean;
+  status: ConnectionStatus;
+  isStreaming: boolean;
+  statusColor: "success" | "warning" | "error" | "neutral";
+  statusLabel: string;
+  pendingMessageCount: number;
+  pendingApprovalCount: number;
+  modelsCount: number;
+}>();
 
 const emit = defineEmits<{
-  (event: 'update:isSidebarOpen', value: boolean): void
-  (event: 'update:isStatusMenuOpen', value: boolean): void
-  (event: 'toggleTheme'): void
-  (event: 'acquire'): void
-  (event: 'release'): void
-  (event: 'clearQueue'): void
-  (event: 'closeSession'): void
-}>()
+  (event: "update:isSidebarOpen", value: boolean): void;
+  (event: "update:isStatusMenuOpen", value: boolean): void;
+  (event: "toggleTheme"): void;
+  (event: "acquire"): void;
+  (event: "release"): void;
+  (event: "clearQueue"): void;
+  (event: "closeSession"): void;
+}>();
 </script>
 
 <template>
-  <header class="flex h-14 shrink-0 items-center justify-between border-b border-border bg-background/90 px-4 backdrop-blur sm:px-6">
+  <header
+    class="flex h-14 shrink-0 items-center justify-between border-b border-border bg-background/90 px-4 backdrop-blur sm:px-6"
+  >
     <div class="flex items-center min-w-0">
       <UButton
         color="neutral"
@@ -45,12 +47,23 @@ const emit = defineEmits<{
       <div class="min-w-0">
         <div class="flex items-center gap-2">
           <h1 class="truncate text-base font-semibold">Agentaz</h1>
-          <UBadge v-if="activeLoadedSession" :color="canControlActiveSession ? 'success' : 'neutral'" variant="soft" size="xs">
-            {{ canControlActiveSession ? 'controller' : 'readonly' }}
+          <UBadge
+            v-if="activeLoadedSession"
+            :color="canControlActiveSession ? 'success' : 'neutral'"
+            variant="soft"
+            size="xs"
+          >
+            {{ canControlActiveSession ? "controller" : "readonly" }}
           </UBadge>
         </div>
         <div class="truncate text-xs text-muted-foreground font-normal">
-          {{ isActiveDraftSession ? 'New session' : activeSessionId ? `Session ${activeSessionId}` : 'No active session' }}
+          {{
+            isActiveDraftSession
+              ? "New session"
+              : activeSessionId
+                ? `Session ${activeSessionId}`
+                : "No active session"
+          }}
         </div>
       </div>
     </div>

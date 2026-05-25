@@ -45,7 +45,9 @@ const maxHeight = 224;
 const maxVisibleModels = 50;
 
 const selectedModelLabel = computed(() => {
-  const selectedLabel = props.modelOptions.find((option) => option.value === props.selectedModelKey)?.label;
+  const selectedLabel = props.modelOptions.find(
+    (option) => option.value === props.selectedModelKey,
+  )?.label;
   if (selectedLabel) return selectedLabel;
   if (props.isDraftSession) return "Default model";
   return "Model loading...";
@@ -57,14 +59,20 @@ const filteredModelOptions = computed(() => {
 
   return props.modelOptions.filter((option) => {
     return (
-      option.label.toLowerCase().includes(query) || option.description.toLowerCase().includes(query)
+      option.label.toLowerCase().includes(query) ||
+      option.description.toLowerCase().includes(query)
     );
   });
 });
 
-const visibleModelOptions = computed(() => filteredModelOptions.value.slice(0, maxVisibleModels));
+const visibleModelOptions = computed(() =>
+  filteredModelOptions.value.slice(0, maxVisibleModels),
+);
 const hiddenModelCount = computed(() =>
-  Math.max(0, filteredModelOptions.value.length - visibleModelOptions.value.length),
+  Math.max(
+    0,
+    filteredModelOptions.value.length - visibleModelOptions.value.length,
+  ),
 );
 
 function onPromptInput(event: Event) {
@@ -104,7 +112,10 @@ function onTopResizeEnd() {
 
 function syncHeightFromTextarea() {
   if (!textareaRef.value) return;
-  composerHeight.value = Math.max(minHeight, Math.min(maxHeight, textareaRef.value.offsetHeight));
+  composerHeight.value = Math.max(
+    minHeight,
+    Math.min(maxHeight, textareaRef.value.offsetHeight),
+  );
 }
 
 function onModelMenuOpenChange(open: boolean) {
@@ -144,11 +155,18 @@ onBeforeUnmount(() => {
       @mouseup="syncHeightFromTextarea"
     />
 
-    <div class="flex min-h-11 items-center justify-between gap-2 border-t border-border px-2.5 py-1.5">
+    <div
+      class="flex min-h-11 items-center justify-between gap-2 border-t border-border px-2.5 py-1.5"
+    >
       <div class="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
         <UPopover
           :open="isModelMenuOpen"
-          :content="{ side: 'top', align: 'start', sideOffset: 8, collisionPadding: 12 }"
+          :content="{
+            side: 'top',
+            align: 'start',
+            sideOffset: 8,
+            collisionPadding: 12,
+          }"
           :modal="false"
           class="min-w-0 flex-[1_1_16rem] sm:max-w-96"
           :ui="{
@@ -181,11 +199,17 @@ onBeforeUnmount(() => {
                 <UIcon
                   name="i-lucide-check"
                   class="size-4 shrink-0 text-primary"
-                  :class="{ 'opacity-0': option.value !== props.selectedModelKey }"
+                  :class="{
+                    'opacity-0': option.value !== props.selectedModelKey,
+                  }"
                 />
                 <span class="min-w-0 flex-1">
-                  <span class="block truncate text-xs font-normal">{{ option.label }}</span>
-                  <span class="block truncate text-[11px] font-normal text-muted-foreground">
+                  <span class="block truncate text-xs font-normal">{{
+                    option.label
+                  }}</span>
+                  <span
+                    class="block truncate text-[11px] font-normal text-muted-foreground"
+                  >
                     {{ option.description }}
                   </span>
                 </span>
@@ -225,7 +249,9 @@ onBeforeUnmount(() => {
           :items="props.visibleThinkingOptions"
           value-key="value"
           label-key="label"
-          :disabled="props.visibleThinkingOptions.length === 0 || !props.isConnected"
+          :disabled="
+            props.visibleThinkingOptions.length === 0 || !props.isConnected
+          "
           color="neutral"
           variant="ghost"
           size="sm"

@@ -102,8 +102,8 @@ The route should stay thin. Put connection/session logic in utilities, not the r
 The hub is currently a process singleton. Configuration is separated from lookup:
 
 ```ts
-setWsAgentHubConfig(options)
-getWsAgentHub()
+setWsAgentHubConfig(options);
+getWsAgentHub();
 ```
 
 The first config wins. Reconfiguration with different values should fail loudly.
@@ -204,7 +204,9 @@ When closing a running loaded session, callers must explicitly pass `abortCurren
 Backend should emit unified protocol errors:
 
 ```ts
-{ type: 'error', code, message, recoverable }
+{
+  type: ("error", code, message, recoverable);
+}
 ```
 
 Also log unexpected server-side errors to console for local development.
