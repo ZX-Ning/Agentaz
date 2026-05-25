@@ -177,9 +177,6 @@ const pendingApprovalCount = computed(
     activeLoadedSession.value?.pendingApprovalCount ??
     activePendingUiRequests.value.length,
 );
-const canControlActiveSession = computed(() =>
-  Boolean(activeLoadedSession.value),
-);
 const canSubmitToActiveSession = computed(() => Boolean(activeSessionId.value));
 const hasMessages = computed(() => activeMessages.value.length > 0);
 const selectedModelKey = computed(() =>
@@ -687,44 +684,11 @@ async function focusSessionAndClose(sessionId: string) {
   isSidebarOpen.value = false;
 }
 
-async function acquireSession(sessionId = activeSessionId.value) {
-  if (sessionId && !isDraftSessionId(sessionId))
-    await postSessionOperation(sessionUrl(sessionId, "/control"), {
-      method: "POST",
-      body: { action: "acquire" },
-    });
-}
-
-async function releaseSession(sessionId = activeSessionId.value) {
-  if (sessionId && !isDraftSessionId(sessionId))
-    await postSessionOperation(sessionUrl(sessionId, "/control"), {
-      method: "POST",
-      body: { action: "release" },
-    });
-}
-
 async function clearActiveQueue() {
   if (activeSessionId.value && !isDraftSessionId(activeSessionId.value))
     await agentFetch(sessionUrl(activeSessionId.value, "/queue/clear"), {
       method: "POST",
     });
-}
-
-async function closeActiveSession() {
-  if (!activeSessionId.value) return;
-  if (isDraftSessionId(activeSessionId.value)) {
-    delete messagesBySessionId.value[activeSessionId.value];
-    delete modelStateBySessionId.value[activeSessionId.value];
-    activeSessionId.value = null;
-    ensureDraftSession();
-    return;
-  }
-  await postSessionOperation(
-    `${sessionUrl(activeSessionId.value)}?abortCurrent=1`,
-    {
-      method: "DELETE",
-    },
-  );
 }
 
 function upsertLoadedSession(
@@ -1040,7 +1004,6 @@ onBeforeUnmount(() => {
         <AppHeader
           :is-sidebar-open="isSidebarOpen"
           :active-loaded-session="activeLoadedSession"
-          :can-control-active-session="canControlActiveSession"
           :is-active-draft-session="isActiveDraftSession"
           :active-session-id="activeSessionId"
           :is-dark="isDark"
@@ -1055,10 +1018,7 @@ onBeforeUnmount(() => {
           @update:is-sidebar-open="isSidebarOpen = $event"
           @update:is-status-menu-open="isStatusMenuOpen = $event"
           @toggle-theme="toggleTheme"
-          @acquire="acquireSession()"
-          @release="releaseSession()"
           @clear-queue="clearActiveQueue"
-          @close-session="closeActiveSession"
         />
 
         <div

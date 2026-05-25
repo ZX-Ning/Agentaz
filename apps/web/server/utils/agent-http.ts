@@ -1,7 +1,6 @@
 import {
   createError,
   getHeader,
-  getQuery,
   getRouterParam,
   readBody,
   type H3Event,
@@ -20,6 +19,47 @@ export function getConfiguredAgentRegistry() {
 export function requestClientId(event: H3Event) {
   const clientId = getHeader(event, CLIENT_ID_HEADER);
   return clientId?.trim() || LOCAL_CLIENT_ID;
+}
+
+/** Acquires a request-scoped session control lease and returns a release callback. */
+export function acquireRequestSessionControl(event: H3Event, sessionId: string) {
+  const runtime = getAgentRuntime();
+  if (!runtime.workspace.hasSession(sessionId)) {
+    throw new Error("No loaded session is available for this command.");
+  }
+  const clientId = requestClientId(event);
+  runtime.presence.acquireControl(clientId, sessionId);
+  runtime.eventBus.publish({
+    type: "control_changed",
+    sessionId,
+    controlOwnerClientId: runtime.presence.ownerOf(sessionId),
+  });
+  return {
+    runtime,
+    clientId,
+    release() {
+      runtime.presence.releaseControl(clientId, sessionId);
+      runtime.eventBus.publish({
+        type: "control_changed",
+        sessionId,
+        controlOwnerClientId: runtime.presence.ownerOf(sessionId),
+      });
+    },
+  };
+}
+
+/** Runs a short session mutation while holding request-scoped session control. */
+export async function withRequestSessionControl<T>(
+  event: H3Event,
+  sessionId: string,
+  run: (lease: ReturnType<typeof acquireRequestSessionControl>) => Promise<T>,
+) {
+  const lease = acquireRequestSessionControl(event, sessionId);
+  try {
+    return await run(lease);
+  } finally {
+    lease.release();
+  }
 }
 
 /** Reads a required route parameter or throws a structured HTTP error. */
@@ -46,12 +86,6 @@ export async function readJsonBody<T extends object>(
   return (await readBody(event).catch(() => ({}))) ?? {};
 }
 
-/** Converts a query flag to a boolean for local agent HTTP endpoints. */
-export function booleanQuery(event: H3Event, name: string) {
-  const value = getQuery(event)[name];
-  return value === "1" || value === "true";
-}
-
 /** Maps registry/runtime errors into consistent HTTP API errors. */
 export function agentHttpError(error: unknown) {
   if (typeof error === "object" && error && "statusCode" in error) {
@@ -71,6 +105,9 @@ export function agentHttpError(error: unknown) {
   } else if (message.includes("Loaded session limit reached")) {
     statusCode = 409;
     code = "session_limit_reached";
+  } else if (message.includes("controlled by another browser client")) {
+    statusCode = 409;
+    code = "session_control_conflict";
   } else if (message.includes("Unknown model")) {
     statusCode = 400;
     code = "unknown_model";

@@ -145,29 +145,6 @@ export class PiSessionWorkspace {
     return controller;
   }
 
-  /** Closes a loaded session and returns the next fallback session id, if any. */
-  async closeLoadedSession(sessionId: string, abortCurrent = false) {
-    const controller = this.mutableSession(sessionId);
-    const session = controller.session;
-    if (session?.isStreaming && !abortCurrent) {
-      throw new Error(
-        "Agent is running; pass abortCurrent to close the session.",
-      );
-    }
-    if (session?.isStreaming) await controller.abort();
-
-    await controller.dispose();
-    this.sessions.delete(sessionId);
-    await this.refreshPersistedSessionCache();
-    this.eventBus.publish({
-      type: "session_removed",
-      sessionId,
-      fallbackSessionId: this.firstLoadedSessionId(),
-    });
-    this.emitStateChanged();
-    return this.firstLoadedSessionId();
-  }
-
   /** Returns normalized history for one loaded session. */
   getSessionHistory(sessionId: string): SessionHistoryResponse {
     return this.requireSession(sessionId).getHistory();
@@ -203,7 +180,11 @@ export class PiSessionWorkspace {
   }
 
   /** Accepts a prompt-like message over HTTP and continues execution asynchronously. */
-  submitMessage(sessionId: string, request: MessageSubmitRequest) {
+  submitMessage(
+    sessionId: string,
+    request: MessageSubmitRequest,
+    onSettled?: () => void,
+  ) {
     const controller = this.mutableSession(sessionId);
     const task =
       request.mode === "steer"
@@ -223,8 +204,12 @@ export class PiSessionWorkspace {
         });
       })
       .finally(async () => {
-        await this.refreshPersistedSessionCache();
-        this.emitStateChanged();
+        try {
+          await this.refreshPersistedSessionCache();
+          this.emitStateChanged();
+        } finally {
+          onSettled?.();
+        }
       });
     this.emitStateChanged();
   }
@@ -308,7 +293,7 @@ export class PiSessionWorkspace {
   private assertCanLoadAnotherSession() {
     if (this.sessions.size >= this.options.maxLoadedSessions) {
       throw new Error(
-        `Loaded session limit reached (${this.options.maxLoadedSessions}). Close an idle session before opening another.`,
+        `Loaded session limit reached (${this.options.maxLoadedSessions}). Try again after an active session becomes idle.`,
       );
     }
   }

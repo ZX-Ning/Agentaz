@@ -1,9 +1,9 @@
 import type { ModelSetRequest } from "../../../../../types/protocol";
 import {
   agentHttpError,
-  getConfiguredAgentRegistry,
   readJsonBody,
   requireRouteParam,
+  withRequestSessionControl,
 } from "../../../../utils/agent-http";
 
 export default defineEventHandler(async (event) => {
@@ -12,10 +12,12 @@ export default defineEventHandler(async (event) => {
     const body = await readJsonBody<ModelSetRequest>(event);
     if (!body.provider || !body.id)
       throw new Error("Model provider and id are required.");
-    return await getConfiguredAgentRegistry().setSessionModel(
-      sessionId,
-      body.provider,
-      body.id,
+    return await withRequestSessionControl(event, sessionId, (lease) =>
+      lease.runtime.workspace.setSessionModel(
+        sessionId,
+        body.provider!,
+        body.id!,
+      ),
     );
   } catch (error) {
     throw agentHttpError(error);

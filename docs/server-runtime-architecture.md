@@ -59,7 +59,7 @@ sequenceDiagram
   Note over Browser: Store hello.clientId for this tab
 
   Browser->>HTTP: HTTP request with X-Agentaz-Client-Id
-  HTTP->>Presence: focus/control using request clientId
+  HTTP->>Presence: focus using request clientId
   HTTP->>Projector: getState(request clientId)
   Projector-->>HTTP: client-specific state
   HTTP-->>Browser: HTTP response
@@ -104,8 +104,6 @@ sequenceDiagram
   Route->>Workspace: createLoadedSession()
   Workspace->>Bus: state_changed
   Route->>Presence: focus(clientId, sessionId)
-  Route->>Presence: acquireControl(clientId, sessionId)
-  Route->>Bus: control_changed
   Route->>Projector: getState(clientId)
   Route-->>Browser: SessionOperationResponse
 
@@ -189,6 +187,7 @@ HTTP routes:
   - get the runtime
   - read X-Agentaz-Client-Id for client-specific operations
   - call workspace/presence/projector
+  - acquire short-lived control leases around mutating session operations
   - do not manage WebSocket peers
 
 WsAgentHub:
@@ -200,7 +199,7 @@ PiSessionWorkspace:
   - does not know client ids or peers
 
 ClientPresence:
-  - owns client focus and control leases
+  - owns client focus and short-lived mutation control leases
   - does not know Pi SDK controllers
 
 SessionProjector:

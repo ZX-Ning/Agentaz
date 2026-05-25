@@ -66,7 +66,6 @@ GET    /api/agent/state
 GET    /api/agent/models
 POST   /api/agent/sessions
 POST   /api/agent/sessions/:sessionId/focus
-DELETE /api/agent/sessions/:sessionId
 GET    /api/agent/sessions/:sessionId/history
 GET    /api/agent/sessions/:sessionId/models
 PUT    /api/agent/sessions/:sessionId/model
@@ -210,9 +209,8 @@ Current behavior:
 - open/resume selected session
 - keep loaded sessions server-resident across focus changes and WebSocket disconnects
 - evict one idle, non-active session only when `maxLoadedSessions` is reached
+- do not expose loaded-session close/unload as a user-facing browser action
 - no fork/tree UI
-
-When closing a running loaded session, callers must explicitly pass `abortCurrent`.
 
 ## Error Handling
 
@@ -245,7 +243,7 @@ The smoke test assumes the dev server is already running. It checks:
 
 - health endpoint
 - REST state/history/models/session lifecycle endpoints
-- lightweight control, queue clear, and abort endpoints
+- queue clear and abort endpoints
 - WebSocket `hello` and `state_snapshot`
 - that REST-only payloads such as history/model list are not emitted over WebSocket
 

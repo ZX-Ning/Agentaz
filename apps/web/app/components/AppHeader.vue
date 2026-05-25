@@ -6,7 +6,6 @@ type ConnectionStatus = "connecting" | "connected" | "disconnected" | "error";
 defineProps<{
   isSidebarOpen: boolean;
   activeLoadedSession: UiLoadedSession | null;
-  canControlActiveSession: boolean;
   isActiveDraftSession: boolean;
   activeSessionId: string | null;
   isDark: boolean;
@@ -24,10 +23,7 @@ const emit = defineEmits<{
   (event: "update:isSidebarOpen", value: boolean): void;
   (event: "update:isStatusMenuOpen", value: boolean): void;
   (event: "toggleTheme"): void;
-  (event: "acquire"): void;
-  (event: "release"): void;
   (event: "clearQueue"): void;
-  (event: "closeSession"): void;
 }>();
 </script>
 
@@ -48,12 +44,20 @@ const emit = defineEmits<{
         <div class="flex items-center gap-2">
           <h1 class="truncate text-base font-semibold">Agentaz</h1>
           <UBadge
-            v-if="activeLoadedSession"
-            :color="canControlActiveSession ? 'success' : 'neutral'"
+            v-if="activeLoadedSession?.controlOwnerClientId"
+            :color="
+              activeLoadedSession.controlledByCurrentClient
+                ? 'success'
+                : 'warning'
+            "
             variant="soft"
             size="xs"
           >
-            {{ canControlActiveSession ? "controller" : "readonly" }}
+            {{
+              activeLoadedSession.controlledByCurrentClient
+                ? "working here"
+                : "working elsewhere"
+            }}
           </UBadge>
         </div>
         <div class="truncate text-xs text-muted-foreground font-normal">
@@ -79,12 +83,8 @@ const emit = defineEmits<{
         :pending-approval-count="pendingApprovalCount"
         :models-count="modelsCount"
         :active-loaded-session="activeLoadedSession"
-        :can-control-active-session="canControlActiveSession"
         @update:is-open="emit('update:isStatusMenuOpen', $event)"
-        @acquire="emit('acquire')"
-        @release="emit('release')"
         @clear-queue="emit('clearQueue')"
-        @close-session="emit('closeSession')"
       />
 
       <UButton

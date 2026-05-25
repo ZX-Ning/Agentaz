@@ -16,6 +16,7 @@ export class ClientPresence {
   private connectedClients = new Set<string>();
   private activeSessionByClient = new Map<string, string>();
   private controlOwnerBySession = new Map<string, string>();
+  private controlHoldCountBySession = new Map<string, number>();
   private lastActiveSessionId?: string;
 
   /** Registers a connected browser client and gives it a sensible active session default. */
@@ -35,6 +36,7 @@ export class ClientPresence {
     for (const [sessionId, ownerClientId] of this.controlOwnerBySession) {
       if (ownerClientId !== clientId) continue;
       this.controlOwnerBySession.delete(sessionId);
+      this.controlHoldCountBySession.delete(sessionId);
       changedSessionIds.push(sessionId);
     }
     return changedSessionIds;
@@ -53,13 +55,22 @@ export class ClientPresence {
       throw new Error("Session is controlled by another browser client.");
     }
     this.controlOwnerBySession.set(sessionId, clientId);
+    this.controlHoldCountBySession.set(
+      sessionId,
+      (this.controlHoldCountBySession.get(sessionId) ?? 0) + 1,
+    );
   }
 
   /** Releases mutation control for a session if the given client owns it. */
   releaseControl(clientId: string, sessionId: string) {
-    if (this.controlOwnerBySession.get(sessionId) === clientId) {
-      this.controlOwnerBySession.delete(sessionId);
+    if (this.controlOwnerBySession.get(sessionId) !== clientId) return;
+    const nextCount = (this.controlHoldCountBySession.get(sessionId) ?? 1) - 1;
+    if (nextCount > 0) {
+      this.controlHoldCountBySession.set(sessionId, nextCount);
+      return;
     }
+    this.controlHoldCountBySession.delete(sessionId);
+    this.controlOwnerBySession.delete(sessionId);
   }
 
   /** Returns the active session visible to one client. */
@@ -90,6 +101,7 @@ export class ClientPresence {
   /** Removes stale active/control references after a session leaves the workspace. */
   removeSession(sessionId: string, fallbackSessionId?: string) {
     this.controlOwnerBySession.delete(sessionId);
+    this.controlHoldCountBySession.delete(sessionId);
     for (const [clientId, activeSessionId] of this.activeSessionByClient) {
       if (activeSessionId === sessionId) {
         if (fallbackSessionId) {

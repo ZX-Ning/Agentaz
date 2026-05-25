@@ -13,15 +13,11 @@ defineProps<{
   pendingApprovalCount: number;
   modelsCount: number;
   activeLoadedSession: UiLoadedSession | null;
-  canControlActiveSession: boolean;
 }>();
 
 const emit = defineEmits<{
   (event: "update:isOpen", value: boolean): void;
-  (event: "acquire"): void;
-  (event: "release"): void;
   (event: "clearQueue"): void;
-  (event: "closeSession"): void;
 }>();
 </script>
 
@@ -114,58 +110,17 @@ const emit = defineEmits<{
           v-if="activeLoadedSession"
           class="pt-3 border-t border-border space-y-2"
         >
-          <div
-            class="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2"
-          >
-            Session Control
-          </div>
-
-          <div class="grid grid-cols-2 gap-2">
-            <UButton
-              color="neutral"
-              variant="soft"
-              size="sm"
-              icon="i-lucide-lock"
-              :disabled="!canControlActiveSession"
-              class="justify-center"
-              @click="emit('acquire')"
-            >
-              Acquire
-            </UButton>
-            <UButton
-              color="neutral"
-              variant="soft"
-              size="sm"
-              icon="i-lucide-unlock"
-              :disabled="!canControlActiveSession"
-              class="justify-center"
-              @click="emit('release')"
-            >
-              Release
-            </UButton>
-          </div>
-
-          <div class="grid grid-cols-2 gap-2">
+          <div>
             <UButton
               color="neutral"
               variant="soft"
               size="sm"
               icon="i-lucide-trash-2"
-              :disabled="!canControlActiveSession"
-              class="justify-center"
+              :disabled="!activeLoadedSession"
+              class="w-full justify-center"
               @click="emit('clearQueue')"
             >
               Clear Queue
-            </UButton>
-            <UButton
-              color="error"
-              variant="soft"
-              size="sm"
-              icon="i-lucide-x-circle"
-              class="justify-center"
-              @click="emit('closeSession')"
-            >
-              Close
             </UButton>
           </div>
         </div>

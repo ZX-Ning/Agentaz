@@ -59,8 +59,6 @@ GET    /api/agent/state
 GET    /api/agent/models
 POST   /api/agent/sessions
 POST   /api/agent/sessions/:sessionId/focus
-DELETE /api/agent/sessions/:sessionId
-POST   /api/agent/sessions/:sessionId/control
 GET    /api/agent/sessions/:sessionId/history
 GET    /api/agent/sessions/:sessionId/models
 PUT    /api/agent/sessions/:sessionId/model
@@ -84,7 +82,7 @@ WS     /api/agent/ws
 - Users can create new sessions and open available persisted sessions for the configured `cwd`.
 - Session list scope is current `cwd`, using Pi `SessionManager.list(cwd)`.
 - Focusing a session changes the active browser view and then the frontend fetches history over HTTP.
-- Closing a running loaded session requires an explicit `abortCurrent` request.
+- Loaded-session eviction is an internal cache policy; the UI does not expose loaded/unloaded state as a user action.
 - Fork/tree/clone workflows are not implemented.
 
 ### Browser Client Model
@@ -92,7 +90,7 @@ WS     /api/agent/ws
 - This is still a single-user app.
 - WebSocket clients are realtime subscribers, not authentication principals.
 - Browser-initiated mutations use HTTP APIs.
-- Current control state is a local UI/runtime concept, not a security boundary.
+- Runtime control leases are acquired automatically around mutating operations and surface as conflict errors, not as a manual browser action.
 
 ### Model And Thinking Settings
 
@@ -235,7 +233,7 @@ REST-only data must not be emitted as WS result events:
 - HTTP agent API for actions and snapshots
 - WebSocket server event stream
 - process-wide server-resident working session workspace
-- new/open/focus/close sessions, with capped server-resident loaded session retention
+- new/open/focus sessions, with capped server-resident loaded session retention
 - persisted session listing for current `cwd`
 - history loading over HTTP
 - prompt/steer/follow-up over HTTP with streaming output over WS

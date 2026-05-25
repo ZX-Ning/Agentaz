@@ -1,9 +1,9 @@
 import type { UiRequestResponseRequest } from "../../../../../../../types/protocol";
 import {
   agentHttpError,
-  getConfiguredAgentRegistry,
   readJsonBody,
   requireRouteParam,
+  withRequestSessionControl,
 } from "../../../../../../utils/agent-http";
 
 export default defineEventHandler(async (event) => {
@@ -11,10 +11,12 @@ export default defineEventHandler(async (event) => {
     const sessionId = requireRouteParam(event, "sessionId");
     const requestId = requireRouteParam(event, "requestId");
     const body = await readJsonBody<UiRequestResponseRequest>(event);
-    getConfiguredAgentRegistry().resolveUiRequest(
-      sessionId,
-      requestId,
-      body as UiRequestResponseRequest,
+    await withRequestSessionControl(event, sessionId, async (lease) =>
+      lease.runtime.workspace.resolveUiRequest(
+        sessionId,
+        requestId,
+        body as UiRequestResponseRequest,
+      ),
     );
     return { ok: true, sessionId, requestId };
   } catch (error) {

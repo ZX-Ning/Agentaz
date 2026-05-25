@@ -1,9 +1,9 @@
 import type { ThinkingSetRequest } from "../../../../../types/protocol";
 import {
   agentHttpError,
-  getConfiguredAgentRegistry,
   readJsonBody,
   requireRouteParam,
+  withRequestSessionControl,
 } from "../../../../utils/agent-http";
 
 export default defineEventHandler(async (event) => {
@@ -11,9 +11,8 @@ export default defineEventHandler(async (event) => {
     const sessionId = requireRouteParam(event, "sessionId");
     const body = await readJsonBody<ThinkingSetRequest>(event);
     if (!body.level) throw new Error("Thinking level is required.");
-    return await getConfiguredAgentRegistry().setSessionThinkingLevel(
-      sessionId,
-      body.level,
+    return await withRequestSessionControl(event, sessionId, (lease) =>
+      lease.runtime.workspace.setSessionThinkingLevel(sessionId, body.level!),
     );
   } catch (error) {
     throw agentHttpError(error);

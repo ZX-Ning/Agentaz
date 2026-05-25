@@ -15,12 +15,6 @@ export default defineEventHandler(async (event) => {
       ? await runtime.workspace.openLoadedSession(body.sessionFile)
       : await runtime.workspace.createLoadedSession();
     runtime.presence.focus(clientId, controller.sessionId);
-    runtime.presence.acquireControl(clientId, controller.sessionId);
-    runtime.eventBus.publish({
-      type: "control_changed",
-      sessionId: controller.sessionId,
-      controlOwnerClientId: runtime.presence.ownerOf(controller.sessionId),
-    });
     const state = runtime.projector.getState(clientId);
     if (body.sessionFile) {
       return {
