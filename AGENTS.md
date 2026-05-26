@@ -55,9 +55,10 @@ Do not run `pnpm build` by default because it is slower. Run build only when req
 - If adding/changing HTTP DTOs or WebSocket event shapes, update both frontend handling and backend emitters/routes.
 - Prefer small, focused server utilities under `apps/web/server/utils/`.
 - Keep frontend state simple until there is a strong reason to introduce a larger store.
-- All `interface` and `class` declarations should have documentation comments explaining purpose and behavior.
-- Interface methods should have documentation comments explaining expected behavior and implementation constraints.
-- For long functions/methods, add short section comments when they clarify flow.
+
+### Comments
+
+Be aggressive with comments — when in doubt, write more. Every API route (`apps/web/server/api/**/*.ts`) gets a top-level JSDoc covering HTTP method/path, request and response shapes, route params, headers, side effects, and error codes. Every non-trivial utility method gets a JSDoc documenting purpose, parameters, return value, and behavioral contracts. Long functions get inline section comments describing each logical phase.
 
 ## Frontend Notes
 

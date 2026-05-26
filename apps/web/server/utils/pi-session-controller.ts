@@ -24,19 +24,33 @@ import { ensurePermissionConfig } from "./permission-config";
 /** Emits a normalized server event to the runtime event bus. */
 export type EmitEvent = (event: ServerEvent) => void;
 
-/** Model and thinking-level changes requested while a session is still busy. */
+/**
+ * Model and thinking-level changes requested while a session is still busy.
+ *
+ * When the user changes the model or thinking level while the agent is
+ * streaming or has pending messages, the change is deferred. It is applied
+ * automatically when the session becomes idle (via applyPendingSettingsIfIdle).
+ */
 type PendingSettings = {
   model?: any;
   thinkingLevel?: ThinkingLevel;
 };
 
-/** Runtime location of a tool call block in the canonical transcript projection. */
+/**
+ * Runtime location of a tool call block in the canonical transcript projection.
+ * Maps a toolCallId to the assistant message it belongs to and the block ids
+ * for the tool_call and tool_result blocks within that message.
+ */
 type ToolBlockLocation = {
+  /** The owning assistant message's id. */
   messageId: string;
+  /** The UiBlock id for the tool_call entry. */
   callBlockId: string;
+  /** The UiBlock id for the tool_result entry. */
   resultBlockId: string;
 };
 
+/** The complete set of thinking levels exposed through the web UI. */
 export const DEFAULT_THINKING_LEVELS: ThinkingLevel[] = [
   "off",
   "minimal",
@@ -49,24 +63,52 @@ export const DEFAULT_THINKING_LEVELS: ThinkingLevel[] = [
 /**
  * Owns one live Pi SDK session and its browser-facing integration.
  *
- * A controller is independent from WebSocket connection lifetime. It keeps streaming, queue,
- * model/thinking state, extension UI prompts, and event subscriptions alive until the registry
- * explicitly closes or disposes the loaded session.
+ * A controller is independent from WebSocket connection lifetime. It keeps
+ * streaming, queue, model/thinking state, extension UI prompts, and event
+ * subscriptions alive until the registry explicitly closes or disposes the
+ * loaded session.
+ *
+ * Key responsibilities:
+ *   - Session initialization: lazy loading of Pi SDK services and session binding.
+ *   - Message dispatch: prompt(), steer(), followUp() with queue management.
+ *   - Transcript streaming: building UiBlock/UiMessage projections from Pi SDK events.
+ *   - Model/thinking: immediate vs deferred setting while session is busy.
+ *   - Extension UI: bridging Pi extension prompts to the browser via WebExtensionUIContext.
+ *   - History: caching and normalizing the transcript for HTTP responses.
  */
 export class PiSessionController {
+  /** The result of createAgentSessionFromServices — holds the live Pi session. */
   private sessionResult?: CreateAgentSessionResult;
+  /**
+   * The SessionManager backing this controller.
+   * Created fresh for new sessions; opened from a file path for existing sessions.
+   */
   private sessionManager?: SessionManager;
+  /** Promise that resolves when the Pi SDK session is fully initialized. */
   private initPromise?: Promise<void>;
+  /** Cleanup function returned by session.subscribe(). */
   private unsubscribe?: () => void;
+  /** Browser-backed extension UI context (prompts, widgets, notifications). */
   private uiContext?: WebExtensionUIContext;
+  /** Deferred model/thinking changes waiting for the session to become idle. */
   private pendingSettings: PendingSettings = {};
+
+  // ── Transcript projection state ──────────────────────────────────────
+  /** The current assistant message being built from streaming deltas. */
   private currentAssistantMessageId: string = crypto.randomUUID();
+  /** Tracked text block id within the current assistant message. */
   private currentTextBlockId?: string;
+  /** Tracked thinking block id within the current assistant message. */
   private currentThinkingBlockId?: string;
+  /** Full transcript indexed by message id (live streaming + cached responses). */
   private transcript = new Map<string, UiMessage>();
+  /** Maps tool call ids to their location in the transcript. */
   private toolBlocks = new Map<string, ToolBlockLocation>();
+  /** Synthetic id for anonymous tool calls that lack explicit toolCallId fields. */
   private anonymousToolCallId?: string;
+  /** Counter for generating unique anonymous tool call ids. */
   private anonymousToolCallCounter = 0;
+  /** Cached normalized history; invalidated when messages change. */
   private cachedHistory?: SessionHistoryResponse;
 
   private constructor(
@@ -80,7 +122,15 @@ export class PiSessionController {
     private readonly onSessionMetadataChanged: () => void | Promise<void>,
   ) {}
 
-  /** Creates a fresh persisted session for the configured working directory. */
+  /**
+   * Creates a fresh persisted session for the configured working directory.
+   *
+   * Steps:
+   *   1. Create a PiSessionController with the given options.
+   *   2. Create a new SessionManager (generates a new session file).
+   *   3. Initialize the controller with the session manager.
+   *   4. Return the controller (the session is lazily initialized on first use).
+   */
   static async create(options: {
     cwd: string;
     agentDir: string;
@@ -101,13 +151,22 @@ export class PiSessionController {
       options.approvalTimeoutMs,
       options.onSessionMetadataChanged,
     );
+
+    // Create a fresh SessionManager — allocates a new session file
+    // and writes the initial session header.
     const sessionManager = SessionManager.create(options.cwd);
     sessionManager.newSession();
     await controller.init(sessionManager);
     return controller;
   }
 
-  /** Opens an existing persisted session file for the configured working directory. */
+  /**
+   * Opens an existing persisted session file for the configured working directory.
+   *
+   * Unlike create(), this does not call sessionManager.newSession() — the
+   * session file already exists. The SessionManager is opened directly from
+   * the file path, and the controller is initialized from that manager.
+   */
   static async open(options: {
     cwd: string;
     agentDir: string;
@@ -129,11 +188,15 @@ export class PiSessionController {
       options.approvalTimeoutMs,
       options.onSessionMetadataChanged,
     );
+
+    // Open the existing session file. The third argument (cwd) is used
+    // to maintain the SessionManager's working directory reference.
     controller.sessionManager = SessionManager.open(
       options.sessionFile,
       undefined,
       options.cwd,
     );
+
     return controller;
   }
 
@@ -142,21 +205,33 @@ export class PiSessionController {
     return this.sessionResult?.session;
   }
 
-  /** Stable Pi session identifier used for protocol routing. */
+  /**
+   * Stable Pi session identifier used for protocol routing.
+   * Falls back to the SessionManager's id if the SDK session isn't initialized yet.
+   */
   get sessionId() {
     return (
       this.session?.sessionId ?? this.requireSessionManager().getSessionId()
     );
   }
 
-  /** Current session file path for persisted sessions. */
+  /**
+   * Current session file path for persisted sessions.
+   * Falls back to the SessionManager's file path before initialization.
+   */
   get sessionFile() {
     return (
       this.session?.sessionFile ?? this.requireSessionManager().getSessionFile()
     );
   }
 
-  /** Returns whether the session must remain loaded because work is still in flight. */
+  /**
+   * Returns whether the session must remain loaded because work is still in flight.
+   * A session is busy if:
+   *   - It's still initializing (initPromise is pending).
+   *   - The agent workflow is active (streaming or has queued messages).
+   *   - There are outstanding browser-backed UI prompts waiting for user input.
+   */
   isBusy() {
     return (
       Boolean(this.initPromise) ||
@@ -165,7 +240,11 @@ export class PiSessionController {
     );
   }
 
-  /** Converts this loaded session into a browser sidebar/status row. */
+  /**
+   * Converts this loaded session into a browser sidebar/status row.
+   * Includes runtime state (isWorking, isStreaming, pending counts)
+   * and extension widget projections.
+   */
   toLoadedSession(): UiLoadedSession {
     const session = this.session;
     const sessionId = this.sessionId;
@@ -184,13 +263,19 @@ export class PiSessionController {
     };
   }
 
-  /** Sends a prompt to this session and waits for the Pi agent loop to finish. */
+  /**
+   * Sends a prompt to this session and waits for the Pi agent loop to finish.
+   * This is the primary message entry point — starts a new agent turn.
+   */
   async prompt(text: string, images?: ImagePayload[]) {
     await this.ensureInitialized();
     await this.requireSession().prompt(text, { images: toPiImages(images) });
   }
 
-  /** Sends steering text to the currently streaming session. */
+  /**
+   * Sends steering text to the currently streaming session.
+   * Steer messages redirect the agent's current output without starting a new turn.
+   */
   async steer(text: string, images?: ImagePayload[]) {
     await this.ensureInitialized();
     await this.requireSession().prompt(text, {
@@ -199,7 +284,10 @@ export class PiSessionController {
     });
   }
 
-  /** Queues a follow-up prompt for the currently streaming session. */
+  /**
+   * Queues a follow-up prompt for the currently streaming session.
+   * Follow-up messages are processed after the current agent turn completes.
+   */
   async followUp(text: string, images?: ImagePayload[]) {
     await this.ensureInitialized();
     await this.requireSession().prompt(text, {
@@ -208,7 +296,11 @@ export class PiSessionController {
     });
   }
 
-  /** Aborts the active agent operation and pending browser-backed UI prompts. */
+  /**
+   * Aborts the active agent operation and cancels all pending browser-backed
+   * extension UI prompts. The session remains loaded after abort — only the
+   * in-flight workflow is terminated.
+   */
   async abort() {
     await this.ensureInitialized();
     this.uiContext?.cancelAll();
@@ -216,7 +308,10 @@ export class PiSessionController {
     this.sendStatus();
   }
 
-  /** Clears queued steering and follow-up messages. */
+  /**
+   * Clears queued steering and follow-up messages.
+   * Emits a queue_update event with empty arrays and sends an updated status.
+   */
   async clearQueue() {
     await this.ensureInitialized();
     const cleared = this.requireSession().clearQueue();
@@ -230,15 +325,28 @@ export class PiSessionController {
     console.log("[agentaz-server] cleared queue", cleared);
   }
 
-  /** Returns the model list and current model state for this session. */
+  /**
+   * Returns the model list and current/target model state for this session.
+   *
+   * Handles three scenarios:
+   *   1. Session is initialized — reads model from the live Pi session.
+   *   2. Session is not yet initialized — restores model from the SessionManager's
+   *      persisted session context (buildSessionContext).
+   *   3. A pending model/thinking change exists — included in the response so
+   *      the frontend can show a "pending" badge.
+   */
   getModelState(): ModelStateResponse {
     const session = this.session;
+
+    // If the session isn't initialized yet, try to restore the model
+    // from the persisted session context on disk.
     const restored = session
       ? undefined
       : this.requireSessionManager().buildSessionContext();
     const restoredModel = restored?.model
       ? this.modelRegistry.find(restored.model.provider, restored.model.modelId)
       : undefined;
+
     return {
       sessionId: this.sessionId,
       models: this.modelRegistry.getAvailable().map(toUiModel),
@@ -259,7 +367,13 @@ export class PiSessionController {
     };
   }
 
-  /** Sets the model immediately or queues it until the session is idle. */
+  /**
+   * Sets the model immediately or queues it until the session is idle.
+   *
+   * If the agent is currently streaming or has pending messages, the model
+   * change is stored in pendingSettings and applied automatically when the
+   * session becomes idle (via the queue_update or agent_end event handler).
+   */
   async setModel(provider: string, id: string) {
     await this.ensureInitialized();
     const model = this.modelRegistry.find(provider, id);
@@ -267,6 +381,7 @@ export class PiSessionController {
 
     const session = this.requireSession();
     if (this.isWorkflowBusy()) {
+      // Defer: the model change will be applied when the session becomes idle.
       this.pendingSettings.model = model;
       return this.getModelState();
     }
@@ -275,7 +390,10 @@ export class PiSessionController {
     return this.getModelState();
   }
 
-  /** Sets the thinking level immediately or queues it until the session is idle. */
+  /**
+   * Sets the thinking level immediately or queues it until the session is idle.
+   * Same deferred-apply pattern as setModel.
+   */
   async setThinkingLevel(level: ThinkingLevel) {
     await this.ensureInitialized();
     const session = this.requireSession();
@@ -306,17 +424,28 @@ export class PiSessionController {
     this.sendStatus();
   }
 
-  /** Releases subscriptions, pending prompts, and the underlying SDK session. */
+  /**
+   * Releases subscriptions, cancels pending prompts, and disposes the
+   * underlying SDK session. After disposal, the controller should not be used.
+   */
   async dispose() {
     this.uiContext?.cancelAll();
     this.unsubscribe?.();
     this.requireSession(false)?.dispose();
   }
 
-  /** Returns normalized history, caching the result until messages change. */
+  /**
+   * Returns normalized chat history for HTTP consumption.
+   *
+   * The result is cached until the transcript changes. Cache invalidation
+   * happens in onSessionEvent whenever a message_update, tool_* event, or
+   * agent_end event is received.
+   */
   getHistory(): SessionHistoryResponse {
     if (this.cachedHistory) return this.cachedHistory;
     const session = this.session;
+    // If the Pi session isn't initialized, fall back to the SessionManager's
+    // persisted messages from disk.
     const messages =
       session?.messages ??
       this.requireSessionManager().buildSessionContext().messages;
@@ -332,12 +461,19 @@ export class PiSessionController {
     this.cachedHistory = undefined;
   }
 
-  /** Sends lightweight active-session and status events for a focused loaded session. */
+  /** Sets the SessionManager and triggers lazy session initialization. */
   private async init(sessionManager: SessionManager) {
     this.sessionManager = sessionManager;
     await this.ensureInitialized();
   }
 
+  /**
+   * Ensures the Pi SDK session is initialized exactly once.
+   *
+   * Uses a dedup pattern: if multiple callers call ensureInitialized
+   * concurrently, only one initialization runs and the others wait on
+   * the shared initPromise.
+   */
   private async ensureInitialized() {
     if (this.sessionResult) return;
     if (this.initPromise) return this.initPromise;
@@ -350,20 +486,35 @@ export class PiSessionController {
     }
   }
 
+  /**
+   * Full session initialization: creates the Pi SDK session, binds extensions,
+   * and subscribes to session events for streaming transcript projection.
+   */
   private async initializeSession() {
+    // Ensure the permission-system config exists in the agent directory.
+    // This is idempotent — if the config already exists, it's a no-op.
     await ensurePermissionConfig(this.agentDir);
 
+    // Create the Pi SDK session from shared services and this session's
+    // SessionManager. This wires up the model, tools, permissions, etc.
     this.sessionResult = await createAgentSessionFromServices({
       services: await this.getServices(),
       sessionManager: this.requireSessionManager(),
     });
 
     const session = this.requireSession();
+
+    // Create the WebExtensionUIContext that bridges Pi extension prompts
+    // (select, input, confirm) to WebSocket events for the browser.
     this.uiContext = new WebExtensionUIContext(
       session.sessionId,
       this.emit,
       this.approvalTimeoutMs,
     );
+
+    // Bind extensions with the UI context and an error handler.
+    // The uiContext is cast to any because the Pi SDK's ExtensionUIContext
+    // interface isn't fully imported at the type level.
     await session.bindExtensions({
       uiContext: this.uiContext as any,
       onError: (error) => {
@@ -377,15 +528,24 @@ export class PiSessionController {
       },
     });
 
+    // Subscribe to all session events for transcript streaming.
+    // The unsubscribe function is stored for cleanup on dispose.
     this.unsubscribe = session.subscribe((event) =>
       this.onSessionEvent(event as any),
     );
   }
 
+  /**
+   * Applies any pending model/thinking level changes if the session
+   * is now idle. Called from the queue_update and agent_end event handlers.
+   */
   private async applyPendingSettingsIfIdle() {
     const session = this.session;
     if (!session || this.isWorkflowBusy()) return;
 
+    // Snapshot and clear pending settings before applying, so the
+    // getModelState() call in setModel/setThinkingLevel doesn't
+    // re-read the stale pending values.
     const { model, thinkingLevel } = this.pendingSettings;
     this.pendingSettings = {};
 
@@ -397,6 +557,19 @@ export class PiSessionController {
     }
   }
 
+  /**
+   * Central event dispatcher for all Pi SDK session events.
+   *
+   * Routes each event type to the appropriate handler:
+   *   - message_update: Text deltas from the agent (streaming response text).
+   *   - tool_execution_start / tool_start: Tool call started (status=pending).
+   *   - tool_execution_update / tool_update: Tool call in progress (status=running).
+   *   - tool_execution_end / tool_end: Tool call completed or errored.
+   *   - queue_update: Steer/follow-up queue changed; apply pending settings.
+   *   - agent_end: Agent turn completed; flush the current assistant message.
+   *   - thinking_level_changed: Update the frontend status.
+   *   - session_info_changed: Notify the workspace to refresh persisted metadata.
+   */
   private onSessionEvent(event: any) {
     try {
       const sessionId = this.sessionId;
@@ -405,6 +578,7 @@ export class PiSessionController {
           this.forwardMessageUpdate(sessionId, event);
           this.invalidateHistoryCache();
           break;
+        // Handle both Pi SDK event shapes: camelCase and snake_case.
         case "tool_execution_start":
         case "tool_start":
           this.upsertToolCallBlock(sessionId, event, "pending");
@@ -421,6 +595,7 @@ export class PiSessionController {
           this.invalidateHistoryCache();
           break;
         case "queue_update":
+          // Forward queue contents to the browser for the queue panel.
           this.emit({
             type: "queue_update",
             sessionId,
@@ -428,11 +603,15 @@ export class PiSessionController {
             followUp: [...event.followUp],
           });
           this.sendStatus();
+          // Apply any deferred model/thinking changes now that the
+          // session may have become idle (queue drained).
           void this.applyPendingSettingsIfIdle();
           break;
         case "agent_end":
           this.sendStatus();
+          // Flush the final state of the current assistant message.
           this.flushCurrentAssistantMessage(sessionId);
+          // Reset transcript state for the next agent turn.
           this.currentAssistantMessageId = crypto.randomUUID();
           this.currentTextBlockId = undefined;
           this.currentThinkingBlockId = undefined;
@@ -453,6 +632,7 @@ export class PiSessionController {
     }
   }
 
+  /** Notifies the workspace that session metadata changed (name, first message, etc.). */
   private async notifySessionMetadataChanged() {
     try {
       await this.onSessionMetadataChanged();
@@ -464,9 +644,18 @@ export class PiSessionController {
     }
   }
 
+  /**
+   * Forwards text and thinking deltas from a message_update event.
+   *
+   * Pi SDK events use different shapes depending on the provider. We
+   * normalize by checking for assistantMessageEvent first (newer shape),
+   * then fall back to messageEvent for backward compatibility.
+   */
   private forwardMessageUpdate(sessionId: string, event: any) {
     const messageEvent =
       event.assistantMessageEvent ?? event.messageEvent ?? event;
+
+    // Text delta: append to the current text block in the transcript.
     if (messageEvent.type === "text_delta") {
       this.appendAssistantBlockDelta(
         sessionId,
@@ -475,6 +664,8 @@ export class PiSessionController {
         messageEvent.delta ?? "",
       );
     }
+
+    // Thinking delta: append to the current thinking block (initially collapsed).
     if (messageEvent.type === "thinking_delta") {
       this.appendAssistantBlockDelta(
         sessionId,
@@ -485,6 +676,10 @@ export class PiSessionController {
     }
   }
 
+  /**
+   * Appends a delta to an assistant message block and emits a message_block_delta
+   * WebSocket event for realtime streaming display in the browser.
+   */
   private appendAssistantBlockDelta(
     sessionId: string,
     messageId: string | undefined,
@@ -496,7 +691,11 @@ export class PiSessionController {
       blockType === "text"
         ? this.ensureTextBlock(sessionId, message)
         : this.ensureThinkingBlock(sessionId, message);
+
+    // Accumulate the delta text in the block.
     block.text += delta;
+
+    // Emit the delta for realtime streaming display.
     this.emit({
       type: "message_block_delta",
       sessionId,
@@ -507,23 +706,40 @@ export class PiSessionController {
     });
   }
 
+  /**
+   * Creates or updates a tool_call block in the transcript.
+   *
+   * Handles tool call lifecycle:
+   *   1. "pending" (tool_start): Create a new block with extracted input.
+   *   2. "running" (tool_update): Update the block's status to running.
+   *   3. The block is later completed by completeToolCallBlock.
+   */
   private upsertToolCallBlock(
     sessionId: string,
     event: any,
     status: Extract<UiBlock, { type: "tool_call" }>["status"],
   ) {
+    // Determine the tool call id. Events from different providers use
+    // different shapes — toolCallId handles extraction from known fields.
     const toolCallId = this.toolCallId(
       event,
       status === "pending" ? "start" : "update",
     );
+
+    // Ensure we have a location mapping for this tool call.
     const location = this.ensureToolBlockLocation(sessionId, toolCallId);
     const message = this.ensureAssistantMessage(sessionId, location.messageId);
+
+    // Try to find an existing tool_call block — either by toolCallId
+    // or by the callBlockId from our location mapping.
     const existing =
       findToolCallBlock(message, toolCallId) ??
       message.blocks.find(
         (block): block is Extract<UiBlock, { type: "tool_call" }> =>
           block.id === location.callBlockId && block.type === "tool_call",
       );
+
+    // Build the block, merging existing data for fields that aren't in every event.
     const block: UiBlock = {
       id: location.callBlockId,
       type: "tool_call",
@@ -537,6 +753,7 @@ export class PiSessionController {
       input: extractToolInput(event) ?? existing?.input,
       status,
     };
+
     this.upsertBlock(message, block);
     this.emit({
       type: "message_block_upsert",
@@ -546,16 +763,30 @@ export class PiSessionController {
     });
   }
 
+  /**
+   * Completes a tool call by setting its final status and adding a tool_result block.
+   *
+   * Steps:
+   *   1. Update the tool_call block to "completed" or "error" status.
+   *   2. Create a tool_result block with summarized output.
+   *   3. Clean up anonymous tool call tracking if needed.
+   */
   private completeToolCallBlock(sessionId: string, event: any) {
     const isError = Boolean(event.isError ?? event.error);
+
+    // Update the tool_call block to its final status.
     this.upsertToolCallBlock(sessionId, event, isError ? "error" : "completed");
 
+    // Create the result block with summarized content.
     const toolCallId = this.toolCallId(event, "end");
     const location = this.ensureToolBlockLocation(sessionId, toolCallId);
     const message = this.ensureAssistantMessage(sessionId, location.messageId);
+
+    // Truncate long results to 500 chars for browser display.
     const summary = summarizeToolResult(
       event.result ?? event.output ?? event.error,
     );
+
     const resultBlock: UiBlock = {
       id: location.resultBlockId,
       type: "tool_result",
@@ -563,6 +794,7 @@ export class PiSessionController {
       content: summary,
       isError,
     };
+
     this.upsertBlock(message, resultBlock);
     this.emit({
       type: "message_block_upsert",
@@ -570,11 +802,20 @@ export class PiSessionController {
       messageId: message.id,
       block: resultBlock,
     });
+
+    // Clean up anonymous tool call tracking when this tool completes.
     if (!extractToolCallId(event) && this.anonymousToolCallId === toolCallId) {
       this.anonymousToolCallId = undefined;
     }
   }
 
+  /**
+   * Returns (or creates) an assistant message in the transcript.
+   *
+   * If the message doesn't exist yet, creates it with role "assistant",
+   * registers it in the transcript map, and emits a message_upsert event
+   * so the browser sees the new message immediately.
+   */
   private ensureAssistantMessage(
     sessionId: string,
     messageId = this.currentAssistantMessageId,
@@ -593,18 +834,25 @@ export class PiSessionController {
     return message;
   }
 
+  /** Returns the current text block within a message, creating it if needed. */
   private ensureTextBlock(sessionId: string, message: UiMessage) {
     const blockId = this.currentTextBlockId ?? `${message.id}:text:0`;
     this.currentTextBlockId = blockId;
     return this.ensureTextLikeBlock(sessionId, message, blockId, "text");
   }
 
+  /** Returns the current thinking block within a message, creating it if needed. */
   private ensureThinkingBlock(sessionId: string, message: UiMessage) {
     const blockId = this.currentThinkingBlockId ?? `${message.id}:thinking:0`;
     this.currentThinkingBlockId = blockId;
     return this.ensureTextLikeBlock(sessionId, message, blockId, "thinking");
   }
 
+  /**
+   * Ensures a text-like block (text or thinking) exists in a message.
+   * If the block already exists, returns it. Otherwise creates it and emits
+   * a message_block_upsert event.
+   */
   private ensureTextLikeBlock(
     sessionId: string,
     message: UiMessage,
@@ -617,10 +865,13 @@ export class PiSessionController {
     );
     if (existing) return existing;
 
+    // Create new block: text blocks start empty, thinking blocks start
+    // collapsed so the user can expand them on demand.
     const block: UiBlock =
       type === "text"
         ? { id: blockId, type: "text", text: "" }
         : { id: blockId, type: "thinking", text: "", collapsed: true };
+
     this.upsertBlock(message, block);
     this.emit({
       type: "message_block_upsert",
@@ -631,13 +882,22 @@ export class PiSessionController {
     return block;
   }
 
+  /**
+   * Returns (or creates) the ToolBlockLocation for a given toolCallId.
+   * The location tracks which assistant message owns the tool call and the
+   * block ids for the tool_call and tool_result entries.
+   */
   private ensureToolBlockLocation(
     sessionId: string,
     toolCallId: string,
   ): ToolBlockLocation {
     const existing = this.toolBlocks.get(toolCallId);
     if (existing) return existing;
+
+    // All tool calls are nested under the current assistant message.
+    // If no assistant message exists yet, create one.
     const message = this.ensureAssistantMessage(sessionId);
+
     const location = {
       messageId: message.id,
       callBlockId: `${message.id}:tool:${toolCallId}:call`,
@@ -647,15 +907,29 @@ export class PiSessionController {
     return location;
   }
 
+  /**
+   * Extracts or generates a tool call id from an event.
+   *
+   * Events from different providers use different fields for the tool call
+   * identifier. If no id is found, generates a synthetic anonymous id for
+   * the duration of the tool execution.
+   */
   private toolCallId(event: any, phase: "start" | "update" | "end") {
     const explicit = extractToolCallId(event);
     if (explicit) return explicit;
+
+    // For anonymous tool calls, generate a synthetic id that persists
+    // across start/update/end events for the same execution.
     if (phase === "start" || !this.anonymousToolCallId) {
       this.anonymousToolCallId = `anonymous-${++this.anonymousToolCallCounter}`;
     }
     return this.anonymousToolCallId;
   }
 
+  /**
+   * Inserts or replaces a block within a message's block array.
+   * Blocks are matched by id, or by toolCallId for tool_call/tool_result blocks.
+   */
   private upsertBlock(message: UiMessage, block: UiBlock) {
     const index = message.blocks.findIndex(
       (item) => item.id === block.id || areSameToolBlock(item, block),
@@ -667,6 +941,10 @@ export class PiSessionController {
     }
   }
 
+  /**
+   * Emits the final state of the current assistant message.
+   * Called at agent_end to ensure the browser has the complete message.
+   */
   private flushCurrentAssistantMessage(sessionId: string) {
     const message = this.transcript.get(this.currentAssistantMessageId);
     if (message) {
@@ -674,6 +952,10 @@ export class PiSessionController {
     }
   }
 
+  /**
+   * Sends a lightweight session status event for the currently focused session.
+   * Includes streaming state, pending message count, and pending approval count.
+   */
   private sendStatus(emit: EmitEvent = this.emit) {
     const session = this.session;
     if (!session) return;
@@ -686,6 +968,10 @@ export class PiSessionController {
     });
   }
 
+  /**
+   * Returns whether the agent workflow is currently active.
+   * True if the session is streaming or has pending queued messages.
+   */
   private isWorkflowBusy() {
     const session = this.session;
     return Boolean(
@@ -693,6 +979,11 @@ export class PiSessionController {
     );
   }
 
+  /**
+   * Returns the live Pi session or throws if not initialized.
+   * The required parameter controls whether to throw or return undefined
+   * when the session isn't initialized (false = safe for dispose).
+   */
   private requireSession(
     required?: true,
   ): NonNullable<PiSessionController["session"]>;
@@ -703,6 +994,7 @@ export class PiSessionController {
     return session;
   }
 
+  /** Returns the SessionManager or throws if not set. */
   private requireSessionManager() {
     if (!this.sessionManager)
       throw new Error("Pi session manager is not initialized");
@@ -710,12 +1002,28 @@ export class PiSessionController {
   }
 }
 
-/** Converts Pi SDK message content into normalized UiBlock entries. */
+// ──────────────────────────────────────────────────────────────────────────
+// Message / block normalization helpers
+//
+// These functions convert Pi SDK internal message representations into
+// the browser-compatible UiMessage/UiBlock format used by the protocol.
+// They handle multiple content shapes from different Pi SDK providers.
+// ──────────────────────────────────────────────────────────────────────────
+
+/**
+ * Converts Pi SDK message content into normalized UiBlock entries.
+ *
+ * Each message may contain mixed content types: text, thinking, tool_call,
+ * and tool_result blocks. This function decomposes the raw content array
+ * into a flat list of UiBlock objects with stable ids.
+ */
 export function normalizeMessages(messages: any[]): UiMessage[] {
   const normalized: UiMessage[] = [];
   let lastAssistant: UiMessage | undefined;
 
   messages.forEach((message, index) => {
+    // Tool result messages are attached to the preceding assistant message.
+    // If there is no preceding assistant message, create a synthetic one.
     if (isToolResultMessage(message)) {
       const target =
         lastAssistant ?? createSyntheticAssistantMessage(message, index);
@@ -727,6 +1035,7 @@ export function normalizeMessages(messages: any[]): UiMessage[] {
       return;
     }
 
+    // Regular message: determine id, role, and blocks.
     const messageId = message.id ?? `history-${index}`;
     const uiMessage = {
       id: messageId,
@@ -735,16 +1044,19 @@ export function normalizeMessages(messages: any[]): UiMessage[] {
       createdAt: message.createdAt ?? message.timestamp,
     };
     normalized.push(uiMessage);
+    // Track the last assistant message for tool_result attachment.
     lastAssistant = uiMessage.role === "assistant" ? uiMessage : lastAssistant;
   });
 
   return normalized;
 }
 
+/** Checks if a message is a tool result (role = "toolResult" or "tool"). */
 function isToolResultMessage(message: any) {
   return message?.role === "toolResult" || message?.role === "tool";
 }
 
+/** Creates a synthetic assistant message to host orphan tool results. */
 function createSyntheticAssistantMessage(
   message: any,
   index: number,
@@ -758,6 +1070,10 @@ function createSyntheticAssistantMessage(
   };
 }
 
+/**
+ * Appends a tool_result block to an assistant message, creating a
+ * matching tool_call block if one doesn't already exist.
+ */
 function appendToolResultToMessage(
   message: UiMessage,
   toolResult: any,
@@ -768,6 +1084,8 @@ function appendToolResultToMessage(
     toolResult.toolName ?? toolResult.name ?? toolResult.tool ?? "tool";
   const callBlockId = `${message.id}:tool:${toolCallId}:call`;
   const resultBlockId = `${message.id}:tool:${toolCallId}:result`;
+
+  // Try to find an existing tool_call block to update.
   const existingCall = findToolCallBlock(message, toolCallId);
 
   if (existingCall) {
@@ -776,6 +1094,7 @@ function appendToolResultToMessage(
     existingCall.input ??= extractToolInput(toolResult);
     existingCall.status = toolResult.isError ? "error" : "completed";
   } else {
+    // No existing call block — create one.
     message.blocks.push({
       id: callBlockId,
       type: "tool_call",
@@ -786,6 +1105,7 @@ function appendToolResultToMessage(
     });
   }
 
+  // Create or update the result block.
   const resultBlock: UiBlock = {
     id: resultBlockId,
     type: "tool_result",
@@ -803,6 +1123,7 @@ function appendToolResultToMessage(
   }
 }
 
+/** Normalizes tool result content into a displayable string. */
 function normalizeToolResultContent(toolResult: any) {
   const content =
     toolResult.content ??
@@ -813,6 +1134,7 @@ function normalizeToolResultContent(toolResult: any) {
   return flattenText(content);
 }
 
+/** Maps Pi SDK role strings to the protocol's normalized role values. */
 function normalizeRole(role: unknown): UiMessage["role"] {
   if (
     role === "user" ||
@@ -828,8 +1150,10 @@ function normalizeRole(role: unknown): UiMessage["role"] {
 /**
  * Converts Pi SDK message content into normalized UiBlock entries.
  *
- * Handles string content, arrays of structured content parts (text, thinking, tool_call,
- * tool_result), and falls back to JSON serialization for unknown shapes.
+ * Handles three content shapes:
+ *   1. String content → single text block.
+ *   2. Array of content parts → one UiBlock per recognized part.
+ *   3. Unknown shape → JSON-serialized text block.
  */
 function normalizeContent(content: unknown, messageId: string): UiBlock[] {
   if (typeof content === "string") {
@@ -839,6 +1163,7 @@ function normalizeContent(content: unknown, messageId: string): UiBlock[] {
     const blocks = content
       .map((part, index) => normalizeContentPart(part, messageId, index))
       .filter(Boolean) as UiBlock[];
+    // Ensure at least one block exists for display purposes.
     if (blocks.length === 0) {
       return [{ id: `${messageId}:text:0`, type: "text", text: "" }];
     }
@@ -849,11 +1174,16 @@ function normalizeContent(content: unknown, messageId: string): UiBlock[] {
   ];
 }
 
+/**
+ * Converts a single content part into a UiBlock, or returns null for
+ * unrecognized shapes.
+ */
 function normalizeContentPart(
   part: any,
   messageId: string,
   index: number,
 ): UiBlock | null {
+  // Plain string part → text block.
   if (typeof part === "string") {
     return { id: `${messageId}:text:${index}`, type: "text", text: part };
   }
@@ -877,6 +1207,7 @@ function normalizeContentPart(
     };
   }
 
+  // Handle both "tool_call" and "toolCall" for cross-provider compatibility.
   if (type === "tool_call" || type === "toolCall") {
     const toolCallId = extractToolCallId(part) ?? `tool-${index}`;
     return {
@@ -903,6 +1234,7 @@ function normalizeContentPart(
     };
   }
 
+  // Fallback: if the part has a text property, treat it as text.
   if (part?.text) {
     return {
       id: part.id ?? `${messageId}:text:${index}`,
@@ -914,6 +1246,15 @@ function normalizeContentPart(
   return null;
 }
 
+// ──────────────────────────────────────────────────────────────────────────
+// Utility helpers exported for use by pi-session-workspace and other modules
+// ──────────────────────────────────────────────────────────────────────────
+
+/**
+ * Extracts a tool call id from any value by probing known field names.
+ * Pi SDK events and messages from different providers use different field
+ * shapes — this function checks them all.
+ */
 export function extractToolCallId(value: any): string | undefined {
   const id =
     value?.toolCallId ??
@@ -931,6 +1272,9 @@ export function extractToolCallId(value: any): string | undefined {
   return id === undefined || id === null || id === "" ? undefined : String(id);
 }
 
+/**
+ * Extracts tool input/arguments from any value by probing known field names.
+ */
 export function extractToolInput(value: any): unknown {
   return (
     value?.input ??
@@ -942,6 +1286,7 @@ export function extractToolInput(value: any): unknown {
   );
 }
 
+/** Finds a tool_call block within a message by toolCallId. */
 export function findToolCallBlock(message: UiMessage, toolCallId: string) {
   return message.blocks.find(
     (block): block is Extract<UiBlock, { type: "tool_call" }> =>
@@ -949,6 +1294,7 @@ export function findToolCallBlock(message: UiMessage, toolCallId: string) {
   );
 }
 
+/** Checks whether two UiBlocks represent the same logical tool entry. */
 export function areSameToolBlock(left: UiBlock, right: UiBlock) {
   if (left.type === "tool_call" && right.type === "tool_call")
     return left.toolCallId === right.toolCallId;
@@ -957,6 +1303,10 @@ export function areSameToolBlock(left: UiBlock, right: UiBlock) {
   return false;
 }
 
+/**
+ * Flattens arbitrary content into a displayable string.
+ * Recursively joins array elements and stringifies objects.
+ */
 export function flattenText(content: unknown): string {
   if (typeof content === "string") return content;
   if (Array.isArray(content)) {
@@ -967,6 +1317,7 @@ export function flattenText(content: unknown): string {
   return JSON.stringify(content);
 }
 
+/** Converts ImagePayload to Pi SDK image format (base64 media). */
 export function toPiImages(images?: ImagePayload[]): any[] | undefined {
   return images?.map((image) => ({
     type: "image",
@@ -978,6 +1329,7 @@ export function toPiImages(images?: ImagePayload[]): any[] | undefined {
   }));
 }
 
+/** Converts Pi SDK session info to the UI session summary format. */
 export function toUiSessionSummary(info: any): UiSessionSummary {
   return {
     file: info.path ?? info.file ?? info.sessionFile,
@@ -989,6 +1341,7 @@ export function toUiSessionSummary(info: any): UiSessionSummary {
   };
 }
 
+/** Converts Pi SDK model info to the UI model format. */
 export function toUiModel(model: any): UiModel {
   return {
     provider: model.provider,
@@ -998,22 +1351,27 @@ export function toUiModel(model: any): UiModel {
   };
 }
 
+/** Normalizes a thinking level value, defaulting to "off" for unknown values. */
 export function normalizeThinkingLevel(level: unknown): ThinkingLevel {
   return DEFAULT_THINKING_LEVELS.includes(level as ThinkingLevel)
     ? (level as ThinkingLevel)
     : "off";
 }
 
+/** Returns supported thinking levels for a model based on its reasoning capability. */
 export function supportedThinkingLevels(model: any): ThinkingLevel[] {
   if (!model?.reasoning) return ["off"];
   return DEFAULT_THINKING_LEVELS.filter((level) => {
+    // If the model has a thinkingLevelMap, check if this level is mapped.
     const mapped = model.thinkingLevelMap?.[level];
     if (mapped === null) return false;
+    // "xhigh" requires an explicit mapping.
     if (level === "xhigh") return mapped !== undefined;
     return true;
   });
 }
 
+/** Extracts session metadata from a SessionManager for UI display. */
 export function summarizeSessionManager(
   sessionManager: SessionManager,
 ): Omit<UiSessionSummary, "file"> {
@@ -1028,6 +1386,7 @@ export function summarizeSessionManager(
   };
 }
 
+/** Finds the text of the first user message in session entries. */
 export function firstUserMessage(entries: any[]) {
   for (const entry of entries) {
     const message = entry?.type === "message" ? entry.message : undefined;
@@ -1038,6 +1397,7 @@ export function firstUserMessage(entries: any[]) {
   return undefined;
 }
 
+/** Converts a timestamp-like value to a numeric epoch milliseconds. */
 export function toTimestamp(value: unknown): number | undefined {
   if (typeof value === "number") return value;
   if (value instanceof Date) return value.getTime();
@@ -1048,6 +1408,7 @@ export function toTimestamp(value: unknown): number | undefined {
   return undefined;
 }
 
+/** Summarizes tool result content for display, truncating at 500 characters. */
 export function summarizeToolResult(result: unknown) {
   const text = flattenText(result);
   return text.length > 500 ? `${text.slice(0, 500)}...` : text;

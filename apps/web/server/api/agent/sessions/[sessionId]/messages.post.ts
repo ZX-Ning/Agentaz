@@ -8,14 +8,54 @@ import {
   readJsonBody,
   requireRouteParam,
 } from "../../../../utils/agent-http";
-
+/**
+ * POST /api/agent/sessions/:sessionId/messages
+ *
+ * Submits a prompt, steer, or follow-up message to a loaded Pi session.
+ * Message processing is asynchronous — this endpoint accepts the message
+ * and returns immediately while the Pi agent loop continues in the background.
+ *
+ * The caller must hold session control (acquired via x-agentaz-client-id header).
+ * If another client currently controls this session, the request is rejected.
+ *
+ * Route params:
+ *   - sessionId: The target loaded session identifier
+ *
+ * Request body (JSON): MessageSubmitRequest
+ *   - mode: "prompt" for a new agent turn, "steer" to redirect streaming output,
+ *     "follow_up" to queue a message after the current turn completes.
+ *   - text: The message text to send to the Pi agent.
+ *   - images (optional): Base64-encoded image attachments (reserved for future use).
+ *
+ * Response (200): MessageSubmitResponse
+ *   - accepted: Always true
+ *   - sessionId: Echo of the route param
+ *
+ * Lifecycle:
+ *   1. Validate required fields (text, mode)
+ *   2. Acquire a request-scoped session control lease
+ *   3. Submit the message to the workspace (async fire-and-forget)
+ *   4. The control lease is released when the message task settles
+ *
+ * Errors:
+ *   - 400: Missing message mode or text
+ *   - 404: Session not loaded
+ *   - 409: Session is controlled by another browser client
+ *   - 409: Agent is already running (steer/follow-up timing)
+ *   - 500: Unexpected runtime error
+ */
 export default defineEventHandler(
   async (event): Promise<MessageSubmitResponse> => {
     try {
       const sessionId = requireRouteParam(event, "sessionId");
       const body = await readJsonBody<MessageSubmitRequest>(event);
+
+      // Validate required message fields before acquiring control.
       if (!body.text || !body.mode)
         throw new Error("Message mode and text are required.");
+
+      // Acquire request-scoped control — blocks other clients from mutating
+      // this session while we submit the message.
       const lease = acquireRequestSessionControl(event, sessionId);
       try {
         lease.runtime.workspace.submitMessage(
@@ -25,9 +65,11 @@ export default defineEventHandler(
             text: body.text,
             images: body.images,
           },
+          // Release control when the message task settles (completes or errors).
           lease.release,
         );
       } catch (error) {
+        // If submission itself fails, release control immediately.
         lease.release();
         throw error;
       }

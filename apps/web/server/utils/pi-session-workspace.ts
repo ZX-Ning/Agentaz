@@ -28,33 +28,62 @@ import { ensureRequiredPiPackages } from "./pi-required-packages";
 
 /** Startup options for the process-wide Pi session workspace. */
 export type PiSessionWorkspaceOptions = {
+  /** Working directory for all Pi sessions. */
   cwd: string;
+  /** Timeout in milliseconds for browser-backed extension UI approval prompts. */
   approvalTimeoutMs: number;
+  /** Maximum number of Pi sessions that can be loaded simultaneously. */
   maxLoadedSessions: number;
 };
 
 /**
  * Owns Pi SDK services and the process-resident loaded session working set.
  *
- * The workspace deliberately has no knowledge of browser clients or WebSocket peers. It emits
- * runtime events when session state changes, and separate services project those changes for clients.
+ * The workspace deliberately has no knowledge of browser clients or WebSocket peers.
+ * It emits runtime events when session state changes, and separate services
+ * (SessionProjector, WsAgentHub) project those changes for browser clients.
+ *
+ * Session lifecycle:
+ *   - Sessions are loaded on demand via createLoadedSession() or openLoadedSession().
+ *   - When the working set reaches maxLoadedSessions, idle sessions may be evicted.
+ *   - Sessions currently focused by a browser client are protected from eviction
+ *     (identified by the getProtectedSessionIds callback).
+ *   - Persisted session metadata is cached separately and refreshed asynchronously.
+ *
+ * Service lifecycle:
+ *   - Pi SDK services (AgentSessionServices) are created lazily on first access.
+ *   - They include auth storage, model registry, and shared infrastructure.
+ *   - Required Pi packages are auto-configured in the agent's settings.json on creation.
  */
 export class PiSessionWorkspace {
+  /** Pi agent home directory (defaults to ~/.pi or PI_CODING_AGENT_DIR). */
   private agentDir = getAgentDir();
+  /** Shared auth storage for API keys and credentials. */
   private authStorage = AuthStorage.create(join(this.agentDir, "auth.json"));
+  /** Shared model registry backed by models.json in the agent directory. */
   private modelRegistry = ModelRegistry.create(
     this.authStorage,
     join(this.agentDir, "models.json"),
   );
+  /** Lazily-initialized Pi SDK services. Resolved on first use. */
   private servicesPromise?: Promise<AgentSessionServices>;
+  /** The loaded session working set indexed by sessionId. */
   private sessions = new Map<string, PiSessionController>();
+  /** Snapshot of persisted session metadata from the working directory. */
   private persistedSessionCache: UiSessionSummary[] = [];
 
   constructor(
     private readonly options: PiSessionWorkspaceOptions,
     private readonly eventBus: AgentEventBus,
+    /**
+     * Callback that returns session ids that should not be evicted.
+     * Called during eviction to identify sessions a browser client is
+     * currently focused on. Defaults to empty set (all sessions evictable).
+     */
     private readonly getProtectedSessionIds: () => Iterable<string> = () => [],
   ) {
+    // Prewarm Pi SDK services in the background so the first session
+    // creation doesn't block on package installation.
     void this.getServices().catch((error) => {
       console.error("failed to prewarm Pi SDK services", error);
     });
@@ -65,22 +94,37 @@ export class PiSessionWorkspace {
     return this.options.cwd;
   }
 
-  /** Cached persisted sessions for the configured working directory. */
+  /**
+   * Cached persisted sessions for the configured working directory.
+   * Updated by refreshPersistedSessionCache() — not live, but refreshed
+   * after every session mutation and message completion.
+   */
   get persistedSessions() {
     return this.persistedSessionCache;
   }
 
-  /** Returns SDK services shared by all loaded sessions for the configured cwd. */
+  /**
+   * Returns (and lazily creates) SDK services shared by all loaded sessions.
+   * The services promise is cached so only one initialization runs, even if
+   * multiple sessions are being opened concurrently.
+   */
   private getServices() {
     this.servicesPromise ??= this.createServices().catch((error) => {
+      // Reset on failure so the next caller can retry.
       this.servicesPromise = undefined;
       throw error;
     });
     return this.servicesPromise;
   }
 
-  /** Creates SDK services after required Pi agent packages are configured. */
+  /**
+   * Creates SDK services after ensuring required Pi agent packages are configured.
+   * This includes the permission-system and todo extensions needed by Agentaz.
+   */
   private async createServices() {
+    // Auto-configure required packages (permission-system, todo)
+    // in the agent's settings.json. This is idempotent — if the packages
+    // are already listed, this is a no-op.
     const result = await ensureRequiredPiPackages(this.agentDir);
     if (result.added.length > 0) {
       console.log(
@@ -88,6 +132,8 @@ export class PiSessionWorkspace {
         result,
       );
     }
+
+    // Create the shared service container: auth, model registry, etc.
     return createAgentSessionServices({
       cwd: this.options.cwd,
       agentDir: this.agentDir,
@@ -96,33 +142,50 @@ export class PiSessionWorkspace {
     });
   }
 
-  /** Returns a readonly projection of currently loaded sessions. */
+  /** Returns a readonly projection of currently loaded sessions for the UI sidebar. */
   loadedSessions(): UiLoadedSession[] {
     return [...this.sessions.values()].map((controller) =>
       controller.toLoadedSession(),
     );
   }
 
-  /** Returns the first loaded session id, used as fallback focus after closing a session. */
+  /**
+   * Returns the first loaded session id, used as a fallback focus target
+   * after closing a session or when a new browser client connects.
+   */
   firstLoadedSessionId() {
     return this.sessions.keys().next().value as string | undefined;
   }
 
-  /** Returns whether a session is currently loaded. */
+  /** Returns whether a session is currently loaded in the working set. */
   hasSession(sessionId: string) {
     return this.sessions.has(sessionId);
   }
 
-  /** Refreshes cached persisted session summaries and emits a state change. */
+  /**
+   * Refreshes cached persisted session summaries and emits a state change.
+   * Called after session mutations and message completions so the sidebar
+   * reflects the latest on-disk state.
+   */
   async refreshPersistedSessionCache() {
     this.persistedSessionCache = await this.listPersistedSessions();
     this.emitStateChanged();
   }
 
-  /** Creates a fresh loaded session. */
+  /**
+   * Creates a fresh persisted session for the configured cwd.
+   *
+   * Lifecycle:
+   *   1. If at capacity, evict one non-protected idle session.
+   *   2. Verify capacity is available (throws if not).
+   *   3. Create a PiSessionController with a new SessionManager.
+   *   4. Register the controller in the working set.
+   *   5. Emit a state_changed event.
+   */
   async createLoadedSession() {
     await this.releaseOneAvailableSessionIfAtCapacity();
     this.assertCanLoadAnotherSession();
+
     const controller = await PiSessionController.create({
       cwd: this.options.cwd,
       agentDir: this.agentDir,
@@ -133,14 +196,25 @@ export class PiSessionWorkspace {
       approvalTimeoutMs: this.options.approvalTimeoutMs,
       onSessionMetadataChanged: () => this.refreshPersistedSessionCache(),
     });
+
     this.sessions.set(controller.sessionId, controller);
     this.emitStateChanged();
     return controller;
   }
 
-  /** Opens an existing persisted session, returning an already-loaded controller when possible. */
+  /**
+   * Opens an existing persisted session by file path.
+   *
+   * If the session is already loaded, returns the existing controller
+   * immediately (deduplication by normalized absolute path).
+   * Otherwise, follows the same create path: eviction, capacity check,
+   * controller creation, and registration.
+   */
   async openLoadedSession(sessionFile: string) {
+    // Normalize to absolute path for deduplication.
     const normalizedSessionFile = resolve(sessionFile);
+
+    // Check if this file is already loaded.
     const loaded = [...this.sessions.values()].find(
       (controller) =>
         controller.sessionFile &&
@@ -150,6 +224,7 @@ export class PiSessionWorkspace {
 
     await this.releaseOneAvailableSessionIfAtCapacity();
     this.assertCanLoadAnotherSession();
+
     const controller = await PiSessionController.open({
       cwd: this.options.cwd,
       agentDir: this.agentDir,
@@ -161,6 +236,7 @@ export class PiSessionWorkspace {
       onSessionMetadataChanged: () => this.refreshPersistedSessionCache(),
       sessionFile: normalizedSessionFile,
     });
+
     this.sessions.set(controller.sessionId, controller);
     this.emitStateChanged();
     return controller;
@@ -176,7 +252,11 @@ export class PiSessionWorkspace {
     return this.requireSession(sessionId).getModelState();
   }
 
-  /** Returns model picker defaults without creating or initializing a Pi session. */
+  /**
+   * Returns model picker defaults without creating or initializing a Pi session.
+   * Used by the global GET /api/agent/models endpoint to populate the picker
+   * before any session exists.
+   */
   getDefaultModelState(): ModelStateResponse {
     return {
       sessionId: "",
@@ -200,13 +280,29 @@ export class PiSessionWorkspace {
     return state;
   }
 
-  /** Accepts a prompt-like message over HTTP and continues execution asynchronously. */
+  /**
+   * Accepts a prompt-like message over HTTP and continues execution asynchronously.
+   *
+   * Message dispatch is fire-and-forget: the HTTP response returns immediately
+   * while the Pi agent loop processes the prompt in the background. When the
+   * message task settles (completes or errors):
+   *   - Persisted session metadata is refreshed.
+   *   - A state_changed event is emitted.
+   *   - The onSettled callback is called (typically to release a control lease).
+   *
+   * Message modes:
+   *   - "prompt": Start a new agent turn (the default).
+   *   - "steer": Redirect the currently streaming agent output.
+   *   - "follow_up": Queue a message for processing after the current turn.
+   */
   submitMessage(
     sessionId: string,
     request: MessageSubmitRequest,
     onSettled?: () => void,
   ) {
     const controller = this.mutableSession(sessionId);
+
+    // Dispatch to the correct controller method based on mode.
     const task =
       request.mode === "steer"
         ? controller.steer(request.text, request.images)
@@ -214,6 +310,8 @@ export class PiSessionWorkspace {
           ? controller.followUp(request.text, request.images)
           : controller.prompt(request.text, request.images);
 
+    // Attach settlement handlers to the async task.
+    // We don't await — the HTTP response returns immediately.
     task
       .catch((error) => {
         console.error("[agentaz-server] message task failed", error);
@@ -226,16 +324,23 @@ export class PiSessionWorkspace {
       })
       .finally(async () => {
         try {
+          // Refresh persisted cache so newly saved sessions appear.
           await this.refreshPersistedSessionCache();
           this.emitStateChanged();
         } finally {
+          // Always release the control lease, even if refresh fails.
           onSettled?.();
         }
       });
+
+    // Emit immediately so the frontend shows the session as busy.
     this.emitStateChanged();
   }
 
-  /** Aborts one loaded session and pending browser-backed prompts. */
+  /**
+   * Aborts one loaded session: cancels the active agent workflow and
+   * resolves all pending browser-backed extension UI prompts.
+   */
   async abortSession(sessionId: string) {
     await this.mutableSession(sessionId).abort();
     this.emitStateChanged();
@@ -247,7 +352,15 @@ export class PiSessionWorkspace {
     this.emitStateChanged();
   }
 
-  /** Resolves one browser-backed extension UI request. */
+  /**
+   * Resolves one browser-backed extension UI request.
+   *
+   * Dispatches to the appropriate resolution method on the controller
+   * based on which fields are present in the response:
+   *   - { confirmed } → resolveConfirm (boolean prompt)
+   *   - { value }     → resolveInput (text prompt)
+   *   - { selected }  → resolveSelect (choice prompt)
+   */
   resolveUiRequest(
     sessionId: string,
     requestId: string,
@@ -267,7 +380,10 @@ export class PiSessionWorkspace {
     this.emitStateChanged();
   }
 
-  /** Disposes every loaded session, used only for process-level teardown. */
+  /**
+   * Disposes every loaded session, used only for process-level teardown.
+   * All controllers are disposed in parallel and the working set is cleared.
+   */
   async disposeAll() {
     const controllers = [...this.sessions.values()];
     this.sessions.clear();
@@ -275,18 +391,29 @@ export class PiSessionWorkspace {
     this.emitStateChanged();
   }
 
+  /** Reads persisted session metadata from the working directory. */
   private async listPersistedSessions(): Promise<UiSessionSummary[]> {
     const sessions = await SessionManager.list(this.options.cwd);
     return sessions.map(toUiSessionSummary);
   }
 
-  /** Frees one idle loaded session only when the working set is at capacity. */
+  /**
+   * Frees one idle loaded session only when the working set is at capacity.
+   *
+   * Iterates sessions in insertion order and disposes the first one that:
+   *   - Is not protected (not focused by any connected browser client).
+   *   - Is not busy (agent workflow is idle, no pending UI prompts).
+   *
+   * Emits a session_removed event so presence and projector can update.
+   */
   private async releaseOneAvailableSessionIfAtCapacity() {
     if (this.sessions.size < this.options.maxLoadedSessions) return;
 
     const protectedSessionIds = new Set(this.getProtectedSessionIds());
     for (const [sessionId, controller] of [...this.sessions]) {
+      // Skip protected or busy sessions.
       if (protectedSessionIds.has(sessionId) || controller.isBusy()) continue;
+
       await controller.dispose();
       this.sessions.delete(sessionId);
       this.eventBus.publish({
@@ -299,10 +426,12 @@ export class PiSessionWorkspace {
     }
   }
 
+  /** Alias for requireSession — indicates the caller intends to mutate. */
   private mutableSession(sessionId: string) {
     return this.requireSession(sessionId);
   }
 
+  /** Returns the controller for a session or throws if not found. */
   private requireSession(sessionId: string) {
     const controller = this.sessions.get(sessionId);
     if (!controller) {
@@ -311,6 +440,7 @@ export class PiSessionWorkspace {
     return controller;
   }
 
+  /** Throws if the loaded session limit has been reached. */
   private assertCanLoadAnotherSession() {
     if (this.sessions.size >= this.options.maxLoadedSessions) {
       throw new Error(
@@ -319,10 +449,12 @@ export class PiSessionWorkspace {
     }
   }
 
+  /** Emits a normalized server event on the runtime event bus. */
   private emitServerEvent(event: ServerEvent) {
     this.eventBus.publish({ type: "server_event", event });
   }
 
+  /** Emits a state_changed event to trigger frontend refresh via WebSocket. */
   private emitStateChanged() {
     this.eventBus.publish({ type: "state_changed" });
   }

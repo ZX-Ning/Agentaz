@@ -8,35 +8,70 @@ import {
 import { getAgentRuntime } from "./agent-runtime";
 import { LOCAL_CLIENT_ID } from "./client-presence";
 
+/** Header name for the browser-tab client identity carried on every HTTP request. */
 const CLIENT_ID_HEADER = "x-agentaz-client-id";
 
-/** Configures and returns the process-wide Pi session workspace for an HTTP request. */
+/**
+ * Returns the shared PiSessionWorkspace for use in HTTP route handlers.
+ * Convenience accessor that avoids importing agent-runtime in every route file.
+ */
 export function getConfiguredAgentRegistry() {
   return getAgentRuntime().workspace;
 }
 
-/** Reads the browser tab client id carried by HTTP requests, falling back for non-WS callers. */
+/**
+ * Reads the browser tab client id from the x-agentaz-client-id request header.
+ *
+ * Each browser tab sends a unique client id so the backend can track which tab
+ * is focused on which session and which tab holds session mutation control.
+ * When the header is absent (e.g. programmatic API calls or curl), falls back
+ * to LOCAL_CLIENT_ID ("local-browser") so the local-first default works.
+ */
 export function requestClientId(event: H3Event) {
   const clientId = getHeader(event, CLIENT_ID_HEADER);
   return clientId?.trim() || LOCAL_CLIENT_ID;
 }
 
-/** Acquires a request-scoped session control lease and returns a release callback. */
+/**
+ * Acquires a request-scoped session mutation lease and publishes control change events.
+ *
+ * This is the core concurrency primitive for HTTP-driven session mutations.
+ * It ensures only one browser client can mutate a session at a time — if another
+ * client already holds the control lease for this session, the request is rejected.
+ *
+ * Returns a lease object with:
+ *   - runtime: The process-wide AgentRuntime singleton
+ *   - clientId: The calling client's identity
+ *   - release(): Call this to relinquish control (publishes control_changed on release)
+ *
+ * Callers must always call release(), even on error paths. Prefer withRequestSessionControl
+ * for try/finally safety.
+ */
 export function acquireRequestSessionControl(
   event: H3Event,
   sessionId: string,
 ) {
   const runtime = getAgentRuntime();
+
+  // Validate the session exists before attempting to acquire control.
   if (!runtime.workspace.hasSession(sessionId)) {
     throw new Error("No loaded session is available for this command.");
   }
+
   const clientId = requestClientId(event);
+
+  // Acquire the control lease — throws SessionControlConflict if another
+  // client already owns it.
   runtime.presence.acquireControl(clientId, sessionId);
+
+  // Broadcast the control change so all connected WebSocket clients
+  // see which client now owns the session.
   runtime.eventBus.publish({
     type: "control_changed",
     sessionId,
     controlOwnerClientId: runtime.presence.ownerOf(sessionId),
   });
+
   return {
     runtime,
     clientId,
@@ -51,7 +86,13 @@ export function acquireRequestSessionControl(
   };
 }
 
-/** Runs a short session mutation while holding request-scoped session control. */
+/**
+ * Runs a short session mutation while holding request-scoped session control.
+ *
+ * Acquires a control lease, executes the provided async function, and releases
+ * the lease in a finally block — guaranteeing cleanup even if the function throws.
+ * This is the preferred pattern over manual acquire/release to avoid leaked leases.
+ */
 export async function withRequestSessionControl<T>(
   event: H3Event,
   sessionId: string,
@@ -65,7 +106,14 @@ export async function withRequestSessionControl<T>(
   }
 }
 
-/** Reads a required route parameter or throws a structured HTTP error. */
+/**
+ * Reads a required route parameter or throws a structured 400 HTTP error.
+ *
+ * Route parameters come from the URL path (e.g. :sessionId in /api/agent/sessions/:sessionId/...).
+ * The value is URI-decoded so that encoded special characters in paths are properly restored.
+ *
+ * @throws H3Error with statusCode 400 and code "bad_request" if the parameter is missing
+ */
 export function requireRouteParam(event: H3Event, name: string) {
   const value = getRouterParam(event, name);
   if (!value) {
@@ -82,15 +130,38 @@ export function requireRouteParam(event: H3Event, name: string) {
   return decodeURIComponent(value);
 }
 
-/** Reads and type-casts a JSON request body, defaulting missing bodies to an empty object. */
+/**
+ * Reads and type-casts a JSON request body, defaulting missing bodies to an empty object.
+ *
+ * Uses h3's readBody() which handles JSON parsing. If the body is empty or parsing
+ * fails, returns {} so callers can safely destructure without null checks.
+ * The returned Partial<T> means all fields are optional — individual routes must
+ * validate required fields themselves.
+ */
 export async function readJsonBody<T extends object>(
   event: H3Event,
 ): Promise<Partial<T>> {
   return (await readBody(event).catch(() => ({}))) ?? {};
 }
 
-/** Maps registry/runtime errors into consistent HTTP API errors. */
+/**
+ * Maps registry/runtime errors into consistent HTTP API errors with structured data.
+ *
+ * This function is the single error normalization point for all agent HTTP routes.
+ * It classifies errors by message substring into HTTP status codes and error codes
+ * that the frontend can display and handle:
+ *
+ *   - 400 BAD_REQUEST: Missing required fields, unknown model references
+ *   - 404 SESSION_NOT_FOUND: Session not loaded in the workspace
+ *   - 409 CONFLICT: Session limit reached, control conflict, agent already running
+ *   - 500 AGENT_ERROR: Unexpected internal errors (default)
+ *
+ * If the error is already an H3 error (has statusCode), it passes through unchanged.
+ * All errors include a recoverable flag (true for 4xx, false for 5xx) that the
+ * frontend uses to decide whether to show a retry UI.
+ */
 export function agentHttpError(error: unknown) {
+  // Pass through existing H3 errors (already structured).
   if (typeof error === "object" && error && "statusCode" in error) {
     return error;
   }
@@ -99,6 +170,8 @@ export function agentHttpError(error: unknown) {
   let statusCode = 500;
   let code = "agent_error";
 
+  // Classify by message keywords — Pi SDK and workspace errors use
+  // consistent English messages so substring matching is reliable.
   if (message.includes("required")) {
     statusCode = 400;
     code = "bad_request";
