@@ -186,13 +186,3 @@ Use backend `error` events and websocket failures to show:
 - a toast for transient events
 
 Do not silently swallow JSON parse failures or protocol mismatches during development.
-
-## Verification
-
-After frontend code changes, run from repository root:
-
-```bash
-pnpm typecheck
-```
-
-Run `pnpm build` only when requested or when changing build/runtime packaging.

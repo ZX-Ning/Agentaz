@@ -28,8 +28,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (event: "update:promptText", value: string): void;
-  (event: "model-select", value: unknown): void;
-  (event: "thinking-select", value: unknown): void;
+  (event: "model-select" | "thinking-select", value: unknown): void;
   (event: "submit"): void;
 }>();
 

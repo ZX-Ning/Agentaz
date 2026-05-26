@@ -74,7 +74,8 @@ const renderedBlocks = computed<RenderBlock[]>(() => {
 
   for (const block of props.message.blocks) {
     if (block.type === "tool_call") callIds.add(block.toolCallId);
-    if (block.type === "tool_result") resultByCallId.set(block.toolCallId, block);
+    if (block.type === "tool_result")
+      resultByCallId.set(block.toolCallId, block);
   }
 
   return props.message.blocks.flatMap((block): RenderBlock[] => {
@@ -147,7 +148,8 @@ function formatToolInput(input: unknown) {
 
 function formatToolResult(result?: ToolResultBlock) {
   if (!result) return "Waiting for output.";
-  if (!result.content.trim()) return result.isError ? "No error details." : "No output.";
+  if (!result.content.trim())
+    return result.isError ? "No error details." : "No output.";
   return formatHumanReadable(result.content);
 }
 
@@ -182,7 +184,9 @@ function formatArray(values: unknown[], depth: number) {
 }
 
 function formatObject(value: object, depth: number) {
-  const entries = Object.entries(value).filter(([, item]) => item !== undefined);
+  const entries = Object.entries(value).filter(
+    ([, item]) => item !== undefined,
+  );
   if (entries.length === 0) return "None.";
 
   const prefix = "  ".repeat(depth);
@@ -217,7 +221,9 @@ function humanizeKey(key: string) {
 }
 
 function isPrimitiveValue(value: unknown) {
-  return value === null || ["string", "number", "boolean"].includes(typeof value);
+  return (
+    value === null || ["string", "number", "boolean"].includes(typeof value)
+  );
 }
 
 function isEmptyObject(value: unknown) {

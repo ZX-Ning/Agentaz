@@ -1,7 +1,7 @@
 export default defineNuxtConfig({
   compatibilityDate: "2026-05-22",
   devtools: { enabled: true },
-  modules: ["@nuxt/ui", "@comark/nuxt"],
+  modules: ["@nuxt/ui", "@comark/nuxt", "@nuxt/eslint"],
   css: [
     "@fontsource-variable/ibm-plex-sans",
     "@fontsource-variable/ibm-plex-sans/wdth-italic.css",

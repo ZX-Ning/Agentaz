@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "nuxt dev",
     "build": "nuxt build",
+    "lint": "eslint .",
     "typecheck": "nuxt typecheck"
   },
   "dependencies": {
@@ -17,7 +18,9 @@
     "vue": "^3.5.0"
   },
   "devDependencies": {
+    "@nuxt/eslint": "^1.15.2",
     "@types/node": "^25.9.1",
+    "eslint": "^10.4.0",
     "typescript": "^5.9.0",
     "vue-tsc": "^3.0.0"
   }

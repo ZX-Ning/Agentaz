@@ -179,6 +179,7 @@ export class WebExtensionUIContext {
       return;
     }
 
+    // eslint-disable-next-line prefer-const -- requestRender may run while content constructs the component.
     let component: any;
     const emitWidget = () => {
       try {

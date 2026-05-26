@@ -22,7 +22,10 @@ export function requestClientId(event: H3Event) {
 }
 
 /** Acquires a request-scoped session control lease and returns a release callback. */
-export function acquireRequestSessionControl(event: H3Event, sessionId: string) {
+export function acquireRequestSessionControl(
+  event: H3Event,
+  sessionId: string,
+) {
   const runtime = getAgentRuntime();
   if (!runtime.workspace.hasSession(sessionId)) {
     throw new Error("No loaded session is available for this command.");

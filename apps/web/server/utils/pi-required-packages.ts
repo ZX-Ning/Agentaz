@@ -40,7 +40,9 @@ export async function ensureRequiredPiPackages(agentDir: string) {
 
 async function readPiSettings(settingsPath: string): Promise<PiSettings> {
   try {
-    const settings = JSON.parse(await readFile(settingsPath, "utf8")) as PiSettings;
+    const settings = JSON.parse(
+      await readFile(settingsPath, "utf8"),
+    ) as PiSettings;
     if (settings.packages !== undefined && !Array.isArray(settings.packages)) {
       throw new Error(`Invalid Pi settings packages field at ${settingsPath}`);
     }

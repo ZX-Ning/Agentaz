@@ -1,6 +1,6 @@
 import { configureAgentRuntime } from "../utils/agent-runtime";
 
-export default defineNitroPlugin((nitroApp) => {
+export default defineNitroPlugin(() => {
   const config = useRuntimeConfig();
   const host = process.env.NITRO_HOST || process.env.HOST;
 

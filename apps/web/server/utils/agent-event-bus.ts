@@ -5,7 +5,11 @@ export type AgentRuntimeEvent =
   | { type: "server_event"; event: ServerEvent }
   | { type: "state_changed" }
   | { type: "session_removed"; sessionId: string; fallbackSessionId?: string }
-  | { type: "control_changed"; sessionId: string; controlOwnerClientId?: string };
+  | {
+      type: "control_changed";
+      sessionId: string;
+      controlOwnerClientId?: string;
+    };
 
 /** Receives one runtime event from the in-process agent event bus. */
 export type AgentRuntimeEventHandler = (event: AgentRuntimeEvent) => void;

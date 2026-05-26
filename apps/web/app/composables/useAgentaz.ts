@@ -11,7 +11,6 @@ import type {
   ThinkingLevel,
   UiLoadedSession,
   UiMessage,
-  UiModel,
   UiRequestResponseRequest,
   UiSessionSummary,
   UiExtensionWidget,
@@ -351,7 +350,10 @@ export function useAgentazAppController() {
 
   async function refreshSessionDetails(sessionId: string) {
     if (isDraftSessionId(sessionId)) return;
-    await Promise.all([refreshHistory(sessionId), refreshModelState(sessionId)]);
+    await Promise.all([
+      refreshHistory(sessionId),
+      refreshModelState(sessionId),
+    ]);
   }
 
   async function refreshDraftModelState(sessionId: string) {
@@ -370,13 +372,6 @@ export function useAgentazAppController() {
     } else {
       await refreshDraftModelState(ensureDraftSession());
     }
-  }
-
-  async function refreshState() {
-    const state = await agentFetch<AgentStateResponse>("/api/agent/state");
-    applyState(state);
-    await refreshActiveStateDetails(state);
-    await syncBrowserRouteToSession(activeSessionId.value, "replace");
   }
 
   async function postSessionOperation(
@@ -772,7 +767,10 @@ export function useAgentazAppController() {
     if (session.isLoaded && session.sessionId) {
       await focusSession(session.sessionId);
     } else if (session.file) {
-      const loaded = findLoadedSessionByFile(loadedSessions.value, session.file);
+      const loaded = findLoadedSessionByFile(
+        loadedSessions.value,
+        session.file,
+      );
       if (loaded) {
         await focusSession(loaded.sessionId);
         return;

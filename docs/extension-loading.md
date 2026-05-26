@@ -14,10 +14,7 @@ The extensions are not declared in `apps/web/package.json`. Instead, the backend
 Current required package sources:
 
 ```json
-[
-  "npm:@juicesharp/rpiv-todo",
-  "npm:@gotgenes/pi-permission-system"
-]
+["npm:@juicesharp/rpiv-todo", "npm:@gotgenes/pi-permission-system"]
 ```
 
 The implementation lives in:

@@ -13,7 +13,11 @@ Core architecture:
 - `apps/web/server`: Nitro backend.
 - `apps/web/server/api/agent`: HTTP endpoints for browser-initiated agent actions and snapshots.
 - `apps/web/server/routes/api/agent/ws.ts`: WebSocket endpoint for realtime server events.
-- `apps/web/server/utils/pi-session-registry.ts`: process-wide server-resident Pi session registry.
+- `apps/web/server/utils/agent-runtime.ts`: process-wide runtime singleton wiring workspace, presence, projection, and WebSocket hub.
+- `apps/web/server/utils/pi-session-workspace.ts`: process-wide Pi SDK services and loaded-session working set.
+- `apps/web/server/utils/pi-session-controller.ts`: per-loaded-session Pi SDK operation controller.
+- `apps/web/server/utils/session-projector.ts`: browser-facing state snapshots.
+- `apps/web/server/utils/client-presence.ts`: browser client focus/control presence.
 - `apps/web/server/utils/ws-agent-hub.ts`: WebSocket subscriber lifecycle and heartbeat snapshots.
 - `apps/web/types/protocol.ts`: HTTP DTOs and WebSocket event protocol types.
 - `docs/plan.md`: confirmed product decisions and current baseline.
@@ -24,16 +28,11 @@ Use pnpm from the repository root.
 
 ```bash
 pnpm dev          # run Nuxt dev server
+pnpm lint         # ESLint; assumes Nuxt has already generated .nuxt/eslint.config.mjs
 pnpm typecheck    # TypeScript/Nuxt typecheck
 pnpm build        # production build; run only when explicitly needed
 pnpm test:api      # REST/WS smoke test; requires dev server already running
 pnpm smoke:backend # backend smoke test; requires dev server already running
-```
-
-After normal code edits, run:
-
-```bash
-pnpm typecheck
 ```
 
 Do not run `pnpm build` by default because it is slower. Run build only when requested or when changes affect build/runtime packaging. Do not run `pnpm dev` or start the dev server. If needed, ask the user to run them.
@@ -79,9 +78,11 @@ Do not run `pnpm build` by default because it is slower. Run build only when req
 ## Backend Notes
 
 - Keep Pi SDK code server-side only.
-- `PiSessionRegistry` should own loaded Pi session lifecycle and browser-facing agent operations.
+- `PiSessionWorkspace` should own process-wide Pi SDK services and loaded Pi session lifecycle.
+- `PiSessionController` should own browser-facing operations for one loaded Pi session.
+- `SessionProjector` should own browser-facing state snapshots.
 - `WsAgentHub` should own browser WebSocket attach/detach and heartbeat snapshots only.
-- HTTP route files under `apps/web/server/api/agent` should stay thin and delegate to `PiSessionRegistry`.
+- HTTP route files under `apps/web/server/api/agent` should stay thin and delegate through `getAgentRuntime()` to workspace, presence, and projector services.
 - `WebExtensionUIContext` bridges extension UI prompts/approvals to the browser.
 - `permission-config.ts` creates permission-system config under `<agentDir>/extensions/pi-permission-system/config.json`, where `agentDir` comes from `PI_CODING_AGENT_DIR` or the Pi SDK default.
 
@@ -90,8 +91,13 @@ Do not run `pnpm build` by default because it is slower. Run build only when req
 Minimum verification after code edits:
 
 ```bash
+pnpm lint
 pnpm typecheck
 ```
+
+`pnpm lint` does not run `nuxt prepare`; in a fresh checkout, run `pnpm typecheck`
+or another Nuxt prepare/type generation command first so `.nuxt/eslint.config.mjs`
+exists.
 
 For backend protocol changes, also consider:
 
@@ -120,3 +126,9 @@ Update docs when changing product decisions or architecture:
 - Remove the Pi permission-system integration.
 - Run broad formatting or rewrite unrelated files.
 - Commit changes unless the user asks.
+
+Before committing, run:
+
+```bash
+npx prettier --write .
+```

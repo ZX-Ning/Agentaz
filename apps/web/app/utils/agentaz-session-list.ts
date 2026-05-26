@@ -90,7 +90,12 @@ export function buildUnifiedSessions(
       loadedByFile,
     );
     list.push(
-      toSessionListItem(loaded ?? persisted, activeSessionId, loaded, persisted),
+      toSessionListItem(
+        loaded ?? persisted,
+        activeSessionId,
+        loaded,
+        persisted,
+      ),
     );
   }
 

@@ -107,7 +107,7 @@ The hub is owned by the process-wide `AgentRuntime`. Configuration is centralize
 
 ```ts
 configureAgentRuntime(options); // startup plugin
-getAgentRuntime().hub;          // routes/helpers
+getAgentRuntime().hub; // routes/helpers
 ```
 
 The first config wins. Reconfiguration with different values should fail loudly.

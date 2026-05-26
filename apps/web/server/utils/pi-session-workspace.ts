@@ -17,7 +17,7 @@ import type {
   UiRequestResponseRequest,
   UiSessionSummary,
 } from "../../types/protocol";
-import { AgentEventBus } from "./agent-event-bus";
+import type { AgentEventBus } from "./agent-event-bus";
 import {
   DEFAULT_THINKING_LEVELS,
   PiSessionController,

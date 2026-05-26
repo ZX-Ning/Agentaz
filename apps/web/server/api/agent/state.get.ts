@@ -1,7 +1,4 @@
-import {
-  agentHttpError,
-  requestClientId,
-} from "../../utils/agent-http";
+import { agentHttpError, requestClientId } from "../../utils/agent-http";
 import { getAgentRuntime } from "../../utils/agent-runtime";
 
 export default defineEventHandler(async (event) => {

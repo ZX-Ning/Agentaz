@@ -139,7 +139,7 @@ const emit = defineEmits<{
           v-if="status === 'connected' && isStreaming"
           class="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75"
           :class="status === 'connected' ? 'bg-emerald-400' : 'bg-amber-400'"
-        ></span>
+        />
         <span
           class="relative inline-flex rounded-full h-2 w-2"
           :class="{
@@ -148,7 +148,7 @@ const emit = defineEmits<{
             'bg-rose-500': status === 'error',
             'bg-slate-500': status === 'disconnected',
           }"
-        ></span>
+        />
       </span>
 
       <span class="text-xs font-medium">{{ statusLabel }}</span>

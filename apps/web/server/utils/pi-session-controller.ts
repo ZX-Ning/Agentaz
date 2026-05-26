@@ -1,10 +1,11 @@
 import {
-  AuthStorage,
   createAgentSessionFromServices,
+  SessionManager,
   type AgentSessionServices,
+  type AuthStorage,
   type CreateAgentSessionResult,
+  type ModelRegistry,
 } from "@earendil-works/pi-coding-agent";
-import { ModelRegistry, SessionManager } from "@earendil-works/pi-coding-agent";
 import type {
   ImagePayload,
   ModelStateResponse,
@@ -456,7 +457,10 @@ export class PiSessionController {
     try {
       await this.onSessionMetadataChanged();
     } catch (error) {
-      console.error("[agentaz-server] failed to refresh session metadata", error);
+      console.error(
+        "[agentaz-server] failed to refresh session metadata",
+        error,
+      );
     }
   }
 
