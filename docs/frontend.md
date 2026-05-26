@@ -11,8 +11,9 @@ The frontend is a Nuxt/Vue browser UI for a Pi SDK agent. The current UI should 
 - a transcript area for user/assistant/tool output
 - a bottom composer for prompts
 - web approval UI for dangerous operations
+- a single-user admin password page at `/login` before agent HTTP/WS startup
 
-The frontend should not introduce multi-user, authentication, project switching, or database-backed concepts unless the product plan changes. The server already owns loaded sessions; richer multi-tab/controller semantics remain future product work until recorded in `docs/plan.md`.
+The frontend should not introduce multi-user, project switching, or database-backed concepts unless the product plan changes. The server already owns loaded sessions; richer multi-tab/controller semantics remain future product work until recorded in `docs/plan.md`.
 
 ## Location
 
@@ -20,17 +21,29 @@ Main frontend files:
 
 ```txt
 apps/web/app/app.vue
+apps/web/app/pages/login.vue
+apps/web/app/pages/index.vue
+apps/web/app/middleware/auth.global.ts
 apps/web/app/assets/css/main.css
 apps/web/types/protocol.ts
 ```
 
-Current app state is local to `app.vue`. Extract composables/components when the file becomes too large or when behavior needs reuse.
+`app.vue` is only the Nuxt shell around `NuxtPage`. It gives protected app
+routes a stable page key so navigation inside the agent workspace stays
+SPA-like and does not recreate the WebSocket client. Route-specific UI lives in
+file routes, with `/login` as the public login page. The protected workspace
+lives in `pages/index.vue`, which also declares `/session/:sessionId` as a Nuxt
+route alias. Authentication redirects live in `auth.global.ts`.
 
 Suggested future structure:
 
 ```txt
 apps/web/app/
   app.vue
+  components/AgentWorkspace.vue
+  pages/
+    login.vue
+    index.vue
   assets/css/main.css
   components/
     AppSidebar.vue
@@ -91,11 +104,14 @@ IBM Plex Sans is loaded in Nuxt head config and applied globally in `main.css`.
 
 ## WebSocket Protocol
 
-The frontend uses HTTP for browser-initiated actions and state snapshots, and WebSocket only for realtime server events. The WebSocket connects to:
+The frontend uses HTTP for browser-initiated actions and state snapshots, and WebSocket only for realtime server events. The `/login` page must complete before the agent workspace mounts, because the WebSocket connects to a protected endpoint:
 
 ```txt
 /api/agent/ws
 ```
+
+The browser relies on the same-origin `nuxt-auth-utils` session cookie for both
+HTTP APIs and the WebSocket upgrade.
 
 Protocol types live in:
 
@@ -123,6 +139,7 @@ GET /api/agent/sessions/:sessionId/models
 
 Current state includes:
 
+- login/session state from `useUserSession()`
 - connection status
 - server hello/cwd
 - chat messages
@@ -137,6 +154,7 @@ Keep state normalized around `UiMessage` and `UiBlock` rather than raw Pi SDK me
 Treat `loadedSessions` as the server-resident working set. Loaded sessions should be focused with the session-specific focus endpoint; normal persisted sessions should be opened on demand from `persistedSessions`.
 The initial empty chat and the New session button use a frontend-only draft session. The draft fetches model options through `GET /api/agent/models`, which does not create a Pi session. It is not sent to the backend until the user submits the first prompt; at that point the frontend creates a real session, applies the selected model/thinking settings, moves the optimistic user message to the returned session id, and submits the prompt.
 Real sessions are reflected in the browser URL as `/session/:sessionId`. Draft sessions do not get a session route and stay at `/`; after the first prompt materializes a draft, the frontend replaces the URL with the returned real session id. Direct visits to `/session/:sessionId` first focus an already-loaded session, then fall back to the persisted session list by matching `sessionId` and opening the existing `sessionFile`.
+Unauthenticated direct visits to any app route redirect to `/login?redirect=<original path>`. Successful login returns to that redirect target when it is a safe same-origin path.
 
 ## Chat Transcript
 

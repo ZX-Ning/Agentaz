@@ -1,6 +1,11 @@
 <script setup lang="ts">
 import type { UiLoadedSession } from "../../types/protocol";
 
+declare function useColorMode(): {
+  value: string;
+  preference: string;
+};
+
 type ConnectionStatus = "connecting" | "connected" | "disconnected" | "error";
 
 const props = defineProps<{
@@ -18,7 +23,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (event: "update:isSidebarOpen", value: boolean): void;
-  (event: "clearQueue"): void;
+  (event: "clearQueue" | "logout"): void;
 }>();
 
 const isStatusMenuOpen = ref(false);
@@ -112,6 +117,15 @@ function toggleTheme() {
         size="sm"
         class="text-foreground hover:bg-accent hover:text-accent-foreground"
         @click="toggleTheme"
+      />
+
+      <UButton
+        color="neutral"
+        variant="ghost"
+        icon="i-lucide-log-out"
+        size="sm"
+        class="text-foreground hover:bg-accent hover:text-accent-foreground"
+        @click="emit('logout')"
       />
     </div>
   </header>

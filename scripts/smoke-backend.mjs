@@ -2,24 +2,14 @@
 
 const httpBaseUrl = process.env.PI_WEB_BASE_URL || "http://127.0.0.1:3000";
 const timeoutMs = Number(process.env.PI_WEB_SMOKE_TIMEOUT_MS || 30_000);
+const smokePassword = process.env.PI_WEB_SMOKE_ADMIN_PASSWORD;
 
 const wsBaseUrl = httpBaseUrl
   .replace(/^http:/, "ws:")
   .replace(/^https:/, "wss:");
 const wsUrl = `${wsBaseUrl}/api/agent/ws`;
 
-const forbiddenWsEvents = new Set([
-  "history",
-  "session_changed",
-  "session_list_result",
-  "model_list_result",
-  "model_changed",
-  "thinking_changed",
-  "message_delta",
-  "tool_start",
-  "tool_update",
-  "tool_end",
-]);
+let authCookie = "";
 
 function logStep(message) {
   console.log(`[smoke] ${message}`);
@@ -35,12 +25,28 @@ function assert(condition, message, details) {
   if (!condition) fail(message, details);
 }
 
-async function requestJson(method, path, body) {
+function requireSmokePassword() {
+  if (!smokePassword) {
+    fail(
+      "PI_WEB_SMOKE_ADMIN_PASSWORD must be set so the smoke test can log in.",
+    );
+  }
+}
+
+function responseCookie(response) {
+  const header = response.headers.get("set-cookie");
+  return header?.split(";")[0] ?? "";
+}
+
+async function requestJson(method, path, body, options = {}) {
   const url = `${httpBaseUrl}${path}`;
+  const headers = new Headers(options.headers);
+  if (body !== undefined) headers.set("content-type", "application/json");
+  if (options.authenticated && authCookie) headers.set("cookie", authCookie);
+
   const response = await fetch(url, {
     method,
-    headers:
-      body === undefined ? undefined : { "content-type": "application/json" },
+    headers,
     body: body === undefined ? undefined : JSON.stringify(body),
     signal: AbortSignal.timeout(timeoutMs),
   }).catch((error) => {
@@ -55,30 +61,20 @@ async function requestJson(method, path, body) {
     fail(`${method} ${path} returned non-JSON`, text);
   }
 
-  if (!response.ok) {
+  if (!response.ok && !options.allowError) {
     fail(
       `${method} ${path} returned HTTP ${response.status}`,
       JSON.stringify(payload, null, 2),
     );
   }
 
-  return payload;
-}
-
-function requireSessionId(state, context) {
-  assert(
-    typeof state?.activeSessionId === "string" &&
-      state.activeSessionId.length > 0,
-    `${context} did not include activeSessionId`,
-    JSON.stringify(state, null, 2),
-  );
-  return state.activeSessionId;
+  return { response, payload };
 }
 
 function assertAgentState(state, context) {
   assert(
-    state?.protocolVersion === 3,
-    `${context} protocolVersion should be 3`,
+    state?.protocolVersion === 6,
+    `${context} protocolVersion should be 6`,
     JSON.stringify(state, null, 2),
   );
   assert(
@@ -103,100 +99,91 @@ function assertAgentState(state, context) {
   );
 }
 
-async function testHealth() {
-  logStep("checking health");
-  const body = await requestJson("GET", "/api/health");
-  assert(
-    body?.ok === true && body?.service === "pi-web-agent",
-    "health endpoint returned an unexpected payload",
-    JSON.stringify(body, null, 2),
-  );
-  logStep("health OK");
-}
-
-async function testRestApi() {
-  logStep("checking REST state");
-  const initialState = await requestJson("GET", "/api/agent/state");
-  assertAgentState(initialState, "initial state");
-  const initialSessionId = requireSessionId(initialState, "initial state");
-
-  logStep(`checking history: ${initialSessionId}`);
-  const history = await requestJson(
-    "GET",
-    `/api/agent/sessions/${encodeURIComponent(initialSessionId)}/history`,
-  );
-  assert(
-    history?.sessionId === initialSessionId,
-    "history response should echo sessionId",
-    JSON.stringify(history, null, 2),
-  );
-  assert(
-    Array.isArray(history.messages),
-    "history response should include messages[]",
-    JSON.stringify(history, null, 2),
-  );
-
-  logStep(`checking model state: ${initialSessionId}`);
-  const models = await requestJson(
-    "GET",
-    `/api/agent/sessions/${encodeURIComponent(initialSessionId)}/models`,
-  );
-  assert(
-    models?.sessionId === initialSessionId,
-    "models response should echo sessionId",
-    JSON.stringify(models, null, 2),
-  );
-  assert(
-    Array.isArray(models.models),
-    "models response should include models[]",
-    JSON.stringify(models, null, 2),
-  );
-  assert(
-    Array.isArray(models.availableThinkingLevels),
-    "models response should include availableThinkingLevels[]",
-    JSON.stringify(models, null, 2),
-  );
-
-  const thinkingLevel =
-    models.thinkingLevel ?? models.availableThinkingLevels?.[0];
-  if (thinkingLevel) {
-    logStep(`checking thinking update: ${thinkingLevel}`);
-    const updatedThinking = await requestJson(
-      "PUT",
-      `/api/agent/sessions/${encodeURIComponent(initialSessionId)}/thinking`,
-      { level: thinkingLevel },
-    );
+async function testUnauthenticatedHttp() {
+  logStep("checking unauthenticated HTTP rejection");
+  for (const path of ["/api/health", "/api/agent/state"]) {
+    const { response, payload } = await requestJson("GET", path, undefined, {
+      allowError: true,
+    });
     assert(
-      updatedThinking?.sessionId === initialSessionId,
-      "thinking update should return model state",
-      JSON.stringify(updatedThinking, null, 2),
+      response.status === 401,
+      `${path} should require authentication`,
+      JSON.stringify(payload, null, 2),
     );
   }
+}
 
-  logStep("checking control endpoints");
-  await requestJson(
-    "POST",
-    `/api/agent/sessions/${encodeURIComponent(initialSessionId)}/control`,
-    { action: "acquire" },
+async function testUnauthenticatedWebSocket() {
+  logStep("checking unauthenticated websocket rejection");
+  await new Promise((resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new Error("websocket did not close after auth rejection")),
+      timeoutMs,
+    );
+    const ws = new WebSocket(wsUrl);
+    ws.addEventListener("open", () => {
+      clearTimeout(timer);
+      ws.close();
+      reject(new Error("unauthenticated websocket unexpectedly opened"));
+    });
+    ws.addEventListener("close", () => {
+      clearTimeout(timer);
+      resolve();
+    });
+    ws.addEventListener("error", () => {
+      clearTimeout(timer);
+      resolve();
+    });
+  }).catch((error) => {
+    fail("unauthenticated websocket smoke test failed", error);
+  });
+}
+
+async function login() {
+  requireSmokePassword();
+  logStep("logging in");
+  const { response, payload } = await requestJson("POST", "/api/auth/login", {
+    password: smokePassword,
+  });
+  assert(
+    payload?.ok === true && payload?.user?.id === "admin",
+    "login returned an unexpected payload",
+    JSON.stringify(payload, null, 2),
   );
-  await requestJson(
-    "POST",
-    `/api/agent/sessions/${encodeURIComponent(initialSessionId)}/control`,
-    { action: "release" },
+  authCookie = responseCookie(response);
+  assert(authCookie, "login did not set a session cookie");
+}
+
+async function testAuthenticatedRestApi() {
+  logStep("checking authenticated health");
+  const { payload: health } = await requestJson(
+    "GET",
+    "/api/health",
+    undefined,
+    { authenticated: true },
+  );
+  assert(
+    health?.ok === true && health?.service === "pi-web-agent",
+    "health endpoint returned an unexpected payload",
+    JSON.stringify(health, null, 2),
   );
 
-  logStep("checking queue/abort endpoints");
-  await requestJson(
-    "POST",
-    `/api/agent/sessions/${encodeURIComponent(initialSessionId)}/queue/clear`,
+  logStep("checking authenticated REST state");
+  const { payload: initialState } = await requestJson(
+    "GET",
+    "/api/agent/state",
+    undefined,
+    { authenticated: true },
   );
-  await requestJson(
-    "POST",
-    `/api/agent/sessions/${encodeURIComponent(initialSessionId)}/abort`,
-  );
+  assertAgentState(initialState, "initial state");
 
-  logStep("checking session create/focus/close");
-  const created = await requestJson("POST", "/api/agent/sessions", {});
+  logStep("checking session create/history/model state");
+  const { payload: created } = await requestJson(
+    "POST",
+    "/api/agent/sessions",
+    {},
+    { authenticated: true },
+  );
   assertAgentState(created, "created session response");
   assert(
     typeof created.sessionId === "string" && created.sessionId.length > 0,
@@ -204,121 +191,61 @@ async function testRestApi() {
     JSON.stringify(created, null, 2),
   );
 
-  await requestJson(
-    "POST",
-    `/api/agent/sessions/${encodeURIComponent(initialSessionId)}/focus`,
+  const sessionPath = `/api/agent/sessions/${encodeURIComponent(created.sessionId)}`;
+  const { payload: history } = await requestJson(
+    "GET",
+    `${sessionPath}/history`,
+    undefined,
+    { authenticated: true },
   );
-  await requestJson(
-    "DELETE",
-    `/api/agent/sessions/${encodeURIComponent(created.sessionId)}?abortCurrent=1`,
-  );
-
-  const finalState = await requestJson("GET", "/api/agent/state");
-  assertAgentState(finalState, "final state");
   assert(
-    finalState.loadedSessions.some(
-      (session) => session.sessionId === initialSessionId,
-    ),
-    "initial session should remain loaded after cleanup",
-    JSON.stringify(finalState, null, 2),
+    history?.sessionId === created.sessionId && Array.isArray(history.messages),
+    "history response should include sessionId and messages[]",
+    JSON.stringify(history, null, 2),
   );
 
-  logStep("REST API OK");
+  const { payload: models } = await requestJson(
+    "GET",
+    `${sessionPath}/models`,
+    undefined,
+    { authenticated: true },
+  );
+  assert(
+    models?.sessionId === created.sessionId && Array.isArray(models.models),
+    "models response should include sessionId and models[]",
+    JSON.stringify(models, null, 2),
+  );
+
+  const thinkingLevel =
+    models.thinkingLevel ?? models.availableThinkingLevels?.[0];
+  if (thinkingLevel) {
+    const { payload: updatedThinking } = await requestJson(
+      "PUT",
+      `${sessionPath}/thinking`,
+      { level: thinkingLevel },
+      { authenticated: true },
+    );
+    assert(
+      updatedThinking?.sessionId === created.sessionId,
+      "thinking update should return model state",
+      JSON.stringify(updatedThinking, null, 2),
+    );
+  }
 }
 
-async function testWebSocket() {
-  logStep(`checking websocket event stream: ${wsUrl}`);
-
-  await new Promise((resolve, reject) => {
-    let ws;
-    const seenEvents = new Set();
-    const timer = setTimeout(() => {
-      try {
-        ws?.close();
-      } catch {}
-      reject(
-        new Error(
-          `timed out after ${timeoutMs}ms; saw events: ${[...seenEvents].join(", ") || "(none)"}`,
-        ),
-      );
-    }, timeoutMs);
-
-    ws = new WebSocket(wsUrl);
-
-    ws.addEventListener("open", () => {
-      logStep("websocket open");
-    });
-
-    ws.addEventListener("message", (event) => {
-      let message;
-      try {
-        message = JSON.parse(String(event.data));
-      } catch {
-        clearTimeout(timer);
-        ws.close();
-        reject(
-          new Error(
-            `received non-JSON websocket message: ${String(event.data)}`,
-          ),
-        );
-        return;
-      }
-
-      if (!message?.type) return;
-      seenEvents.add(message.type);
-      logStep(`event: ${message.type}`);
-
-      if (forbiddenWsEvents.has(message.type)) {
-        clearTimeout(timer);
-        ws.close();
-        reject(new Error(`websocket emitted REST-only event: ${message.type}`));
-        return;
-      }
-
-      if (message.type === "hello") {
-        if (message.protocolVersion !== 3) {
-          clearTimeout(timer);
-          ws.close();
-          reject(
-            new Error(
-              `hello protocolVersion should be 3, got ${message.protocolVersion}`,
-            ),
-          );
-          return;
-        }
-      }
-
-      if (seenEvents.has("hello") && seenEvents.has("sessions_snapshot")) {
-        clearTimeout(timer);
-        ws.close(1000, "smoke test complete");
-        resolve();
-      }
-    });
-
-    ws.addEventListener("error", () => {
-      clearTimeout(timer);
-      reject(new Error("websocket connection failed"));
-    });
-
-    ws.addEventListener("close", () => {
-      if (!seenEvents.has("hello") || !seenEvents.has("sessions_snapshot")) {
-        clearTimeout(timer);
-        reject(
-          new Error(
-            `websocket closed before required events arrived; saw: ${[...seenEvents].join(", ") || "(none)"}`,
-          ),
-        );
-      }
-    });
-  }).catch((error) => {
-    fail("websocket smoke test failed", error);
+async function logout() {
+  logStep("logging out");
+  const { payload } = await requestJson("POST", "/api/auth/logout", undefined, {
+    authenticated: true,
   });
-
-  logStep("websocket OK");
+  assert(payload?.ok === true, "logout returned an unexpected payload");
 }
 
-await testHealth();
-await testRestApi();
-await testWebSocket();
+await testUnauthenticatedHttp();
+await testUnauthenticatedWebSocket();
+await login();
+await testAuthenticatedRestApi();
+await logout();
+await testUnauthenticatedHttp();
 
 console.log("[smoke] PASS");

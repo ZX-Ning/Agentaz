@@ -194,10 +194,15 @@ export function useAgentazAppController() {
       return await $fetch<T>(url, { ...options, headers });
     } catch (error) {
       const data = (error as any)?.data?.data ?? (error as any)?.data;
+      const statusCode =
+        (error as any)?.statusCode ?? (error as any)?.response?.status;
       const message =
         data?.message ??
         (error instanceof Error ? error.message : String(error));
       lastError.value = message;
+      if (statusCode === 401 && import.meta.client) {
+        window.dispatchEvent(new CustomEvent("agentaz-auth-expired"));
+      }
       toast.add({
         title: data?.code ?? "agent_http_error",
         description: message,

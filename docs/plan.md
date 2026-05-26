@@ -12,9 +12,25 @@ The app is not a multi-user SaaS or team platform. It has moved beyond the origi
 
 - Target: **personal local/server-hosted Pi agent with a Web UI**.
 - Local-first remains the default trust model.
+- Access is protected by single-user admin-password auth using an encrypted
+  `nuxt-auth-utils` session cookie.
 - The agent runs on the Nuxt/Nitro server side.
 - The browser UI talks to the server over HTTP APIs plus a WebSocket event stream.
 - Multi-user auth, accounts, team concepts, and SaaS behavior are not confirmed goals.
+
+### Authentication
+
+- Authentication is single-user and admin-panel style, not account based.
+- `NUXT_SESSION_PASSWORD` is required and must be at least 32 characters. It is
+  used only by `nuxt-auth-utils` to encrypt/sign the session cookie.
+- `AGENTAZ_ADMIN_PASSWORD_HASH` is required and must contain
+  `base64(SHA3-256(password-string))`.
+- The login endpoint hashes the exact UTF-8 password string entered in the
+  browser and compares it with `AGENTAZ_ADMIN_PASSWORD_HASH`.
+- Sessions last 24 hours.
+- All existing app API endpoints are protected, including `GET /api/health` and
+  `WS /api/agent/ws`. The only public API endpoints are login and the
+  `nuxt-auth-utils` session discovery endpoint required by the frontend.
 
 ### Working Directory
 
@@ -54,6 +70,9 @@ apps/web/server/utils/permission-config.ts
 Current HTTP endpoints:
 
 ```txt
+POST   /api/auth/login
+POST   /api/auth/logout
+GET    /api/_auth/session
 GET    /api/health
 GET    /api/agent/state
 GET    /api/agent/models
@@ -89,7 +108,8 @@ WS     /api/agent/ws
 ### Browser Client Model
 
 - This is still a single-user app.
-- WebSocket clients are realtime subscribers, not authentication principals.
+- WebSocket clients are realtime subscribers, not multi-user principals; they
+  must still present a valid single-user auth session cookie before connecting.
 - Browser-initiated mutations use HTTP APIs.
 - Runtime control leases are acquired automatically around mutating operations and surface as conflict errors, not as a manual browser action.
 

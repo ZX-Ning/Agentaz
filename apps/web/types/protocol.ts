@@ -375,6 +375,27 @@ export type ServerEvent =
 // ──────────────────────────────────────────────────────────────────────────
 
 /**
+ * HTTP request used to authenticate the single local admin user.
+ * Sent to POST /api/auth/login.
+ */
+export type AuthLoginRequest = {
+  /** Plaintext password entered in the browser login form. */
+  password: string;
+};
+
+/**
+ * HTTP response returned after a successful login.
+ * The encrypted session itself is stored in an HTTP-only cookie.
+ */
+export type AuthLoginResponse = {
+  ok: true;
+  user: {
+    id: "admin";
+  };
+  loggedInAt: number;
+};
+
+/**
  * Full backend state snapshot returned by GET /api/agent/state.
  *
  * This is the primary synchronization payload. It includes everything the

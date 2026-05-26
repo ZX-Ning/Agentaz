@@ -10,7 +10,7 @@ The backend runs the Pi SDK server-side and exposes browser-facing HTTP APIs plu
 
 - one startup-configured working directory
 - server-resident loaded sessions
-- no authentication
+- single-user admin-password authentication
 - local bind by default
 - dangerous tool approvals routed to the browser
 
@@ -39,11 +39,13 @@ Nuxt runtime config currently defines:
 
 ```ts
 runtimeConfig: {
+  session: {
+    maxAge: 60 * 60 * 24,
+  },
   piWeb: {
     cwd: process.env.PI_WEB_CWD || process.cwd(),
     approvalTimeoutMs: Number(process.env.PI_WEB_APPROVAL_TIMEOUT_MS || 5 * 60 * 1000),
     maxLoadedSessions: Number(process.env.PI_WEB_MAX_LOADED_SESSIONS || 5),
-    allowNonLocalhost: process.env.HOST && !['127.0.0.1', 'localhost'].includes(process.env.HOST),
   },
 }
 ```
@@ -55,7 +57,38 @@ Important constraints:
   changes; when the cap is reached, the workspace evicts one idle, non-active session before loading
   another available session.
 - The web UI does not currently switch cwd.
-- Non-localhost bind should warn because there is no auth.
+- `AGENTAZ_ADMIN_PASSWORD_HASH` is required and must be
+  `base64(SHA3-256(password-string))`.
+- `NUXT_SESSION_PASSWORD` is required separately and must be at least 32
+  characters. Do not derive it from the admin password hash.
+- Non-localhost bind still warns because the app exposes a powerful single-user
+  coding agent surface.
+
+## Authentication
+
+Agentaz uses `nuxt-auth-utils` for encrypted cookie sessions and custom password
+verification for the single admin user.
+
+Public auth endpoints:
+
+```txt
+POST   /api/auth/login
+GET    /api/_auth/session
+```
+
+Protected auth endpoint:
+
+```txt
+POST   /api/auth/logout
+```
+
+All other `/api/**` endpoints are protected by server middleware, including
+`GET /api/health`. The WebSocket upgrade for `/api/agent/ws` also requires a
+valid session cookie before the connection is attached to `WsAgentHub`.
+
+The login route compares `base64(SHA3-256(password))` with
+`AGENTAZ_ADMIN_PASSWORD_HASH` and calls `setUserSession()` with the admin user
+payload on success. Sessions expire after 24 hours.
 
 ## HTTP Agent API
 
@@ -233,6 +266,8 @@ HTTP health endpoint:
 GET /api/health
 ```
 
+This endpoint requires authentication.
+
 Smoke script:
 
 ```bash
@@ -242,11 +277,13 @@ pnpm smoke:backend
 
 The smoke test assumes the dev server is already running. It checks:
 
-- health endpoint
-- REST state/history/models/session lifecycle endpoints
-- queue clear and abort endpoints
-- WebSocket `hello` and `state_snapshot`
-- that REST-only payloads such as history/model list are not emitted over WebSocket
+- unauthenticated HTTP and WebSocket rejection
+- login with `PI_WEB_SMOKE_ADMIN_PASSWORD`
+- authenticated health endpoint
+- authenticated REST state/history/models/session lifecycle endpoints
+
+The running server must be started with matching `AGENTAZ_ADMIN_PASSWORD_HASH`
+and `NUXT_SESSION_PASSWORD` values.
 
 ## Verification
 

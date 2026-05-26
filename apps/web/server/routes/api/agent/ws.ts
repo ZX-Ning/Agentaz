@@ -1,4 +1,5 @@
 import { getAgentRuntime } from "../../../utils/agent-runtime";
+import { requireAgentazAuth } from "../../../utils/auth";
 
 /**
  * WebSocket endpoint at ws://.../api/agent/ws
@@ -20,6 +21,12 @@ import { getAgentRuntime } from "../../../utils/agent-runtime";
  *   - error: Transport error → detach the failed client
  */
 export default defineWebSocketHandler({
+  async upgrade(request) {
+    // Reject unauthenticated browsers before the WebSocket is upgraded and
+    // before any client id is attached to the realtime hub.
+    await requireAgentazAuth(request as any);
+  },
+
   async open(peer) {
     // Parse query parameters from the upgrade request URL.
     const url = new URL(

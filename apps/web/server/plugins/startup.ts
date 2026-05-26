@@ -1,4 +1,5 @@
 import { configureAgentRuntime } from "../utils/agent-runtime";
+import { assertAuthConfig } from "../utils/auth";
 /**
  * Nitro startup plugin — the first code that runs when the server process starts.
  *
@@ -17,6 +18,9 @@ export default defineNitroPlugin(() => {
   const config = useRuntimeConfig();
   const host = process.env.NITRO_HOST || process.env.HOST;
 
+  // Fail closed unless the single-user admin auth secrets are configured.
+  assertAuthConfig();
+
   // Seed the runtime singleton with startup configuration.
   // Values come from runtimeConfig.piWeb (set in nuxt.config.ts or via
   // NUXT_PI_WEB_CWD / NUXT_PI_WEB_APPROVAL_TIMEOUT_MS env vars).
@@ -26,11 +30,11 @@ export default defineNitroPlugin(() => {
     maxLoadedSessions: Number(config.piWeb.maxLoadedSessions),
   });
 
-  // Security: warn if binding to a non-loopback address. The app is
-  // designed for local-first single-user use without authentication.
+  // Security: warn if binding to a non-loopback address. Auth is present, but
+  // the app still exposes a powerful single-user coding agent control surface.
   if (host && !["127.0.0.1", "localhost"].includes(host)) {
     console.warn(
-      "WARNING: server is listening on a non-localhost host without authentication:",
+      "WARNING: server is listening on a non-localhost host; ensure single-user auth is intentionally exposed:",
       host,
     );
   }
