@@ -63,10 +63,8 @@ type PendingUiRequest =
  */
 export function useAgentazAppController() {
   const toast = useToast();
-  const colorMode = useColorMode();
   const route = useRoute();
   const router = useRouter();
-  const isDark = computed(() => colorMode.value === "dark");
 
   const status = ref<"connecting" | "connected" | "disconnected" | "error">(
     "connecting",
@@ -86,9 +84,6 @@ export function useAgentazAppController() {
   const socket = shallowRef<WebSocket | null>(null);
   const hasAppliedInitialRoute = ref(false);
   const isSyncingBrowserRoute = ref(false);
-
-  const isSidebarOpen = ref(false);
-  const isStatusMenuOpen = ref(false);
 
   // --- computed ---
 
@@ -163,8 +158,6 @@ export function useAgentazAppController() {
       activeLoadedSession.value?.pendingApprovalCount ??
       activePendingUiRequests.value.length,
   );
-  const canSubmitToActiveSession = computed(() => Boolean(activeSessionId.value));
-  const hasMessages = computed(() => activeMessages.value.length > 0);
   const selectedModelKey = computed(() =>
     currentModel.value ? modelKey(currentModel.value) : "",
   );
@@ -183,25 +176,6 @@ export function useAgentazAppController() {
       model,
     })),
   );
-  const statusColor = computed(() => {
-    if (status.value === "connected") return "success";
-    if (status.value === "connecting") return "warning";
-    if (status.value === "error") return "error";
-    return "neutral";
-  });
-  const statusLabel = computed(() => {
-    if (status.value === "connected")
-      return isStreaming.value ? "Streaming" : "Connected";
-    if (status.value === "connecting") return "Connecting";
-    if (status.value === "error") return "Error";
-    return "Disconnected";
-  });
-  const pageTitle = computed(() => `Agentaz-${activeSessionTitle.value}`);
-
-  useHead({
-    title: pageTitle,
-  });
-
   // --- state helpers ---
 
   function ensureModelState(sessionId: string) {
@@ -793,23 +767,18 @@ export function useAgentazAppController() {
   async function handleSessionClick(session: SessionListItem) {
     if (session.isDraft && session.sessionId) {
       activeSessionId.value = session.sessionId;
-      isSidebarOpen.value = false;
       return;
     }
     if (session.isLoaded && session.sessionId) {
-      await focusSessionAndClose(session.sessionId);
+      await focusSession(session.sessionId);
     } else if (session.file) {
       const loaded = findLoadedSessionByFile(loadedSessions.value, session.file);
       if (loaded) {
-        await focusSessionAndClose(loaded.sessionId);
+        await focusSession(loaded.sessionId);
         return;
       }
-      await openPersistedSessionAndClose(session.file);
+      await openPersistedSession(session.file);
     }
-  }
-
-  function toggleTheme() {
-    colorMode.preference = isDark.value ? "light" : "dark";
   }
 
   async function handleModelSelect(value: unknown) {
@@ -858,7 +827,6 @@ export function useAgentazAppController() {
 
   async function createSessionAndClose() {
     await createSession();
-    isSidebarOpen.value = false;
   }
 
   function loadDummySession() {
@@ -911,17 +879,14 @@ export function useAgentazAppController() {
 
     messagesBySessionId.value[sessionId] = messages;
     activeSessionId.value = sessionId;
-    isSidebarOpen.value = false;
   }
 
   async function openPersistedSessionAndClose(sessionFile: string) {
     await openPersistedSession(sessionFile);
-    isSidebarOpen.value = false;
   }
 
   async function focusSessionAndClose(sessionId: string) {
     await focusSession(sessionId);
-    isSidebarOpen.value = false;
   }
 
   async function clearActiveQueue() {
@@ -992,10 +957,7 @@ export function useAgentazAppController() {
     socket,
     hasAppliedInitialRoute,
     isSyncingBrowserRoute,
-    isSidebarOpen,
-    isStatusMenuOpen,
     // computed
-    isDark,
     activeLoadedSession,
     activeSessionTitle,
     isActiveDraftSession,
@@ -1013,17 +975,11 @@ export function useAgentazAppController() {
     isStreaming,
     pendingMessageCount,
     pendingApprovalCount,
-    canSubmitToActiveSession,
-    hasMessages,
     selectedModelKey,
     visibleThinkingOptions,
     modelOptions,
-    statusColor,
-    statusLabel,
-    pageTitle,
     // functions
     handleSessionClick,
-    toggleTheme,
     handleModelSelect,
     handleThinkingSelect,
     createSessionAndClose,

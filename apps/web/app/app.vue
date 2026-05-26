@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import type { SessionListItem } from "../types/protocol";
+
 const {
   status,
   hello,
@@ -7,17 +9,12 @@ const {
   activeLoadedSession,
   activeSessionTitle,
   isActiveDraftSession,
-  isDark,
-  isStatusMenuOpen,
-  isSidebarOpen,
   isStreaming,
   pendingMessageCount,
   pendingApprovalCount,
   promptText,
   lastError,
   models,
-  canSubmitToActiveSession,
-  hasMessages,
   activeMessages,
   activePendingUiRequests,
   activeExtensionWidgets,
@@ -28,18 +25,48 @@ const {
   visibleThinkingOptions,
   pendingModelChange,
   pendingThinkingChange,
-  statusColor,
-  statusLabel,
   handleSessionClick,
-  toggleTheme,
   createSessionAndClose,
-  loadDummySession,
+  // loadDummySession,
   clearActiveQueue,
   respondToUiRequest,
   handleModelSelect,
   handleThinkingSelect,
   submitComposer,
 } = useAgentazAppController();
+
+const isSidebarOpen = ref(false);
+const hasMessages = computed(() => activeMessages.value.length > 0);
+const canSubmitToActiveSession = computed(() => Boolean(activeSessionId.value));
+const pageTitle = computed(() => `Agentaz-${activeSessionTitle.value}`);
+
+function closeSidebarOnMobile() {
+  if (window.matchMedia("(max-width: 1023px)").matches)
+    isSidebarOpen.value = false;
+}
+
+async function handleSidebarSessionSelect(session: SessionListItem) {
+  await handleSessionClick(session);
+  closeSidebarOnMobile();
+}
+
+async function handleSidebarCreate() {
+  await createSessionAndClose();
+  closeSidebarOnMobile();
+}
+
+// function handleSidebarLoadDummy() {
+//   loadDummySession();
+//   closeSidebarOnMobile();
+// }
+
+onMounted(() => {
+  isSidebarOpen.value = window.matchMedia("(min-width: 1024px)").matches;
+});
+
+useHead({
+  title: pageTitle,
+});
 </script>
 
 <template>
@@ -52,9 +79,8 @@ const {
         :client-id="clientId"
         :sessions="unifiedSessions"
         :working-dir="hello?.cwd ?? 'Waiting for backend...'"
-        @create="createSessionAndClose"
-        @load-dummy="loadDummySession"
-        @select="handleSessionClick"
+        @create="handleSidebarCreate"
+        @select="handleSidebarSessionSelect"
       />
 
       <main class="flex min-w-0 flex-1 flex-col bg-background text-foreground">
@@ -64,18 +90,12 @@ const {
           :session-title="activeSessionTitle"
           :is-active-draft-session="isActiveDraftSession"
           :active-session-id="activeSessionId"
-          :is-dark="isDark"
-          :is-status-menu-open="isStatusMenuOpen"
           :status="status"
           :is-streaming="isStreaming"
-          :status-color="statusColor"
-          :status-label="statusLabel"
           :pending-message-count="pendingMessageCount"
           :pending-approval-count="pendingApprovalCount"
           :models-count="models.length"
           @update:is-sidebar-open="isSidebarOpen = $event"
-          @update:is-status-menu-open="isStatusMenuOpen = $event"
-          @toggle-theme="toggleTheme"
           @clear-queue="clearActiveQueue"
         />
 

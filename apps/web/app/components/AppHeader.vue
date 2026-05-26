@@ -3,18 +3,14 @@ import type { UiLoadedSession } from "../../types/protocol";
 
 type ConnectionStatus = "connecting" | "connected" | "disconnected" | "error";
 
-defineProps<{
+const props = defineProps<{
   isSidebarOpen: boolean;
   activeLoadedSession: UiLoadedSession | null;
   sessionTitle: string;
   isActiveDraftSession: boolean;
   activeSessionId: string | null;
-  isDark: boolean;
-  isStatusMenuOpen: boolean;
   status: ConnectionStatus;
   isStreaming: boolean;
-  statusColor: "success" | "warning" | "error" | "neutral";
-  statusLabel: string;
   pendingMessageCount: number;
   pendingApprovalCount: number;
   modelsCount: number;
@@ -22,10 +18,29 @@ defineProps<{
 
 const emit = defineEmits<{
   (event: "update:isSidebarOpen", value: boolean): void;
-  (event: "update:isStatusMenuOpen", value: boolean): void;
-  (event: "toggleTheme"): void;
   (event: "clearQueue"): void;
 }>();
+
+const isStatusMenuOpen = ref(false);
+const colorMode = useColorMode();
+const isDark = computed(() => colorMode.value === "dark");
+const statusColor = computed(() => {
+  if (props.status === "connected") return "success";
+  if (props.status === "connecting") return "warning";
+  if (props.status === "error") return "error";
+  return "neutral";
+});
+const statusLabel = computed(() => {
+  if (props.status === "connected")
+    return props.isStreaming ? "Streaming" : "Connected";
+  if (props.status === "connecting") return "Connecting";
+  if (props.status === "error") return "Error";
+  return "Disconnected";
+});
+
+function toggleTheme() {
+  colorMode.preference = isDark.value ? "light" : "dark";
+}
 </script>
 
 <template>
@@ -38,8 +53,8 @@ const emit = defineEmits<{
         variant="ghost"
         icon="i-lucide-menu"
         size="sm"
-        class="mr-2.5 lg:hidden"
-        @click="emit('update:isSidebarOpen', true)"
+        class="mr-2.5"
+        @click="emit('update:isSidebarOpen', !isSidebarOpen)"
       />
       <div class="min-w-0">
         <div class="flex items-center gap-2">
@@ -86,7 +101,7 @@ const emit = defineEmits<{
         :pending-approval-count="pendingApprovalCount"
         :models-count="modelsCount"
         :active-loaded-session="activeLoadedSession"
-        @update:is-open="emit('update:isStatusMenuOpen', $event)"
+        @update:is-open="isStatusMenuOpen = $event"
         @clear-queue="emit('clearQueue')"
       />
 
@@ -96,7 +111,7 @@ const emit = defineEmits<{
         :icon="isDark ? 'i-lucide-sun' : 'i-lucide-moon'"
         size="sm"
         class="text-foreground hover:bg-accent hover:text-accent-foreground"
-        @click="emit('toggleTheme')"
+        @click="toggleTheme"
       />
     </div>
   </header>

@@ -11,7 +11,7 @@ defineProps<{
 const emit = defineEmits<{
   (event: "update:open", value: boolean): void;
   (event: "create"): void;
-  (event: "loadDummy"): void;
+  // (event: "loadDummy"): void;
   (event: "select", session: SessionListItem): void;
 }>();
 </script>
@@ -24,8 +24,12 @@ const emit = defineEmits<{
   />
 
   <aside
-    class="fixed inset-y-0 left-0 z-50 flex w-80 flex-col border-r border-sidebar-border bg-sidebar p-4 text-sidebar-foreground shadow-2xl transition-transform duration-300 ease-in-out lg:static lg:z-0 lg:translate-x-0 lg:shadow-none shrink-0"
-    :class="open ? 'translate-x-0' : '-translate-x-full'"
+    class="fixed inset-y-0 left-0 z-50 flex w-80 shrink-0 flex-col border-r border-sidebar-border bg-sidebar p-4 text-sidebar-foreground shadow-2xl transition-transform duration-300 ease-in-out lg:static lg:z-0 lg:shadow-none lg:transition-all"
+    :class="
+      open
+        ? 'translate-x-0 lg:translate-x-0 lg:w-80 lg:opacity-100'
+        : '-translate-x-full lg:translate-x-0 lg:w-0 lg:overflow-hidden lg:border-r-0 lg:p-0 lg:opacity-0'
+    "
   >
     <div class="mb-4 flex items-center justify-between px-2 pt-1">
       <div class="flex items-center gap-2">
@@ -64,6 +68,7 @@ const emit = defineEmits<{
       New session
     </UButton>
 
+    <!--
     <UButton
       block
       color="warning"
@@ -76,6 +81,7 @@ const emit = defineEmits<{
       </template>
       Load Dummy (300 msgs)
     </UButton>
+    -->
 
     <div
       class="space-y-2 px-2 text-xs font-medium uppercase tracking-wide text-muted-foreground"
