@@ -181,10 +181,10 @@ Current important server events include:
 
 Dangerous tool approvals use `@gotgenes/pi-permission-system`.
 
-`permission-config.ts` creates project-level config at:
+`permission-config.ts` creates global permission config under the Pi agent directory:
 
 ```txt
-<cwd>/.pi/extensions/pi-permission-system/config.json
+<agentDir>/extensions/pi-permission-system/config.json
 ```
 
 `WebExtensionUIContext` bridges extension UI prompts to the browser by emitting protocol events and waiting for browser responses. It also renders extension widgets as plain text lines for browser display, currently used by `@juicesharp/rpiv-todo`.

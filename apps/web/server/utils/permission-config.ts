@@ -3,12 +3,12 @@ import { join } from "node:path";
 
 export const PERMISSION_EXTENSION_ID = "pi-permission-system";
 
-export function getProjectPermissionConfigPath(cwd: string) {
-  return join(cwd, ".pi", "extensions", PERMISSION_EXTENSION_ID, "config.json");
+export function getGlobalPermissionConfigPath(agentDir: string) {
+  return join(agentDir, "extensions", PERMISSION_EXTENSION_ID, "config.json");
 }
 
-export async function ensurePermissionConfig(cwd: string) {
-  const configPath = getProjectPermissionConfigPath(cwd);
+export async function ensurePermissionConfig(agentDir: string) {
+  const configPath = getGlobalPermissionConfigPath(agentDir);
 
   try {
     await stat(configPath);
@@ -17,7 +17,7 @@ export async function ensurePermissionConfig(cwd: string) {
     // Missing config is expected on first run.
   }
 
-  await mkdir(join(cwd, ".pi", "extensions", PERMISSION_EXTENSION_ID), {
+  await mkdir(join(agentDir, "extensions", PERMISSION_EXTENSION_ID), {
     recursive: true,
   });
   await writeFile(

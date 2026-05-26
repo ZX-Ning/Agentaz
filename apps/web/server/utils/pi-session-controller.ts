@@ -70,6 +70,7 @@ export class PiSessionController {
 
   private constructor(
     private readonly cwd: string,
+    private readonly agentDir: string,
     private readonly authStorage: ReturnType<typeof AuthStorage.create>,
     private readonly modelRegistry: ReturnType<typeof ModelRegistry.create>,
     private readonly getServices: () => Promise<AgentSessionServices>,
@@ -81,6 +82,7 @@ export class PiSessionController {
   /** Creates a fresh persisted session for the configured working directory. */
   static async create(options: {
     cwd: string;
+    agentDir: string;
     authStorage: ReturnType<typeof AuthStorage.create>;
     modelRegistry: ReturnType<typeof ModelRegistry.create>;
     getServices: () => Promise<AgentSessionServices>;
@@ -90,6 +92,7 @@ export class PiSessionController {
   }) {
     const controller = new PiSessionController(
       options.cwd,
+      options.agentDir,
       options.authStorage,
       options.modelRegistry,
       options.getServices,
@@ -106,6 +109,7 @@ export class PiSessionController {
   /** Opens an existing persisted session file for the configured working directory. */
   static async open(options: {
     cwd: string;
+    agentDir: string;
     authStorage: ReturnType<typeof AuthStorage.create>;
     modelRegistry: ReturnType<typeof ModelRegistry.create>;
     getServices: () => Promise<AgentSessionServices>;
@@ -116,6 +120,7 @@ export class PiSessionController {
   }) {
     const controller = new PiSessionController(
       options.cwd,
+      options.agentDir,
       options.authStorage,
       options.modelRegistry,
       options.getServices,
@@ -345,7 +350,7 @@ export class PiSessionController {
   }
 
   private async initializeSession() {
-    await ensurePermissionConfig(this.cwd);
+    await ensurePermissionConfig(this.agentDir);
 
     this.sessionResult = await createAgentSessionFromServices({
       services: await this.getServices(),

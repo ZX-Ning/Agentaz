@@ -83,7 +83,7 @@ Do not run `pnpm build` by default because it is slower. Run build only when req
 - `WsAgentHub` should own browser WebSocket attach/detach and heartbeat snapshots only.
 - HTTP route files under `apps/web/server/api/agent` should stay thin and delegate to `PiSessionRegistry`.
 - `WebExtensionUIContext` bridges extension UI prompts/approvals to the browser.
-- `permission-config.ts` creates project-level permission-system config under `<cwd>/.pi/extensions/pi-permission-system/config.json`.
+- `permission-config.ts` creates permission-system config under `<agentDir>/extensions/pi-permission-system/config.json`, where `agentDir` comes from `PI_CODING_AGENT_DIR` or the Pi SDK default.
 
 ## Testing / Verification
 

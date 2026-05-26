@@ -104,10 +104,10 @@ WS     /api/agent/ws
 ### Permission Approval UX
 
 - Dangerous tool approvals use `@gotgenes/pi-permission-system`.
-- `permission-config.ts` creates project-level config under:
+- `permission-config.ts` creates global permission config under the Pi agent directory:
 
 ```txt
-<cwd>/.pi/extensions/pi-permission-system/config.json
+<agentDir>/extensions/pi-permission-system/config.json
 ```
 
 - Browser-backed extension UI prompts are emitted over WebSocket:
@@ -248,7 +248,7 @@ REST-only data must not be emitted as WS result events:
 - model list and current-session model selection
 - thinking level selection
 - `@gotgenes/pi-permission-system` integration
-- generated project-level permission config if missing
+- generated Pi agent-dir permission config if missing
 - browser-backed approval requests and HTTP approval responses
 - structured smoke test for REST and WS protocol boundaries
 
