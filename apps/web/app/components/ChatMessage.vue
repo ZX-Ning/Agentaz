@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import math, { Math as ComarkMath } from "@comark/nuxt/plugins/math";
 import security from "@comark/nuxt/plugins/security";
 import { computed, ref } from "vue";
 import type { UiBlock, UiMessage } from "../../types/protocol";
@@ -27,7 +28,9 @@ const props = defineProps<{
 
 const collapsedStates = ref<Record<string, boolean>>({});
 const markdownOptions = { html: false };
+const markdownComponents = { math: ComarkMath };
 const markdownPlugins = [
+  math({ throwOnError: false }),
   security({
     allowDataImages: false,
     allowedProtocols: ["http", "https", "mailto", "tel"],
@@ -51,6 +54,7 @@ const allowedMarkdownTags = new Set([
   "hr",
   "input",
   "li",
+  "math",
   "ol",
   "p",
   "pre",
@@ -278,6 +282,12 @@ function filterMarkdownAttributes(
     if (typeof attributes.class === "string") filtered.class = attributes.class;
   }
 
+  if (tag === "math") {
+    if (typeof attributes.class === "string") filtered.class = attributes.class;
+    if (typeof attributes.content === "string")
+      filtered.content = attributes.content;
+  }
+
   if (tag === "input") {
     if (attributes.type === "checkbox") filtered.type = attributes.type;
     if (typeof attributes.checked === "boolean")
@@ -360,8 +370,9 @@ function filterMarkdownAttributes(
                 :markdown="block.text"
                 :options="markdownOptions"
                 :plugins="markdownPlugins"
+                :components="markdownComponents"
                 streaming
-                class="max-w-full [&>*:first-child]:mt-0 [&>*:last-child]:mb-0 [&_a]:break-words [&_code]:break-words [&_li]:my-0.5 [&_ol]:my-2 [&_ol]:pl-5 [&_p]:my-2 [&_pre]:my-2 [&_pre]:max-w-full [&_pre]:overflow-x-auto [&_pre]:whitespace-pre-wrap [&_pre]:break-words [&_ul]:my-2 [&_ul]:pl-5"
+                class="max-w-full [&>*:first-child]:mt-0 [&>*:last-child]:mb-0 [&_.math.block]:my-2 [&_.math.block]:max-w-full [&_.math.block]:overflow-x-auto [&_a]:break-words [&_code]:break-words [&_li]:my-0.5 [&_ol]:my-2 [&_ol]:pl-5 [&_p]:my-2 [&_pre]:my-2 [&_pre]:max-w-full [&_pre]:overflow-x-auto [&_pre]:whitespace-pre-wrap [&_pre]:break-words [&_ul]:my-2 [&_ul]:pl-5"
               />
             </div>
           </div>

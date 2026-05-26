@@ -11,6 +11,7 @@
     "@comark/nuxt": "^0.3.1",
     "@earendil-works/pi-coding-agent": "latest",
     "@nuxt/ui": "^4.8.0",
+    "katex": "^0.16.47",
     "nuxt": "^4.1.0",
     "vue": "^3.5.0"
   },
