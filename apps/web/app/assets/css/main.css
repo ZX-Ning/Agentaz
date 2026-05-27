@@ -115,6 +115,13 @@ body,
   min-height: 100%;
 }
 
+.chat-shell {
+  /* Mobile browser chrome changes the visual viewport after load; 100dvh tracks
+     the visible area so the fixed chat layout keeps the composer on screen. */
+  height: 100vh;
+  height: 100dvh;
+}
+
 body {
   background: var(--background);
   color: var(--foreground);

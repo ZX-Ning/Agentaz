@@ -95,7 +95,7 @@ useHead({
 
 <template>
   <div
-    class="chat-shell relative flex h-screen overflow-hidden bg-background text-foreground"
+    class="chat-shell relative flex overflow-hidden bg-background text-foreground"
   >
     <AppSidebar
       v-model:open="isSidebarOpen"
@@ -108,7 +108,9 @@ useHead({
       @delete="handleSidebarSessionDelete"
     />
 
-    <main class="flex min-w-0 flex-1 flex-col bg-background text-foreground">
+    <main
+      class="flex min-h-0 min-w-0 flex-1 flex-col bg-background text-foreground"
+    >
       <AppHeader
         :is-sidebar-open="isSidebarOpen"
         :active-loaded-session="activeLoadedSession"
@@ -152,7 +154,9 @@ useHead({
         </div>
       </div>
 
-      <div class="shrink-0 space-y-3 px-4 pb-4 sm:px-6 sm:pb-6">
+      <div
+        class="shrink-0 space-y-3 px-4 pb-[calc(1rem+env(safe-area-inset-bottom))] sm:px-6 sm:pb-[calc(1.5rem+env(safe-area-inset-bottom))]"
+      >
         <div class="mx-auto w-full max-w-3xl">
           <PendingUiRequests
             :requests="activePendingUiRequests"
