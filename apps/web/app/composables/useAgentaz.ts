@@ -3,6 +3,7 @@ import type {
   MessageSubmitRequest,
   ModelSetRequest,
   ModelStateResponse,
+  PendingUiRequest,
   ServerEvent,
   ServerHello,
   SessionHistoryResponse,
@@ -39,11 +40,6 @@ import {
   upsertMessage,
   upsertMessageBlock,
 } from "../utils/agentaz-transcript";
-
-type PendingUiRequest =
-  | Extract<ServerEvent, { type: "ui_select_request" }>
-  | Extract<ServerEvent, { type: "ui_input_request" }>
-  | Extract<ServerEvent, { type: "ui_confirm_request" }>;
 
 /**
  * Creates the page-level Agentaz application controller.
@@ -218,6 +214,7 @@ export function useAgentazAppController() {
       (isDraftSessionId(activeSessionId.value) ? activeSessionId.value : null);
     loadedSessions.value = state.loadedSessions;
     persistedSessions.value = state.persistedSessions;
+    syncPendingUiRequestsFromLoadedSessions(state.loadedSessions);
   }
 
   function applyModelState(state: ModelStateResponse) {
@@ -267,6 +264,7 @@ export function useAgentazAppController() {
         isStreaming: patch.isStreaming ?? false,
         pendingMessageCount: patch.pendingMessageCount ?? 0,
         pendingApprovalCount: patch.pendingApprovalCount ?? 0,
+        pendingUiRequests: patch.pendingUiRequests ?? [],
         extensionWidgets: patch.extensionWidgets ?? [],
         controlOwnerClientId: patch.controlOwnerClientId,
         controlledByCurrentClient: patch.controlledByCurrentClient,
@@ -323,6 +321,24 @@ export function useAgentazAppController() {
     upsertLoadedSession(event.sessionId, {
       pendingApprovalCount: nextRequests.length,
     });
+  }
+
+  function syncPendingUiRequestsFromLoadedSessions(
+    sessions: UiLoadedSession[],
+  ) {
+    const next = { ...pendingUiRequestsBySessionId.value };
+    const loadedSessionIds = new Set<string>();
+
+    for (const session of sessions) {
+      loadedSessionIds.add(session.sessionId);
+      next[session.sessionId] = session.pendingUiRequests ?? [];
+    }
+
+    for (const sessionId of Object.keys(next)) {
+      if (!loadedSessionIds.has(sessionId)) delete next[sessionId];
+    }
+
+    pendingUiRequestsBySessionId.value = next;
   }
 
   function removePendingUiRequest(sessionId: string, requestId: string) {
@@ -559,6 +575,7 @@ export function useAgentazAppController() {
         activeSessionId.value = state.activeSessionId ?? activeSessionId.value;
       }
       loadedSessions.value = state.loadedSessions;
+      syncPendingUiRequestsFromLoadedSessions(state.loadedSessions);
       if (state.persistedSessions.length > 0)
         persistedSessions.value = state.persistedSessions;
       if (
@@ -625,6 +642,9 @@ export function useAgentazAppController() {
           pendingMessageCount: event.pendingMessageCount,
           pendingApprovalCount: event.pendingApprovalCount ?? 0,
         });
+        if ((event.pendingApprovalCount ?? 0) === 0) {
+          pendingUiRequestsBySessionId.value[event.sessionId] = [];
+        }
         if (shouldRefreshModelState) void refreshModelState(event.sessionId);
       }
       return;
@@ -846,6 +866,7 @@ export function useAgentazAppController() {
         isStreaming: false,
         pendingMessageCount: 0,
         pendingApprovalCount: 0,
+        pendingUiRequests: [],
         extensionWidgets: [],
       },
     ];

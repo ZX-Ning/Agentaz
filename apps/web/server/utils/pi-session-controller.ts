@@ -260,6 +260,7 @@ export class PiSessionController {
       isStreaming: session?.isStreaming ?? false,
       pendingMessageCount: session?.pendingMessageCount ?? 0,
       pendingApprovalCount: this.uiContext?.pendingCount ?? 0,
+      pendingUiRequests: this.uiContext?.pendingRequests ?? [],
       extensionWidgets: this.uiContext?.extensionWidgets ?? [],
     };
   }
@@ -511,6 +512,7 @@ export class PiSessionController {
       session.sessionId,
       this.emit,
       this.approvalTimeoutMs,
+      () => this.sendStatus(),
     );
 
     // Bind extensions with the UI context and an error handler.

@@ -1,10 +1,5 @@
 <script setup lang="ts">
-import type { ServerEvent } from "../../types/protocol";
-
-type PendingUiRequest =
-  | Extract<ServerEvent, { type: "ui_select_request" }>
-  | Extract<ServerEvent, { type: "ui_input_request" }>
-  | Extract<ServerEvent, { type: "ui_confirm_request" }>;
+import type { PendingUiRequest } from "../../types/protocol";
 
 defineProps<{
   requests: PendingUiRequest[];
@@ -29,6 +24,18 @@ const emit = defineEmits<{
       class="space-y-2 rounded-lg border border-border p-3 text-sm"
     >
       <div class="font-medium">{{ request.title }}</div>
+      <p
+        v-if="request.type === 'ui_confirm_request' && request.message"
+        class="whitespace-pre-wrap text-xs text-muted-foreground"
+      >
+        {{ request.message }}
+      </p>
+      <p
+        v-if="request.type === 'ui_input_request' && request.placeholder"
+        class="text-xs text-muted-foreground"
+      >
+        {{ request.placeholder }}
+      </p>
       <div class="text-xs text-muted-foreground">
         {{ request.type }} · {{ request.requestId }}
       </div>

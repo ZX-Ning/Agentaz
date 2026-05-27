@@ -115,11 +115,6 @@ useHead({
             :description="lastError"
           />
 
-          <PendingUiRequests
-            :requests="activePendingUiRequests"
-            @respond="respondToUiRequest"
-          />
-
           <ExtensionWidgets :widgets="activeExtensionWidgets" />
 
           <section
@@ -137,7 +132,14 @@ useHead({
         </div>
       </div>
 
-      <div class="shrink-0 px-4 pb-4 sm:px-6 sm:pb-6">
+      <div class="shrink-0 space-y-3 px-4 pb-4 sm:px-6 sm:pb-6">
+        <div class="mx-auto w-full max-w-3xl">
+          <PendingUiRequests
+            :requests="activePendingUiRequests"
+            @respond="respondToUiRequest"
+          />
+        </div>
+
         <MessageComposer
           :prompt-text="promptText"
           :is-streaming="isStreaming"

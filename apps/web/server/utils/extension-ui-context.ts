@@ -3,7 +3,11 @@ import type {
   TerminalInputHandler,
   WorkingIndicatorOptions,
 } from "@earendil-works/pi-coding-agent";
-import type { ServerEvent, UiExtensionWidget } from "../../types/protocol";
+import type {
+  PendingUiRequest,
+  ServerEvent,
+  UiExtensionWidget,
+} from "../../types/protocol";
 
 /** Emits a normalized server event to the active WebSocket client. */
 type SendEvent = (event: ServerEvent) => void;
@@ -11,6 +15,7 @@ type SendEvent = (event: ServerEvent) => void;
 /** Tracks one outstanding browser-backed extension UI request until it resolves or times out. */
 type PendingRequest = {
   kind: "select" | "input" | "confirm";
+  event: PendingUiRequest;
   resolve: (value: unknown) => void;
   timer: NodeJS.Timeout;
 };
@@ -40,11 +45,17 @@ export class WebExtensionUIContext {
     private readonly sessionId: string,
     private readonly send: SendEvent,
     private readonly timeoutMs: number,
+    private readonly onPendingChange?: () => void,
   ) {}
 
   /** Number of browser-backed UI requests still waiting for a response. */
   get pendingCount() {
     return this.pending.size;
+  }
+
+  /** Returns the prompt details required to render all outstanding browser approvals. */
+  get pendingRequests(): PendingUiRequest[] {
+    return [...this.pending.values()].map((request) => ({ ...request.event }));
   }
 
   /** Returns a browser-safe snapshot of currently registered extension widgets. */
@@ -210,7 +221,7 @@ export class WebExtensionUIContext {
 
   private request<T>(
     kind: PendingRequest["kind"],
-    event: Extract<ServerEvent, { requestId: string }>,
+    event: PendingUiRequest,
     fallback?: T,
   ): Promise<T> {
     const requestId = event.requestId;
@@ -222,9 +233,11 @@ export class WebExtensionUIContext {
 
       this.pending.set(requestId, {
         kind,
+        event,
         resolve: resolve as (value: unknown) => void,
         timer,
       });
+      this.onPendingChange?.();
       this.send(event);
     });
   }
@@ -234,6 +247,7 @@ export class WebExtensionUIContext {
     if (!pending) return;
     clearTimeout(pending.timer);
     this.pending.delete(requestId);
+    this.onPendingChange?.();
     pending.resolve(value);
   }
 

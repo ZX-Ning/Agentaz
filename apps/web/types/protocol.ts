@@ -113,6 +113,49 @@ export type UiSessionSummary = {
 };
 
 /**
+ * Browser-backed extension UI prompt awaiting a user response.
+ *
+ * These prompts are emitted as realtime WebSocket events when they are created
+ * and are also included in loaded-session snapshots so a browser can recover
+ * the clickable approval UI after reconnecting or refreshing while a prompt is
+ * still pending.
+ */
+export type PendingUiRequest =
+  | {
+      /** Extension is requesting a single-choice selection from the user. */
+      type: "ui_select_request";
+      sessionId: string;
+      /** Opaque id to include in the POST response. */
+      requestId: string;
+      /** Prompt title displayed to the user. */
+      title: string;
+      /** Available options for selection. */
+      options: string[];
+      /** Timeout in milliseconds before auto-resolving. */
+      timeoutMs: number;
+    }
+  | {
+      /** Extension is requesting text input from the user. */
+      type: "ui_input_request";
+      sessionId: string;
+      requestId: string;
+      title: string;
+      /** Optional placeholder text for the input field. */
+      placeholder?: string;
+      timeoutMs: number;
+    }
+  | {
+      /** Extension is requesting a yes/no confirmation from the user. */
+      type: "ui_confirm_request";
+      sessionId: string;
+      requestId: string;
+      title: string;
+      /** Detailed message explaining what is being confirmed. */
+      message: string;
+      timeoutMs: number;
+    };
+
+/**
  * Runtime state for a Pi session currently loaded in the server process.
  *
  * Extends UiSessionSummary with live runtime fields that change as the
@@ -132,6 +175,8 @@ export type UiLoadedSession = Omit<UiSessionSummary, "sessionId"> & {
   pendingMessageCount: number;
   /** Number of browser-backed extension UI prompts awaiting user response. */
   pendingApprovalCount: number;
+  /** Full prompt details needed to render clickable browser approval controls. */
+  pendingUiRequests: PendingUiRequest[];
   /** Text projections of extension-owned widgets. */
   extensionWidgets: UiExtensionWidget[];
   /** Client id that currently holds the session control lease (if any). */
@@ -308,39 +353,7 @@ export type ServerEvent =
       /** Pending follow-up messages (queued for next turn). */
       followUp: string[];
     }
-  | {
-      /** Extension is requesting a single-choice selection from the user. */
-      type: "ui_select_request";
-      sessionId: string;
-      /** Opaque id to include in the POST response. */
-      requestId: string;
-      /** Prompt title displayed to the user. */
-      title: string;
-      /** Available options for selection. */
-      options: string[];
-      /** Timeout in milliseconds before auto-resolving. */
-      timeoutMs: number;
-    }
-  | {
-      /** Extension is requesting text input from the user. */
-      type: "ui_input_request";
-      sessionId: string;
-      requestId: string;
-      title: string;
-      /** Optional placeholder text for the input field. */
-      placeholder?: string;
-      timeoutMs: number;
-    }
-  | {
-      /** Extension is requesting a yes/no confirmation from the user. */
-      type: "ui_confirm_request";
-      sessionId: string;
-      requestId: string;
-      title: string;
-      /** Detailed message explaining what is being confirmed. */
-      message: string;
-      timeoutMs: number;
-    }
+  | PendingUiRequest
   | {
       /** Extension notification/toast for display in the browser. */
       type: "ui_notify";
