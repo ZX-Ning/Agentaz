@@ -25,6 +25,16 @@ export default defineNuxtConfig({
       password:
         process.env.NUXT_SESSION_PASSWORD ??
         "missing-nuxt-session-password-runtime-will-fail",
+      /**
+       * h3's DEFAULT_COOKIE hardcodes secure: true, which prevents session
+       * cookies from being sent over HTTP on non-localhost addresses (RFC 6265
+       * only exempts localhost for Secure cookies). Override to false so the
+       * session works over plain HTTP on LAN / remote addresses. Deployments
+       * behind HTTPS should override via env or runtime config.
+       */
+      cookie: {
+        secure: false,
+      },
     },
     piWeb: {
       cwd: process.env.PI_WEB_CWD ?? process.cwd(),
