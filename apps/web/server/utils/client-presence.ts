@@ -1,3 +1,5 @@
+import { SessionControlConflictError } from "./domain-errors";
+
 export const LOCAL_CLIENT_ID = "local-browser";
 
 /** Public view of a session control lease. */
@@ -52,7 +54,7 @@ export class ClientPresence {
   acquireControl(clientId: string, sessionId: string) {
     const ownerClientId = this.controlOwnerBySession.get(sessionId);
     if (ownerClientId && ownerClientId !== clientId) {
-      throw new Error("Session is controlled by another browser client.");
+      throw new SessionControlConflictError();
     }
     this.controlOwnerBySession.set(sessionId, clientId);
     this.controlHoldCountBySession.set(

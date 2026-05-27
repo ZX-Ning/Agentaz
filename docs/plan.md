@@ -142,6 +142,14 @@ WS     /api/agent/ws
 POST /api/agent/sessions/:sessionId/ui-requests/:requestId/response
 ```
 
+The response body uses an explicit discriminator:
+
+```ts
+{ kind: "select", selected?: string }
+{ kind: "input", value?: string }
+{ kind: "confirm", confirmed: boolean }
+```
+
 - Approval timeout defaults to cancellation/deny, never allow.
 - Stop/abort cancels pending browser-backed approval prompts.
 

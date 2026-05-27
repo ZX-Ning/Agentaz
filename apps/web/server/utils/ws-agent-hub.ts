@@ -209,14 +209,36 @@ export class WsAgentHub {
     });
   }
 
-  /** Sends a single event to all connected peers. */
+  /**
+   * Sends a single event to all connected peers.
+   *
+   * Serialization happens once per broadcast. Individual peer send failures
+   * are isolated in sendSerialized() so one stale socket cannot prevent other
+   * connected browsers from receiving the event.
+   */
   private broadcast(event: ServerEvent) {
-    for (const peer of this.peers.values()) this.send(peer, event);
+    const data = JSON.stringify(event);
+    for (const peer of this.peers.values()) this.sendSerialized(peer, data);
   }
 
   /** Sends a single JSON-serialized event to one peer. */
   private send(peer: WsPeer, event: ServerEvent) {
-    peer.send(JSON.stringify(event));
+    this.sendSerialized(peer, JSON.stringify(event));
+  }
+
+  /**
+   * Sends one pre-serialized event payload to a peer.
+   *
+   * WebSocket libraries can throw when a peer has disconnected but the close
+   * callback has not finished cleanup yet. Logging and continuing keeps hub
+   * delivery best-effort without propagating transport errors into publishers.
+   */
+  private sendSerialized(peer: WsPeer, data: string) {
+    try {
+      peer.send(data);
+    } catch (error) {
+      console.error("[agentaz-server] websocket send failed", error);
+    }
   }
 
   /**

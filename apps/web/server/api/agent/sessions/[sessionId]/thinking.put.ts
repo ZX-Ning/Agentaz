@@ -5,6 +5,7 @@ import {
   requireRouteParam,
   withRequestSessionControl,
 } from "../../../../utils/agent-http";
+import { BadRequestError } from "../../../../utils/domain-errors";
 /**
  * PUT /api/agent/sessions/:sessionId/thinking
  *
@@ -32,7 +33,7 @@ export default defineEventHandler(async (event) => {
   try {
     const sessionId = requireRouteParam(event, "sessionId");
     const body = await readJsonBody<ThinkingSetRequest>(event);
-    if (!body.level) throw new Error("Thinking level is required.");
+    if (!body.level) throw new BadRequestError("Thinking level is required.");
     return await withRequestSessionControl(event, sessionId, (lease) =>
       lease.runtime.workspace.setSessionThinkingLevel(sessionId, body.level!),
     );

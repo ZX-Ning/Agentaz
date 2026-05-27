@@ -146,3 +146,18 @@ export function getAgentRuntime() {
 
   return runtime;
 }
+
+/**
+ * Disposes the process-wide runtime if it has been initialized.
+ *
+ * This is used by Nitro shutdown hooks. It deliberately does not call
+ * getAgentRuntime(), because process teardown should not create Pi SDK services
+ * just to dispose an app that never accepted an agent request.
+ */
+export async function disposeAgentRuntime() {
+  if (!runtime) return;
+
+  const currentRuntime = runtime;
+  runtime = undefined;
+  await currentRuntime.workspace.disposeAll();
+}

@@ -4,6 +4,7 @@ import {
   requireRouteParam,
 } from "../../../../utils/agent-http";
 import { getAgentRuntime } from "../../../../utils/agent-runtime";
+import { SessionNotFoundError } from "../../../../utils/domain-errors";
 /**
  * POST /api/agent/sessions/:sessionId/focus
  *
@@ -37,7 +38,7 @@ export default defineEventHandler(async (event) => {
 
     // Validate the session exists before mutating presence state.
     if (!runtime.workspace.hasSession(sessionId)) {
-      throw new Error("No loaded session is available for this command.");
+      throw new SessionNotFoundError();
     }
 
     const clientId = requestClientId(event);

@@ -5,6 +5,7 @@ import {
   requireRouteParam,
   withRequestSessionControl,
 } from "../../../../utils/agent-http";
+import { BadRequestError } from "../../../../utils/domain-errors";
 /**
  * PUT /api/agent/sessions/:sessionId/model
  *
@@ -42,7 +43,7 @@ export default defineEventHandler(async (event) => {
     const body = await readJsonBody<ModelSetRequest>(event);
 
     if (!body.provider || !body.id)
-      throw new Error("Model provider and id are required.");
+      throw new BadRequestError("Model provider and id are required.");
 
     return await withRequestSessionControl(event, sessionId, (lease) =>
       lease.runtime.workspace.setSessionModel(

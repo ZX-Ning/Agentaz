@@ -23,9 +23,21 @@ export type AgentRuntimeEventHandler = (event: AgentRuntimeEvent) => void;
 export class AgentEventBus {
   private handlers = new Set<AgentRuntimeEventHandler>();
 
-  /** Publishes one event to all current subscribers. */
+  /**
+   * Publishes one event to all current subscribers.
+   *
+   * Subscriber failures are isolated so a broken realtime transport or
+   * projection listener cannot crash the Pi SDK workflow that emitted the
+   * event, and cannot prevent later subscribers from seeing the same event.
+   */
   publish(event: AgentRuntimeEvent) {
-    for (const handler of this.handlers) handler(event);
+    for (const handler of this.handlers) {
+      try {
+        handler(event);
+      } catch (error) {
+        console.error("[agentaz-server] runtime event handler failed", error);
+      }
+    }
   }
 
   /** Subscribes to runtime events and returns a cleanup function. */

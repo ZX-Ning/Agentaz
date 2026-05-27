@@ -515,15 +515,15 @@ export type ThinkingSetRequest = {
  * Sent to POST /api/agent/sessions/:sessionId/ui-requests/:requestId/response.
  *
  * This is a discriminated union — the backend dispatches to the correct
- * resolution method based on which field is present:
- *   - { selected }  → resolveSelect
- *   - { value }     → resolveInput
- *   - { confirmed } → resolveConfirm
+ * resolution method based on the explicit kind field:
+ *   - { kind: "select", selected }   → resolveSelect
+ *   - { kind: "input", value }       → resolveInput
+ *   - { kind: "confirm", confirmed } → resolveConfirm
  */
 export type UiRequestResponseRequest =
-  | { selected?: string }
-  | { value?: string }
-  | { confirmed: boolean };
+  | { kind: "select"; selected?: string }
+  | { kind: "input"; value?: string }
+  | { kind: "confirm"; confirmed: boolean };
 
 /**
  * Runtime UI representation of a session in the sidebar list.

@@ -1,6 +1,7 @@
 import type { UiRequestResponseRequest } from "../../../../../../../types/protocol";
 import {
   agentHttpError,
+  parseUiRequestResponse,
   readJsonBody,
   requireRouteParam,
   withRequestSessionControl,
@@ -18,9 +19,9 @@ import {
  *   - requestId: The opaque request identifier from the WebSocket event
  *
  * Request body (JSON): UiRequestResponseRequest — discriminated union:
- *   - { selected: string }   — response to a select prompt
- *   - { value: string }      — response to an input prompt
- *   - { confirmed: boolean } — response to a confirm prompt
+ *   - { kind: "select", selected?: string }   — response to a select prompt
+ *   - { kind: "input", value?: string }       — response to an input prompt
+ *   - { kind: "confirm", confirmed: boolean } — response to a confirm prompt
  *
  * Response (200):
  *   - ok: true
@@ -44,15 +45,13 @@ export default defineEventHandler(async (event) => {
   try {
     const sessionId = requireRouteParam(event, "sessionId");
     const requestId = requireRouteParam(event, "requestId");
-    const body = await readJsonBody<UiRequestResponseRequest>(event);
+    const body = parseUiRequestResponse(
+      await readJsonBody<UiRequestResponseRequest>(event),
+    );
 
-    // Dispatch to correct resolver based on response shape.
+    // Dispatch to correct resolver based on the validated response kind.
     await withRequestSessionControl(event, sessionId, async (lease) =>
-      lease.runtime.workspace.resolveUiRequest(
-        sessionId,
-        requestId,
-        body as UiRequestResponseRequest,
-      ),
+      lease.runtime.workspace.resolveUiRequest(sessionId, requestId, body),
     );
     return { ok: true, sessionId, requestId };
   } catch (error) {

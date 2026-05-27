@@ -19,6 +19,10 @@ import type {
 } from "../../types/protocol";
 import type { AgentEventBus } from "./agent-event-bus";
 import {
+  SessionLimitReachedError,
+  SessionNotFoundError,
+} from "./domain-errors";
+import {
   DEFAULT_THINKING_LEVELS,
   PiSessionController,
   toUiModel,
@@ -356,10 +360,10 @@ export class PiSessionWorkspace {
    * Resolves one browser-backed extension UI request.
    *
    * Dispatches to the appropriate resolution method on the controller
-   * based on which fields are present in the response:
-   *   - { confirmed } → resolveConfirm (boolean prompt)
-   *   - { value }     → resolveInput (text prompt)
-   *   - { selected }  → resolveSelect (choice prompt)
+   * based on the explicit response kind:
+   *   - { kind: "confirm", confirmed } → resolveConfirm
+   *   - { kind: "input", value }       → resolveInput
+   *   - { kind: "select", selected }   → resolveSelect
    */
   resolveUiRequest(
     sessionId: string,
@@ -367,15 +371,12 @@ export class PiSessionWorkspace {
     response: UiRequestResponseRequest,
   ) {
     const controller = this.mutableSession(sessionId);
-    if ("confirmed" in response) {
+    if (response.kind === "confirm") {
       controller.resolveConfirm(requestId, response.confirmed);
-    } else if ("value" in response) {
+    } else if (response.kind === "input") {
       controller.resolveInput(requestId, response.value);
     } else {
-      controller.resolveSelect(
-        requestId,
-        (response as { selected?: string }).selected,
-      );
+      controller.resolveSelect(requestId, response.selected);
     }
     this.emitStateChanged();
   }
@@ -435,7 +436,7 @@ export class PiSessionWorkspace {
   private requireSession(sessionId: string) {
     const controller = this.sessions.get(sessionId);
     if (!controller) {
-      throw new Error("No loaded session is available for this command.");
+      throw new SessionNotFoundError();
     }
     return controller;
   }
@@ -443,9 +444,7 @@ export class PiSessionWorkspace {
   /** Throws if the loaded session limit has been reached. */
   private assertCanLoadAnotherSession() {
     if (this.sessions.size >= this.options.maxLoadedSessions) {
-      throw new Error(
-        `Loaded session limit reached (${this.options.maxLoadedSessions}). Try again after an active session becomes idle.`,
-      );
+      throw new SessionLimitReachedError(this.options.maxLoadedSessions);
     }
   }
 

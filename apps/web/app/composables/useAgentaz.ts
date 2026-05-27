@@ -905,11 +905,17 @@ export function useAgentazAppController() {
   ) {
     let body: UiRequestResponseRequest;
     if (request.type === "ui_select_request") {
-      body = { selected: typeof value === "string" ? value : undefined };
+      body = {
+        kind: "select",
+        selected: typeof value === "string" ? value : undefined,
+      };
     } else if (request.type === "ui_input_request") {
-      body = { value: typeof value === "string" ? value : undefined };
+      body = {
+        kind: "input",
+        value: typeof value === "string" ? value : undefined,
+      };
     } else {
-      body = { confirmed: value === true };
+      body = { kind: "confirm", confirmed: value === true };
     }
 
     await agentFetch(

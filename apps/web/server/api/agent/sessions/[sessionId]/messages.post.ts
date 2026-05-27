@@ -8,6 +8,7 @@ import {
   readJsonBody,
   requireRouteParam,
 } from "../../../../utils/agent-http";
+import { BadRequestError } from "../../../../utils/domain-errors";
 /**
  * POST /api/agent/sessions/:sessionId/messages
  *
@@ -52,7 +53,7 @@ export default defineEventHandler(
 
       // Validate required message fields before acquiring control.
       if (!body.text || !body.mode)
-        throw new Error("Message mode and text are required.");
+        throw new BadRequestError("Message mode and text are required.");
 
       // Acquire request-scoped control — blocks other clients from mutating
       // this session while we submit the message.
