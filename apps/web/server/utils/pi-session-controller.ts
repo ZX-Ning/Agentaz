@@ -242,6 +242,18 @@ export class PiSessionController {
   }
 
   /**
+   * Appends user-facing session metadata to the backing session file.
+   *
+   * Pi sessions are append-only, so renaming is represented as a session_info
+   * entry rather than an in-place header update. getSessionName() resolves the
+   * latest session_info entry when projecting sidebar summaries.
+   */
+  async rename(name: string) {
+    this.requireSessionManager().appendSessionInfo(name);
+    await this.onSessionMetadataChanged();
+  }
+
+  /**
    * Converts this loaded session into a browser sidebar/status row.
    * Includes runtime state (isWorking, isStreaming, pending counts)
    * and extension widget projections.

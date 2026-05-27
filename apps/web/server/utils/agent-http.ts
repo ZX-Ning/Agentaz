@@ -249,6 +249,9 @@ export function agentHttpError(error: unknown) {
   } else if (message.includes("controlled by another browser client")) {
     statusCode = 409;
     code = "session_control_conflict";
+  } else if (message.includes("Session is busy")) {
+    statusCode = 409;
+    code = "session_busy";
   } else if (message.includes("Unknown model")) {
     statusCode = 400;
     code = "unknown_model";

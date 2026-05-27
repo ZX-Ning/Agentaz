@@ -37,6 +37,8 @@ const {
   handleModelSelect,
   handleThinkingSelect,
   submitComposer,
+  renameSessionAndClose,
+  deleteSessionAndClose,
 } = useAgentazAppController();
 
 const isSidebarOpen = ref(false);
@@ -61,6 +63,19 @@ async function handleSidebarSessionSelect(session: SessionListItem) {
 
 async function handleSidebarCreate() {
   await createSessionAndClose();
+  closeSidebarOnMobile();
+}
+
+async function handleSidebarSessionRename(payload: {
+  session: SessionListItem;
+  name: string;
+}) {
+  if (!payload.session.file) return;
+  await renameSessionAndClose(payload.session.file, payload.name);
+}
+
+async function handleSidebarSessionDelete(session: SessionListItem) {
+  await deleteSessionAndClose(session);
   closeSidebarOnMobile();
 }
 
@@ -89,6 +104,8 @@ useHead({
       :working-dir="hello?.cwd ?? 'Waiting for backend...'"
       @create="handleSidebarCreate"
       @select="handleSidebarSessionSelect"
+      @rename="handleSidebarSessionRename"
+      @delete="handleSidebarSessionDelete"
     />
 
     <main class="flex min-w-0 flex-1 flex-col bg-background text-foreground">

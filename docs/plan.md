@@ -77,6 +77,8 @@ GET    /api/health
 GET    /api/agent/state
 GET    /api/agent/models
 POST   /api/agent/sessions
+PATCH  /api/agent/sessions/metadata
+POST   /api/agent/sessions/delete
 POST   /api/agent/sessions/:sessionId/focus
 GET    /api/agent/sessions/:sessionId/history
 GET    /api/agent/sessions/:sessionId/models

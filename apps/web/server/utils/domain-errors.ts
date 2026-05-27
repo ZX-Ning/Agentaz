@@ -35,6 +35,24 @@ export class SessionNotFoundError extends AgentazDomainError {
   }
 }
 
+/** The requested persisted session file is not available in the current workspace. */
+export class PersistedSessionNotFoundError extends AgentazDomainError {
+  constructor() {
+    super(
+      "Persisted session file was not found in the current workspace.",
+      404,
+      "session_not_found",
+    );
+  }
+}
+
+/** The requested session cannot be removed because work is still in flight. */
+export class SessionBusyError extends AgentazDomainError {
+  constructor() {
+    super("Session is busy and cannot be deleted.", 409, "session_busy");
+  }
+}
+
 /** No idle loaded session can be evicted to satisfy a load/create request. */
 export class SessionLimitReachedError extends AgentazDomainError {
   constructor(maxLoadedSessions: number) {

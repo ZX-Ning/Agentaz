@@ -450,6 +450,26 @@ export type SessionCreateRequest = {
 };
 
 /**
+ * HTTP request used to rename a persisted session.
+ * Sent to PATCH /api/agent/sessions/metadata.
+ */
+export type SessionRenameRequest = {
+  /** Absolute path to an existing, non-deleted session file in the configured cwd. */
+  sessionFile: string;
+  /** New user-facing session name. */
+  name: string;
+};
+
+/**
+ * HTTP request used to soft-delete a persisted session.
+ * Sent to POST /api/agent/sessions/delete.
+ */
+export type SessionDeleteRequest = {
+  /** Absolute path to an existing, non-deleted session file in the configured cwd. */
+  sessionFile: string;
+};
+
+/**
  * HTTP response returned by session lifecycle operations (create, open, focus).
  * Extends the full state snapshot with the new/altered session's identity.
  */

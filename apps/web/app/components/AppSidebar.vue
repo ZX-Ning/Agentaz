@@ -12,8 +12,49 @@ const emit = defineEmits<{
   (event: "update:open", value: boolean): void;
   (event: "create"): void;
   // (event: "loadDummy"): void;
-  (event: "select", session: SessionListItem): void;
+  (event: "select" | "delete", session: SessionListItem): void;
+  (event: "rename", payload: { session: SessionListItem; name: string }): void;
 }>();
+
+const isRenameOpen = ref(false);
+const sessionBeingRenamed = ref<SessionListItem | null>(null);
+const renameValue = ref("");
+
+function openRenameDialog(session: SessionListItem) {
+  if (!session.file || session.isDraft) return;
+  sessionBeingRenamed.value = session;
+  renameValue.value = session.title;
+  isRenameOpen.value = true;
+}
+
+function submitRename() {
+  const session = sessionBeingRenamed.value;
+  const name = renameValue.value.trim();
+  if (!session || !session.file || !name) return;
+  emit("rename", { session, name });
+  isRenameOpen.value = false;
+}
+
+function sessionMenuItems(session: SessionListItem) {
+  const hasPersistedFile = Boolean(session.file) && !session.isDraft;
+  return [
+    [
+      {
+        label: "Rename",
+        icon: "i-lucide-pencil",
+        disabled: !hasPersistedFile,
+        onSelect: () => openRenameDialog(session),
+      },
+      {
+        label: "Delete",
+        icon: "i-lucide-trash-2",
+        color: "error" as const,
+        disabled: !hasPersistedFile || session.isWorking,
+        onSelect: () => emit("delete", session),
+      },
+    ],
+  ];
+}
 </script>
 
 <template>
@@ -89,61 +130,103 @@ const emit = defineEmits<{
       Sessions
     </div>
     <div class="mt-2 min-h-0 flex-1 space-y-1 overflow-y-auto">
-      <button
+      <UContextMenu
         v-for="session in sessions"
         :key="session.id"
-        class="w-full rounded-lg px-3 py-2 text-left text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/35"
-        :class="
-          session.isActive
-            ? 'bg-sidebar-accent text-sidebar-accent-foreground font-medium'
-            : 'text-sidebar-foreground hover:bg-sidebar-accent'
-        "
-        @click="emit('select', session)"
+        :items="sessionMenuItems(session)"
       >
-        <div class="flex items-center justify-between gap-2">
-          <span class="truncate">{{ session.title }}</span>
-          <span class="flex shrink-0 items-center gap-1">
-            <UBadge
-              v-if="session.isStreaming"
-              color="success"
-              variant="soft"
-              size="xs"
-              >run</UBadge
-            >
-            <UBadge
-              v-if="session.pendingApprovalCount"
-              color="warning"
-              variant="soft"
-              size="xs"
-              >{{ session.pendingApprovalCount }}</UBadge
-            >
-            <UBadge
-              v-if="session.isActive"
-              color="primary"
-              variant="soft"
-              size="xs"
-              >open</UBadge
-            >
-          </span>
-        </div>
-        <div
-          class="mt-1 flex items-center justify-between gap-2 text-xs text-muted-foreground font-normal"
+        <button
+          class="w-full rounded-lg px-3 py-2 text-left text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/35"
+          :class="
+            session.isActive
+              ? 'bg-sidebar-accent text-sidebar-accent-foreground font-medium'
+              : 'text-sidebar-foreground hover:bg-sidebar-accent'
+          "
+          @click="emit('select', session)"
         >
-          <span class="truncate">{{ session.sessionId || session.file }}</span>
-          <span
-            v-if="session.isLoaded"
-            class="text-[10px] uppercase font-semibold tracking-wider opacity-60"
+          <div class="flex items-center justify-between gap-2">
+            <span class="truncate">{{ session.title }}</span>
+            <span class="flex shrink-0 items-center gap-1">
+              <UBadge
+                v-if="session.isStreaming"
+                color="success"
+                variant="soft"
+                size="xs"
+                >run</UBadge
+              >
+              <UBadge
+                v-if="session.pendingApprovalCount"
+                color="warning"
+                variant="soft"
+                size="xs"
+                >{{ session.pendingApprovalCount }}</UBadge
+              >
+              <UBadge
+                v-if="session.isActive"
+                color="primary"
+                variant="soft"
+                size="xs"
+                >open</UBadge
+              >
+            </span>
+          </div>
+          <div
+            class="mt-1 flex items-center justify-between gap-2 text-xs text-muted-foreground font-normal"
           >
-            {{ session.isWorking ? "working" : "loaded" }}
-          </span>
-          <span
-            v-else
-            class="text-[10px] uppercase font-semibold tracking-wider opacity-60"
-          >
-            available
-          </span>
-        </div>
-      </button>
+            <span class="truncate">{{
+              session.sessionId || session.file
+            }}</span>
+            <span
+              v-if="session.isLoaded"
+              class="text-[10px] uppercase font-semibold tracking-wider opacity-60"
+            >
+              {{ session.isWorking ? "working" : "loaded" }}
+            </span>
+            <span
+              v-else
+              class="text-[10px] uppercase font-semibold tracking-wider opacity-60"
+            >
+              available
+            </span>
+          </div>
+        </button>
+      </UContextMenu>
+      <UModal
+        v-model:open="isRenameOpen"
+        title="Rename session"
+        :ui="{ content: 'sm:max-w-lg' }"
+      >
+        <template #body>
+          <form class="space-y-4" @submit.prevent="submitRename">
+            <UInput
+              v-model="renameValue"
+              autofocus
+              maxlength="120"
+              placeholder="Session name"
+              size="xl"
+              class="w-full"
+              :ui="{ base: 'text-base' }"
+            />
+            <div class="flex justify-end gap-2">
+              <UButton
+                color="neutral"
+                variant="ghost"
+                type="button"
+                @click="isRenameOpen = false"
+              >
+                Cancel
+              </UButton>
+              <UButton
+                color="primary"
+                type="submit"
+                :disabled="!renameValue.trim()"
+              >
+                Save
+              </UButton>
+            </div>
+          </form>
+        </template>
+      </UModal>
       <div
         v-if="sessions.length === 0"
         class="rounded-lg px-3 py-2 text-sm text-muted-foreground"

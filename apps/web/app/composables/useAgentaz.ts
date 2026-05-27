@@ -6,9 +6,11 @@ import type {
   PendingUiRequest,
   ServerEvent,
   ServerHello,
+  SessionDeleteRequest,
   SessionHistoryResponse,
   SessionListItem,
   SessionOperationResponse,
+  SessionRenameRequest,
   ThinkingLevel,
   UiLoadedSession,
   UiMessage,
@@ -525,6 +527,33 @@ export function useAgentazAppController() {
     if (syncRoute) await syncBrowserRouteToSession(sessionId, "push");
   }
 
+  async function renameSession(sessionFile: string, name: string) {
+    const body: SessionRenameRequest = { sessionFile, name };
+    await postSessionOperation("/api/agent/sessions/metadata", {
+      method: "PATCH",
+      body,
+    });
+  }
+
+  async function deleteSession(session: SessionListItem) {
+    if (!session.file) return;
+
+    const deletedSessionId = session.sessionId;
+    const body: SessionDeleteRequest = { sessionFile: session.file };
+    await postSessionOperation("/api/agent/sessions/delete", {
+      method: "POST",
+      body,
+    });
+
+    if (deletedSessionId) {
+      delete messagesBySessionId.value[deletedSessionId];
+      delete modelStateBySessionId.value[deletedSessionId];
+      delete pendingUiRequestsBySessionId.value[deletedSessionId];
+    }
+
+    await syncBrowserRouteToSession(activeSessionId.value, "replace");
+  }
+
   // --- event handling ---
 
   async function sendPrompt() {
@@ -931,6 +960,14 @@ export function useAgentazAppController() {
     await focusSession(sessionId);
   }
 
+  async function renameSessionAndClose(sessionFile: string, name: string) {
+    await renameSession(sessionFile, name);
+  }
+
+  async function deleteSessionAndClose(session: SessionListItem) {
+    await deleteSession(session);
+  }
+
   async function clearActiveQueue() {
     if (activeSessionId.value && !isDraftSessionId(activeSessionId.value))
       await agentFetch(sessionUrl(activeSessionId.value, "/queue/clear"), {
@@ -1035,6 +1072,8 @@ export function useAgentazAppController() {
     loadDummySession,
     openPersistedSessionAndClose,
     focusSessionAndClose,
+    renameSessionAndClose,
+    deleteSessionAndClose,
     clearActiveQueue,
     respondToUiRequest,
     submitComposer,

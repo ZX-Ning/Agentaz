@@ -6,6 +6,7 @@ import {
   SessionManager,
   type AgentSessionServices,
 } from "@earendil-works/pi-coding-agent";
+import { access, rename } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import type {
   MessageSubmitRequest,
@@ -19,6 +20,9 @@ import type {
 } from "../../types/protocol";
 import type { AgentEventBus } from "./agent-event-bus";
 import {
+  BadRequestError,
+  PersistedSessionNotFoundError,
+  SessionBusyError,
   SessionLimitReachedError,
   SessionNotFoundError,
 } from "./domain-errors";
@@ -246,6 +250,85 @@ export class PiSessionWorkspace {
     return controller;
   }
 
+  /**
+   * Renames a persisted session by appending a session_info entry.
+   *
+   * The sessionFile must belong to the configured cwd's normal persisted
+   * session list. This prevents arbitrary path writes while still allowing
+   * metadata edits for sessions that are not currently loaded in memory.
+   */
+  async renamePersistedSession(sessionFile: string, name: string) {
+    const normalizedName = name.trim();
+    if (!normalizedName) {
+      throw new BadRequestError("Session name is required.");
+    }
+    if (normalizedName.length > 120) {
+      throw new BadRequestError("Session name must be 120 characters or less.");
+    }
+
+    const normalizedSessionFile =
+      await this.requirePersistedSessionFile(sessionFile);
+    const loaded = this.findLoadedSessionByFile(normalizedSessionFile);
+
+    if (loaded) {
+      await loaded.rename(normalizedName);
+    } else {
+      const sessionManager = SessionManager.open(
+        normalizedSessionFile,
+        undefined,
+        this.options.cwd,
+      );
+      sessionManager.appendSessionInfo(normalizedName);
+      await this.refreshPersistedSessionCache();
+    }
+
+    this.emitStateChanged();
+    return {
+      sessionId: loaded?.sessionId,
+      sessionFile: normalizedSessionFile,
+    };
+  }
+
+  /**
+   * Soft-deletes a persisted session by renaming its JSONL file.
+   *
+   * The original content stays on disk, but the new extension is no longer
+   * matched by the Pi SDK's .jsonl session scanner. Loaded sessions must be
+   * idle so dispose/removal cannot interrupt active agent work.
+   */
+  async softDeletePersistedSession(sessionFile: string) {
+    const normalizedSessionFile =
+      await this.requirePersistedSessionFile(sessionFile);
+    const loaded = this.findLoadedSessionByFile(normalizedSessionFile);
+
+    if (loaded?.isBusy()) {
+      throw new SessionBusyError();
+    }
+
+    if (loaded) {
+      await loaded.dispose();
+      this.sessions.delete(loaded.sessionId);
+    }
+
+    const deletedSessionFile = await this.nextSoftDeletedSessionFile(
+      normalizedSessionFile,
+    );
+    await rename(normalizedSessionFile, deletedSessionFile);
+
+    this.eventBus.publish({
+      type: "session_removed",
+      sessionId: loaded?.sessionId ?? normalizedSessionFile,
+      fallbackSessionId: this.firstLoadedSessionId(),
+    });
+    await this.refreshPersistedSessionCache();
+    this.emitStateChanged();
+
+    return {
+      sessionId: loaded?.sessionId,
+      sessionFile: normalizedSessionFile,
+    };
+  }
+
   /** Returns normalized history for one loaded session. */
   getSessionHistory(sessionId: string): SessionHistoryResponse {
     return this.requireSession(sessionId).getHistory();
@@ -398,6 +481,50 @@ export class PiSessionWorkspace {
     return sessions.map(toUiSessionSummary);
   }
 
+  /** Finds a loaded controller by normalized session file path. */
+  private findLoadedSessionByFile(normalizedSessionFile: string) {
+    return [...this.sessions.values()].find(
+      (controller) =>
+        controller.sessionFile &&
+        resolve(controller.sessionFile) === normalizedSessionFile,
+    );
+  }
+
+  /**
+   * Validates that a session file is one of the current cwd's normal sessions.
+   *
+   * The persisted session list comes from the Pi SDK and only includes .jsonl
+   * files under this workspace's session directory, so membership gives us both
+   * existence and workspace-scope validation before metadata writes or renames.
+   */
+  private async requirePersistedSessionFile(sessionFile: string) {
+    if (!sessionFile?.trim()) {
+      throw new BadRequestError("Session file is required.");
+    }
+
+    const normalizedSessionFile = resolve(sessionFile);
+    const persisted = await this.listPersistedSessions();
+    const allowedFiles = new Set(
+      persisted
+        .map((session) => session.file)
+        .filter(Boolean)
+        .map((file) => resolve(file)),
+    );
+
+    if (!allowedFiles.has(normalizedSessionFile)) {
+      throw new PersistedSessionNotFoundError();
+    }
+
+    return normalizedSessionFile;
+  }
+
+  /** Returns a non-conflicting filename for a soft-deleted session file. */
+  private async nextSoftDeletedSessionFile(sessionFile: string) {
+    const base = `${sessionFile}.deleted`;
+    if (!(await fileExists(base))) return base;
+    return `${base}.${Date.now()}`;
+  }
+
   /**
    * Frees one idle loaded session only when the working set is at capacity.
    *
@@ -456,5 +583,15 @@ export class PiSessionWorkspace {
   /** Emits a state_changed event to trigger frontend refresh via WebSocket. */
   private emitStateChanged() {
     this.eventBus.publish({ type: "state_changed" });
+  }
+}
+
+/** Returns whether a path exists and is accessible to the current process. */
+async function fileExists(path: string) {
+  try {
+    await access(path);
+    return true;
+  } catch {
+    return false;
   }
 }
