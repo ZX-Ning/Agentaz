@@ -42,6 +42,11 @@ const {
 const isSidebarOpen = ref(false);
 const hasMessages = computed(() => activeMessages.value.length > 0);
 const canSubmitToActiveSession = computed(() => Boolean(activeSessionId.value));
+const isInitialSessionListLoading = computed(
+  () =>
+    !hello.value &&
+    (status.value === "connecting" || status.value === "connected"),
+);
 const pageTitle = computed(() => `Agentaz-${activeSessionTitle.value}`);
 
 function closeSidebarOnMobile() {
@@ -75,7 +80,7 @@ useHead({
 
 <template>
   <div
-    class="chat-shell flex h-screen overflow-hidden bg-background text-foreground"
+    class="chat-shell relative flex h-screen overflow-hidden bg-background text-foreground"
   >
     <AppSidebar
       v-model:open="isSidebarOpen"
@@ -115,8 +120,6 @@ useHead({
             :description="lastError"
           />
 
-          <ExtensionWidgets :widgets="activeExtensionWidgets" />
-
           <section
             v-if="!hasMessages"
             class="py-10 text-center text-sm text-muted-foreground"
@@ -140,6 +143,10 @@ useHead({
           />
         </div>
 
+        <div class="mx-auto w-full max-w-3xl">
+          <ExtensionWidgets :widgets="activeExtensionWidgets" />
+        </div>
+
         <MessageComposer
           :prompt-text="promptText"
           :is-streaming="isStreaming"
@@ -158,5 +165,20 @@ useHead({
         />
       </div>
     </main>
+
+    <div
+      v-if="isInitialSessionListLoading"
+      class="absolute inset-0 z-50 flex items-center justify-center bg-background/70 backdrop-grayscale backdrop-blur-[1px]"
+    >
+      <div
+        class="flex items-center gap-3 rounded-lg border border-border bg-card px-4 py-3 text-sm text-card-foreground shadow-xl shadow-foreground/10 dark:shadow-black/30"
+      >
+        <UIcon
+          name="i-lucide-loader-circle"
+          class="size-5 animate-spin text-muted-foreground"
+        />
+        <span>Loading sessions...</span>
+      </div>
+    </div>
   </div>
 </template>

@@ -79,6 +79,8 @@ export function useAgentazAppController() {
   const socket = shallowRef<WebSocket | null>(null);
   const hasAppliedInitialRoute = ref(false);
   const isSyncingBrowserRoute = ref(false);
+  const isUnmounting = ref(false);
+  const hasShownDisconnectToast = ref(false);
 
   // --- computed ---
 
@@ -702,6 +704,7 @@ export function useAgentazAppController() {
     return new Promise<ServerHello>((resolve, reject) => {
       ws.addEventListener("open", () => {
         status.value = "connected";
+        hasShownDisconnectToast.value = false;
       });
 
       ws.addEventListener("message", (message) => {
@@ -717,7 +720,22 @@ export function useAgentazAppController() {
       });
 
       ws.addEventListener("close", () => {
+        const hadInitialConnection = Boolean(hello.value);
         status.value = "disconnected";
+        if (
+          hadInitialConnection &&
+          !isUnmounting.value &&
+          !hasShownDisconnectToast.value
+        ) {
+          hasShownDisconnectToast.value = true;
+          toast.add({
+            title: "Connection disconnected",
+            description:
+              "The realtime agent connection was closed. Refresh the page or restart the backend.",
+            color: "error",
+            duration: 60_000,
+          });
+        }
         reject(new Error("WebSocket connection closed before hello."));
       });
 
@@ -968,6 +986,7 @@ export function useAgentazAppController() {
   });
 
   onBeforeUnmount(() => {
+    isUnmounting.value = true;
     socket.value?.close();
   });
 
