@@ -5,8 +5,14 @@ import {
   readBody,
   type H3Event,
 } from "h3";
+import type { UiRequestResponseRequest } from "../../types/protocol";
 import { getAgentRuntime } from "./agent-runtime";
 import { LOCAL_CLIENT_ID } from "./client-presence";
+import {
+  AgentazDomainError,
+  BadRequestError,
+  SessionNotFoundError,
+} from "./domain-errors";
 
 /** Header name for the browser-tab client identity carried on every HTTP request. */
 const CLIENT_ID_HEADER = "x-agentaz-client-id";
@@ -55,7 +61,7 @@ export function acquireRequestSessionControl(
 
   // Validate the session exists before attempting to acquire control.
   if (!runtime.workspace.hasSession(sessionId)) {
-    throw new Error("No loaded session is available for this command.");
+    throw new SessionNotFoundError();
   }
 
   const clientId = requestClientId(event);
@@ -133,15 +139,66 @@ export function requireRouteParam(event: H3Event, name: string) {
 /**
  * Reads and type-casts a JSON request body, defaulting missing bodies to an empty object.
  *
- * Uses h3's readBody() which handles JSON parsing. If the body is empty or parsing
- * fails, returns {} so callers can safely destructure without null checks.
+ * Uses h3's readBody() which handles JSON parsing. Empty bodies return {} so
+ * routes with optional JSON bodies can still destructure safely. Malformed JSON
+ * is rejected with 400 instead of being treated as an empty object.
  * The returned Partial<T> means all fields are optional — individual routes must
  * validate required fields themselves.
  */
 export async function readJsonBody<T extends object>(
   event: H3Event,
 ): Promise<Partial<T>> {
-  return (await readBody(event).catch(() => ({}))) ?? {};
+  try {
+    return (await readBody(event)) ?? {};
+  } catch {
+    throw createError({
+      statusCode: 400,
+      statusMessage: "Malformed JSON request body.",
+      data: {
+        code: "bad_request",
+        message: "Malformed JSON request body.",
+        recoverable: true,
+      },
+    });
+  }
+}
+
+/**
+ * Validates and normalizes a browser-backed extension UI response body.
+ *
+ * The wire protocol uses an explicit kind discriminator so malformed bodies do
+ * not accidentally fall through to the select resolver. This parser enforces
+ * the per-kind payload shape before workspace code resolves the pending prompt.
+ *
+ * @throws BadRequestError when the response kind or payload is invalid
+ */
+export function parseUiRequestResponse(
+  body: Partial<UiRequestResponseRequest>,
+): UiRequestResponseRequest {
+  if (body.kind === "confirm") {
+    if (typeof body.confirmed !== "boolean") {
+      throw new BadRequestError("Confirm UI responses require confirmed.");
+    }
+    return { kind: "confirm", confirmed: body.confirmed };
+  }
+
+  if (body.kind === "input") {
+    if (body.value !== undefined && typeof body.value !== "string") {
+      throw new BadRequestError("Input UI response value must be a string.");
+    }
+    return { kind: "input", value: body.value };
+  }
+
+  if (body.kind === "select") {
+    if (body.selected !== undefined && typeof body.selected !== "string") {
+      throw new BadRequestError(
+        "Select UI response selected value must be a string.",
+      );
+    }
+    return { kind: "select", selected: body.selected };
+  }
+
+  throw new BadRequestError("UI response kind is required.");
 }
 
 /**
@@ -161,6 +218,14 @@ export async function readJsonBody<T extends object>(
  * frontend uses to decide whether to show a retry UI.
  */
 export function agentHttpError(error: unknown) {
+  if (error instanceof AgentazDomainError) {
+    return createError({
+      statusCode: error.statusCode,
+      statusMessage: error.message,
+      data: error.data,
+    });
+  }
+
   // Pass through existing H3 errors (already structured).
   if (typeof error === "object" && error && "statusCode" in error) {
     return error;

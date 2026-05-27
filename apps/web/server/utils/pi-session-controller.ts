@@ -19,6 +19,7 @@ import type {
   UiSessionSummary,
 } from "../../types/protocol";
 import { WebExtensionUIContext } from "./extension-ui-context";
+import { UnknownModelError } from "./domain-errors";
 import { ensurePermissionConfig } from "./permission-config";
 
 /** Emits a normalized server event to the runtime event bus. */
@@ -377,7 +378,7 @@ export class PiSessionController {
   async setModel(provider: string, id: string) {
     await this.ensureInitialized();
     const model = this.modelRegistry.find(provider, id);
-    if (!model) throw new Error(`Unknown model: ${provider}/${id}`);
+    if (!model) throw new UnknownModelError(provider, id);
 
     const session = this.requireSession();
     if (this.isWorkflowBusy()) {
