@@ -43,9 +43,9 @@ runtimeConfig: {
     maxAge: 60 * 60 * 24,
   },
   piWeb: {
-    cwd: process.env.PI_WEB_CWD || process.cwd(),
-    approvalTimeoutMs: Number(process.env.PI_WEB_APPROVAL_TIMEOUT_MS || 5 * 60 * 1000),
-    maxLoadedSessions: Number(process.env.PI_WEB_MAX_LOADED_SESSIONS || 5),
+    cwd: process.env.PI_WEB_CWD ?? process.cwd(),
+    approvalTimeoutMs: Number(process.env.PI_WEB_APPROVAL_TIMEOUT_MS ?? 5 * 60 * 1000),
+    maxLoadedSessions: Number(process.env.PI_WEB_MAX_LOADED_SESSIONS ?? 5),
   },
 }
 ```

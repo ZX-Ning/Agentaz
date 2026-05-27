@@ -79,9 +79,8 @@ The original MVP baseline is no longer the product boundary. This roadmap should
 
 ## Safety and Security
 
-The current app has no auth and binds to localhost by default. Before any non-localhost or multi-user use:
+The current app has single-user admin-password auth and binds to localhost by default. Before any broader network exposure or multi-user use:
 
-- add authentication
 - add CSRF/origin checks as appropriate
 - review WebSocket exposure
 - review filesystem/tool access assumptions

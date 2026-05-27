@@ -1,4 +1,7 @@
-import { configureAgentRuntime } from "../utils/agent-runtime";
+import {
+  configureAgentRuntime,
+  disposeAgentRuntime,
+} from "../utils/agent-runtime";
 import { assertAuthConfig } from "../utils/auth";
 /**
  * Nitro startup plugin — the first code that runs when the server process starts.
@@ -14,7 +17,7 @@ import { assertAuthConfig } from "../utils/auth";
  * source of truth for AgentRuntime configuration — calling configureAgentRuntime
  * more than once with different options will throw.
  */
-export default defineNitroPlugin(() => {
+export default defineNitroPlugin((nitroApp) => {
   const config = useRuntimeConfig();
   const host = process.env.NITRO_HOST || process.env.HOST;
 
@@ -23,7 +26,7 @@ export default defineNitroPlugin(() => {
 
   // Seed the runtime singleton with startup configuration.
   // Values come from runtimeConfig.piWeb (set in nuxt.config.ts or via
-  // NUXT_PI_WEB_CWD / NUXT_PI_WEB_APPROVAL_TIMEOUT_MS env vars).
+  // PI_WEB_CWD / PI_WEB_APPROVAL_TIMEOUT_MS / PI_WEB_MAX_LOADED_SESSIONS).
   configureAgentRuntime({
     cwd: String(config.piWeb.cwd),
     approvalTimeoutMs: Number(config.piWeb.approvalTimeoutMs),
@@ -38,4 +41,10 @@ export default defineNitroPlugin(() => {
       host,
     );
   }
+
+  // Dispose loaded Pi sessions during graceful Nitro shutdown. This hook is
+  // best-effort: it only touches the runtime if an agent request initialized it.
+  nitroApp.hooks.hook("close", async () => {
+    await disposeAgentRuntime();
+  });
 });
