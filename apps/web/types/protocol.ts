@@ -5,7 +5,7 @@
  * event shapes or HTTP DTOs. The frontend should refuse to operate if the
  * server's protocol version doesn't match its expected version.
  */
-export const PROTOCOL_VERSION = 6;
+export const PROTOCOL_VERSION = 7;
 
 /**
  * Supported Pi thinking levels exposed through the web UI.
@@ -256,7 +256,7 @@ export type AgentCapabilities = {
 export type ServerHello = {
   type: "hello";
   /** Must match the client's expected protocol version. */
-  protocolVersion: 6;
+  protocolVersion: 7;
   /** Working directory shared by all sessions. */
   cwd: string;
   /** Unique client id assigned by the server for this connection. */
@@ -320,12 +320,12 @@ export type ServerEvent =
       block: UiBlock;
     }
   | {
-      /** A streaming text/thinking delta was appended to a block. */
+      /** A streaming text/thinking/tool_result delta was appended to a block. */
       type: "message_block_delta";
       sessionId: string;
       messageId: string;
       blockId: string;
-      blockType: "text" | "thinking";
+      blockType: "text" | "thinking" | "tool_result";
       /** The new text to append to the block. */
       delta: string;
     }
@@ -417,7 +417,7 @@ export type AuthLoginResponse = {
  * requesting client, the working directory, and capability flags.
  */
 export type AgentStateResponse = {
-  protocolVersion: 6;
+  protocolVersion: 7;
   /** Working directory shared by all sessions. */
   cwd: string;
   /** The session currently focused by the requesting client. */

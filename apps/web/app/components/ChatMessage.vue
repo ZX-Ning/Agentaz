@@ -146,10 +146,12 @@ function formatToolInput(input: unknown) {
   return formatHumanReadable(input);
 }
 
-function formatToolResult(result?: ToolResultBlock) {
+function formatToolResult(result?: ToolResultBlock, status?: string) {
   if (!result) return "Waiting for output.";
-  if (!result.content.trim())
+  if (!result.content.trim()) {
+    if (status === "running") return "";
     return result.isError ? "No error details." : "No output.";
+  }
   return formatHumanReadable(result.content);
 }
 
@@ -508,7 +510,7 @@ function filterMarkdownAttributes(
                       ? 'text-red-700/90 dark:text-red-300/90'
                       : 'text-foreground/80'
                   "
-                  >{{ formatToolResult(block.result) }}</pre
+                  >{{ formatToolResult(block.result, block.status) }}</pre
                 >
               </section>
             </div>

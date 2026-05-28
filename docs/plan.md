@@ -240,7 +240,7 @@ Current important events:
 - `control_changed`
 - `message_upsert`
 - `message_block_upsert`
-- `message_block_delta`
+- `message_block_delta` for streaming `text`, `thinking`, and `tool_result` blocks
 - `permission_decision`
 - `queue_update`
 - `ui_select_request`
@@ -273,7 +273,7 @@ REST-only data must not be emitted as WS result events:
 - history loading over HTTP
 - prompt/steer/follow-up over HTTP with streaming output over WS
 - assistant text/thinking deltas
-- tool lifecycle events
+- tool lifecycle events, including streaming bash tool output as `tool_result` deltas
 - stop and clear queue
 - model list and current-session model selection
 - thinking level selection

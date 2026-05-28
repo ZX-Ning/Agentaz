@@ -182,10 +182,12 @@ Render user and assistant messages differently:
 
 - user messages: aligned right, primary background
 - assistant messages: aligned left, card background
-- tool events: initially textual summaries; later extract dedicated tool blocks
+- tool events: dedicated tool call/result blocks inside the assistant turn
 - thinking blocks: eventually collapsed by default
 
-User and assistant text blocks render Markdown with Comark. Tool output, tool results, and thinking blocks stay in plain `<pre>` rendering so command output and internal reasoning text are not parsed as Markdown.
+User and assistant text blocks render Markdown with Comark. Tool output, tool results, and thinking blocks stay in plain `<pre>` rendering so command output and internal reasoning text are not parsed as Markdown. `message_block_delta` may append to text, thinking, or tool result blocks; tool result deltas should update the block's `content` field, while text/thinking deltas update `text`.
+
+The browser transcript should match the backend projection: one assistant `UiMessage` per agent turn, with ordered blocks for text, thinking, tool calls, and tool results. Reloaded HTTP history should render with the same grouping as live WebSocket streaming.
 
 ## Composer Behavior
 

@@ -81,6 +81,7 @@ Be aggressive with comments — when in doubt, write more. Every API route (`app
 - Keep Pi SDK code server-side only.
 - `PiSessionWorkspace` should own process-wide Pi SDK services and loaded Pi session lifecycle.
 - `PiSessionController` should own browser-facing operations for one loaded Pi session.
+- `PiSessionController` should project one browser-facing assistant `UiMessage` per agent turn, including consecutive Pi SDK assistant messages and tool result blocks, so live streaming and HTTP history reload use the same grouping.
 - `SessionProjector` should own browser-facing state snapshots.
 - `WsAgentHub` should own browser WebSocket attach/detach and heartbeat snapshots only.
 - HTTP route files under `apps/web/server/api/agent` should stay thin and delegate through `getAgentRuntime()` to workspace, presence, and projector services.

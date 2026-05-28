@@ -62,7 +62,7 @@ export function appendMessageBlockDelta(
   sessionId: string,
   messageId: string,
   blockId: string,
-  blockType: "text" | "thinking",
+  blockType: "text" | "thinking" | "tool_result",
   delta: string,
 ) {
   const message = ensureTranscriptMessage(
@@ -72,13 +72,24 @@ export function appendMessageBlockDelta(
   );
   let block = message.blocks.find((item) => item.id === blockId);
   if (!block) {
-    block =
-      blockType === "text"
-        ? { id: blockId, type: "text", text: "" }
-        : { id: blockId, type: "thinking", text: "", collapsed: true };
+    if (blockType === "text") {
+      block = { id: blockId, type: "text", text: "" };
+    } else if (blockType === "thinking") {
+      block = { id: blockId, type: "thinking", text: "", collapsed: true };
+    } else {
+      block = {
+        id: blockId,
+        type: "tool_result",
+        toolCallId: "",
+        content: "",
+        isError: false,
+      };
+    }
     message.blocks.push(block);
   }
   if (block.type === "text" || block.type === "thinking") {
     block.text += delta;
+  } else if (block.type === "tool_result") {
+    block.content += delta;
   }
 }

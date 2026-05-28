@@ -109,6 +109,14 @@ export class PiSessionController {
   private anonymousToolCallId?: string;
   /** Counter for generating unique anonymous tool call ids. */
   private anonymousToolCallCounter = 0;
+  /**
+   * Tracks the last emitted length of streaming tool result content per tool call.
+   *
+   * Keyed by toolCallId. When a tool emits incremental output via tool_execution_update,
+   * the full accumulated text from partialResult.content is compared against the last
+   * emitted length to compute a delta. Cleaned up on tool_execution_end and agent_end.
+   */
+  private toolResultEmittedLength = new Map<string, number>();
   /** Cached normalized history; invalidated when messages change. */
   private cachedHistory?: SessionHistoryResponse;
 
@@ -576,6 +584,8 @@ export class PiSessionController {
    * Central event dispatcher for all Pi SDK session events.
    *
    * Routes each event type to the appropriate handler:
+   *   - message_start: Assistant API call started; reset text/thinking block
+   *     anchors while keeping the browser-visible assistant turn intact.
    *   - message_update: Text deltas from the agent (streaming response text).
    *   - tool_execution_start / tool_start: Tool call started (status=pending).
    *   - tool_execution_update / tool_update: Tool call in progress (status=running).
@@ -589,6 +599,16 @@ export class PiSessionController {
     try {
       const sessionId = this.sessionId;
       switch (event.type) {
+        case "message_start":
+          // A single browser-visible assistant turn can contain multiple Pi SDK
+          // assistant messages, for example: text -> tool -> text. Keep the
+          // same UiMessage for the turn, but force the next text/thinking delta
+          // to create a fresh block after any intervening tool blocks.
+          if (event.message?.role === "assistant") {
+            this.currentTextBlockId = undefined;
+            this.currentThinkingBlockId = undefined;
+          }
+          break;
         case "message_update":
           this.forwardMessageUpdate(sessionId, event);
           this.invalidateHistoryCache();
@@ -602,6 +622,7 @@ export class PiSessionController {
         case "tool_execution_update":
         case "tool_update":
           this.upsertToolCallBlock(sessionId, event, "running");
+          this.streamToolResultDelta(sessionId, event);
           this.invalidateHistoryCache();
           break;
         case "tool_execution_end":
@@ -631,6 +652,7 @@ export class PiSessionController {
           this.currentTextBlockId = undefined;
           this.currentThinkingBlockId = undefined;
           this.toolBlocks.clear();
+          this.toolResultEmittedLength.clear();
           this.anonymousToolCallId = undefined;
           void this.applyPendingSettingsIfIdle();
           this.invalidateHistoryCache();
@@ -779,6 +801,72 @@ export class PiSessionController {
   }
 
   /**
+   * Streams incremental tool result content from tool_execution_update events.
+   *
+   * The Pi SDK bash tool emits accumulated partial output via the onUpdate callback,
+   * which arrives here as event.partialResult. This method:
+   *
+   *   1. Extracts the full accumulated text from partialResult.content.
+   *   2. On the first update for a tool call, creates an empty tool_result block
+   *      via message_block_upsert (to anchor the block id on the frontend).
+   *   3. On every update, computes the delta (new text since last emission) and
+   *      sends it via message_block_delta with blockType "tool_result".
+   *
+   * The streaming content is ephemeral — completeToolCallBlock replaces it with
+   * the final truncated (500-char) result via a message_block_upsert replacement.
+   *
+   * Tools that do not emit partial results (read, write, edit, etc.) never reach
+   * this method, so their behavior is unchanged.
+   */
+  private streamToolResultDelta(sessionId: string, event: any) {
+    const partialResult = event.partialResult;
+    if (!partialResult) return;
+
+    const toolCallId = this.toolCallId(event, "update");
+    const location = this.ensureToolBlockLocation(sessionId, toolCallId);
+    const fullText = flattenText(partialResult.content ?? []);
+
+    const emitted = this.toolResultEmittedLength.get(toolCallId);
+
+    // First update for this tool call: create an empty result block to anchor
+    // the block id on the frontend so subsequent deltas have a target.
+    if (emitted === undefined) {
+      const message = this.ensureAssistantMessage(
+        sessionId,
+        location.messageId,
+      );
+      const block: UiBlock = {
+        id: location.resultBlockId,
+        type: "tool_result",
+        toolCallId,
+        content: "",
+        isError: false,
+      };
+      this.upsertBlock(message, block);
+      this.emit({
+        type: "message_block_upsert",
+        sessionId,
+        messageId: message.id,
+        block,
+      });
+      this.toolResultEmittedLength.set(toolCallId, 0);
+    }
+
+    const delta = fullText.slice(this.toolResultEmittedLength.get(toolCallId)!);
+    if (delta.length > 0) {
+      this.emit({
+        type: "message_block_delta",
+        sessionId,
+        messageId: location.messageId,
+        blockId: location.resultBlockId,
+        blockType: "tool_result",
+        delta,
+      });
+      this.toolResultEmittedLength.set(toolCallId, fullText.length);
+    }
+  }
+
+  /**
    * Completes a tool call by setting its final status and adding a tool_result block.
    *
    * Steps:
@@ -798,9 +886,10 @@ export class PiSessionController {
     const message = this.ensureAssistantMessage(sessionId, location.messageId);
 
     // Truncate long results to 500 chars for browser display.
-    const summary = summarizeToolResult(
-      event.result ?? event.output ?? event.error,
-    );
+    // Extract .content from AgentToolResult objects (same shape as partialResult)
+    // so that flattenText sees the text array rather than the wrapper object.
+    const rawResult = event.result ?? event.output ?? event.error;
+    const summary = summarizeToolResult(rawResult?.content ?? rawResult);
 
     const resultBlock: UiBlock = {
       id: location.resultBlockId,
@@ -817,6 +906,9 @@ export class PiSessionController {
       messageId: message.id,
       block: resultBlock,
     });
+
+    // Clean up streaming result tracking.
+    this.toolResultEmittedLength.delete(toolCallId);
 
     // Clean up anonymous tool call tracking when this tool completes.
     if (!extractToolCallId(event) && this.anonymousToolCallId === toolCallId) {
@@ -851,16 +943,39 @@ export class PiSessionController {
 
   /** Returns the current text block within a message, creating it if needed. */
   private ensureTextBlock(sessionId: string, message: UiMessage) {
-    const blockId = this.currentTextBlockId ?? `${message.id}:text:0`;
+    const blockId =
+      this.currentTextBlockId ?? this.nextTextLikeBlockId(message, "text");
     this.currentTextBlockId = blockId;
     return this.ensureTextLikeBlock(sessionId, message, blockId, "text");
   }
 
   /** Returns the current thinking block within a message, creating it if needed. */
   private ensureThinkingBlock(sessionId: string, message: UiMessage) {
-    const blockId = this.currentThinkingBlockId ?? `${message.id}:thinking:0`;
+    const blockId =
+      this.currentThinkingBlockId ??
+      this.nextTextLikeBlockId(message, "thinking");
     this.currentThinkingBlockId = blockId;
     return this.ensureTextLikeBlock(sessionId, message, blockId, "thinking");
+  }
+
+  /**
+   * Returns the next unused text or thinking block id for a message.
+   *
+   * message_start resets the current text/thinking anchors between Pi SDK
+   * assistant API calls. Since the browser still displays those calls as one
+   * assistant turn, the next delta needs a new block id instead of reusing
+   * `<message>:text:0` and being rendered before intervening tool blocks.
+   */
+  private nextTextLikeBlockId(message: UiMessage, type: "text" | "thinking") {
+    let index = message.blocks.filter((block) => block.type === type).length;
+    let blockId = `${message.id}:${type}:${index}`;
+
+    while (message.blocks.some((block) => block.id === blockId)) {
+      index += 1;
+      blockId = `${message.id}:${type}:${index}`;
+    }
+
+    return blockId;
   }
 
   /**
@@ -1050,17 +1165,35 @@ export function normalizeMessages(messages: any[]): UiMessage[] {
       return;
     }
 
-    // Regular message: determine id, role, and blocks.
+    // Regular message: determine id, role, and blocks once, then either push
+    // a new message or merge assistant blocks into the current assistant turn.
     const messageId = message.id ?? `history-${index}`;
-    const uiMessage = {
+    const role = normalizeRole(message.role);
+    const uiMessage: UiMessage = {
       id: messageId,
-      role: normalizeRole(message.role),
+      role,
       blocks: normalizeContent(message.content ?? message, messageId),
       createdAt: message.createdAt ?? message.timestamp,
     };
+
+    // Streaming presents consecutive Pi SDK assistant messages as one
+    // browser-visible assistant turn. Mirror that shape when loading history
+    // so reloads do not split a single turn into multiple assistant bubbles.
+    if (role === "assistant") {
+      if (lastAssistant) {
+        lastAssistant.blocks.push(...uiMessage.blocks);
+        return;
+      }
+
+      normalized.push(uiMessage);
+      lastAssistant = uiMessage;
+      return;
+    }
+
+    // User/system messages are turn boundaries. The next assistant message
+    // should start a new browser-visible assistant turn.
     normalized.push(uiMessage);
-    // Track the last assistant message for tool_result attachment.
-    lastAssistant = uiMessage.role === "assistant" ? uiMessage : lastAssistant;
+    lastAssistant = undefined;
   });
 
   return normalized;

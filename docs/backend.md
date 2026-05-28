@@ -210,6 +210,15 @@ Current important server events include:
 - `status`
 - `error`
 
+`message_block_delta` can stream `text`, `thinking`, and `tool_result` blocks.
+Pi SDK bash updates provide accumulated `partialResult.content`; the backend
+computes the incremental delta before emitting it to the browser. When Pi SDK
+emits multiple assistant messages inside one agent turn, the backend keeps them
+in one browser-facing assistant `UiMessage` and starts fresh text/thinking
+blocks at each assistant `message_start` so tool blocks stay in temporal order.
+History normalization should mirror the same one-assistant-message-per-turn
+projection when reloading sessions over HTTP.
+
 ## Permissions
 
 Dangerous tool approvals use `@gotgenes/pi-permission-system`.
