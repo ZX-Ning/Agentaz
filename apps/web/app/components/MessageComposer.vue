@@ -134,7 +134,7 @@ onBeforeUnmount(() => {
 
 <template>
   <form
-    class="mx-auto flex w-full max-w-3xl flex-col overflow-hidden rounded-lg border border-input bg-card/95 text-card-foreground shadow-xl shadow-foreground/10 backdrop-blur dark:shadow-black/30"
+    class="mx-auto flex w-full max-w-3xl flex-col overflow-hidden rounded-lg border border-input bg-card/95 text-card-foreground shadow-xl shadow-foreground/10 backdrop-blur dark:shadow-foreground/10"
     @submit.prevent="emit('submit')"
   >
     <div
@@ -170,7 +170,7 @@ onBeforeUnmount(() => {
           class="min-w-0 flex-[1_1_16rem] sm:max-w-96"
           :ui="{
             content:
-              'w-[min(30rem,calc(100vw-2rem))] overflow-hidden rounded-lg border border-border bg-popover p-0 text-popover-foreground shadow-xl shadow-foreground/10 dark:shadow-black/30',
+              'w-[min(30rem,calc(100vw-2rem))] overflow-hidden rounded-lg border border-border bg-popover p-0 text-popover-foreground shadow-xl shadow-foreground/10 dark:shadow-foreground/10',
           }"
           @update:open="onModelMenuOpenChange"
         >

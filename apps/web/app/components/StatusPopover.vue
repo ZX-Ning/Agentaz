@@ -34,7 +34,7 @@ const emit = defineEmits<{
     class="shrink-0"
     :ui="{
       content:
-        'w-72 overflow-hidden rounded-lg border border-border bg-popover p-0 text-popover-foreground shadow-xl shadow-foreground/10 dark:shadow-black/30',
+        'w-72 overflow-hidden rounded-lg border border-border bg-popover p-0 text-popover-foreground shadow-xl shadow-foreground/10 dark:shadow-foreground/10',
     }"
     @update:open="emit('update:isOpen', $event)"
   >

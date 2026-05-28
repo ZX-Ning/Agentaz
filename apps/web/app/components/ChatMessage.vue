@@ -311,7 +311,7 @@ function filterMarkdownAttributes(
     class="flex gap-4 px-4 py-3 hover:bg-muted/30 transition-colors duration-150 rounded-lg text-left"
     style="content-visibility: auto; contain-intrinsic-size: 0 120px"
   >
-    <div class="flex-shrink-0">
+    <div class="shrink-0">
       <div
         v-if="message.role === 'user'"
         class="flex size-9 items-center justify-center rounded-lg bg-secondary text-secondary-foreground font-semibold text-sm"
@@ -345,24 +345,24 @@ function filterMarkdownAttributes(
           <div v-if="block.type === 'text'">
             <div
               v-if="message.role === 'tool'"
-              class="my-1.5 rounded-lg border border-border bg-slate-950 overflow-hidden shadow-inner"
+              class="my-1.5 rounded-lg border border-border bg-background overflow-hidden shadow-inner"
             >
               <div
-                class="flex items-center justify-between px-3 py-1.5 bg-slate-900 border-b border-slate-800 text-[11px] font-mono text-slate-400 select-none"
+                class="flex items-center justify-between px-3 py-1.5 bg-muted border-b border-border text-[11px] font-mono text-muted-foreground select-none"
               >
                 <span class="flex items-center gap-1.5">
                   <UIcon
                     name="i-lucide-terminal"
-                    class="size-3.5 text-slate-400"
+                    class="size-3.5 text-muted-foreground"
                   />
                   Tool Output
                 </span>
               </div>
               <div
-                class="p-3 bg-slate-950 font-mono text-xs leading-normal text-left"
+                class="p-3 bg-background font-mono text-xs leading-normal text-left"
               >
                 <pre
-                  class="overflow-y-auto max-h-72 whitespace-pre-wrap break-all text-slate-100 font-mono text-[11px] leading-relaxed"
+                  class="overflow-y-auto max-h-72 whitespace-pre-wrap break-all text-foreground font-mono text-[11px] leading-relaxed"
                   >{{ block.text }}</pre
                 >
               </div>
@@ -370,7 +370,7 @@ function filterMarkdownAttributes(
 
             <div
               v-else
-              class="min-w-0 text-sm text-foreground/90 leading-relaxed font-sans break-words"
+              class="min-w-0 text-sm text-foreground/90 leading-relaxed font-sans wrap-break-word"
             >
               <Comark
                 :markdown="block.text"
@@ -378,7 +378,7 @@ function filterMarkdownAttributes(
                 :plugins="markdownPlugins"
                 :components="markdownComponents"
                 streaming
-                class="max-w-full [&>*:first-child]:mt-0 [&>*:last-child]:mb-0 [&_.math.block]:my-2 [&_.math.block]:max-w-full [&_.math.block]:overflow-x-auto [&_a]:break-words [&_code]:break-words [&_li]:my-0.5 [&_ol]:my-2 [&_ol]:pl-5 [&_p]:my-2 [&_pre]:my-2 [&_pre]:max-w-full [&_pre]:overflow-x-auto [&_pre]:whitespace-pre-wrap [&_pre]:break-words [&_ul]:my-2 [&_ul]:pl-5"
+                class="max-w-full [&>*:first-child]:mt-0 [&>*:last-child]:mb-0 [&_.math.block]:my-2 [&_.math.block]:max-w-full [&_.math.block]:overflow-x-auto [&_a]:wrap-break-word [&_code]:wrap-break-word [&_li]:my-0.5 [&_ol]:my-2 [&_ol]:pl-5 [&_p]:my-2 [&_pre]:my-2 [&_pre]:max-w-full [&_pre]:overflow-x-auto [&_pre]:whitespace-pre-wrap [&_pre]:wrap-break-word [&_ul]:my-2 [&_ul]:pl-5"
               />
             </div>
           </div>
@@ -417,7 +417,7 @@ function filterMarkdownAttributes(
               class="border-t border-border/30 p-3"
             >
               <pre
-                class="whitespace-pre-wrap break-words text-xs leading-relaxed text-muted-foreground font-sans"
+                class="whitespace-pre-wrap wrap-break-word text-xs leading-relaxed text-muted-foreground font-sans"
                 >{{ block.text }}</pre
               >
             </div>
@@ -426,18 +426,7 @@ function filterMarkdownAttributes(
           <!-- Tool Block -->
           <div
             v-else-if="block.type === 'tool'"
-            class="my-1.5 rounded-lg border overflow-hidden"
-            :class="{
-              'border-amber-500/30 bg-amber-50/5 dark:bg-amber-950/5':
-                block.status === 'pending',
-              'border-blue-500/30 bg-blue-50/5 dark:bg-blue-950/5':
-                block.status === 'running',
-              'border-emerald-500/30 bg-emerald-50/5 dark:bg-emerald-950/5':
-                block.status === 'completed',
-              'border-red-500/30 bg-red-50/5 dark:bg-red-950/5':
-                block.status === 'error',
-              'border-border bg-muted/10': block.status === 'blocked',
-            }"
+            class="my-1.5 rounded-lg border border-border bg-muted/10 overflow-hidden"
           >
             <button
               type="button"
@@ -446,29 +435,26 @@ function filterMarkdownAttributes(
             >
               <UIcon
                 name="i-lucide-wrench"
-                class="size-4 shrink-0"
-                :class="{
-                  'text-amber-500': block.status === 'pending',
-                  'text-blue-500 animate-pulse': block.status === 'running',
-                  'text-emerald-500': block.status === 'completed',
-                  'text-red-500': block.status === 'error',
-                  'text-muted-foreground': block.status === 'blocked',
-                }"
+                class="size-4 shrink-0 text-muted-foreground"
               />
+              <span class="relative flex h-2 w-2 shrink-0">
+                <span
+                  v-if="block.status === 'running'"
+                  class="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 bg-blue-400"
+                />
+                <span
+                  class="relative inline-flex rounded-full h-2 w-2"
+                  :class="{
+                    'bg-amber-500': block.status === 'pending',
+                    'bg-blue-500': block.status === 'running',
+                    'bg-emerald-500': block.status === 'completed',
+                    'bg-red-500': block.status === 'error',
+                    'bg-muted-foreground': block.status === 'blocked',
+                  }"
+                />
+              </span>
               <span class="min-w-0 truncate">{{ block.toolName }}</span>
-              <UBadge
-                size="xs"
-                variant="soft"
-                :color="
-                  {
-                    pending: 'warning',
-                    running: 'info',
-                    completed: 'success',
-                    error: 'error',
-                    blocked: 'neutral',
-                  }[block.status] as any
-                "
-              >
+              <UBadge size="xs" variant="soft" color="neutral">
                 {{ toolStatusLabel(block.status) }}
               </UBadge>
               <UIcon
@@ -492,7 +478,7 @@ function filterMarkdownAttributes(
                   <span>Input</span>
                 </div>
                 <pre
-                  class="overflow-x-auto whitespace-pre-wrap break-words rounded-md bg-background/60 p-2.5 text-xs leading-relaxed text-foreground/80 font-mono"
+                  class="overflow-x-auto whitespace-pre-wrap wrap-break-word rounded-md bg-background/60 p-2.5 text-xs leading-relaxed text-foreground/80 font-mono"
                   >{{ formatToolInput(block.input) }}</pre
                 >
               </section>
@@ -516,7 +502,7 @@ function filterMarkdownAttributes(
                   <span>{{ block.result?.isError ? "Error" : "Output" }}</span>
                 </div>
                 <pre
-                  class="overflow-y-auto max-h-72 whitespace-pre-wrap break-words rounded-md bg-background/60 p-2.5 text-xs leading-relaxed font-mono"
+                  class="overflow-y-auto max-h-72 whitespace-pre-wrap wrap-break-word rounded-md bg-background/60 p-2.5 text-xs leading-relaxed font-mono"
                   :class="
                     block.result?.isError
                       ? 'text-red-700/90 dark:text-red-300/90'

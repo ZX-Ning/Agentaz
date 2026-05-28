@@ -60,7 +60,7 @@ function sessionMenuItems(session: SessionListItem) {
 <template>
   <div
     v-if="open"
-    class="fixed inset-0 z-40 bg-black/40 backdrop-blur-sm transition-opacity duration-300 lg:hidden"
+    class="fixed inset-0 z-40 bg-foreground/20 backdrop-blur-sm transition-opacity duration-300 lg:hidden"
     @click="emit('update:open', false)"
   />
 

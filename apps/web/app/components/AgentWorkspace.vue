@@ -192,7 +192,7 @@ useHead({
       class="absolute inset-0 z-50 flex items-center justify-center bg-background/70 backdrop-grayscale backdrop-blur-[1px]"
     >
       <div
-        class="flex items-center gap-3 rounded-lg border border-border bg-card px-4 py-3 text-sm text-card-foreground shadow-xl shadow-foreground/10 dark:shadow-black/30"
+        class="flex items-center gap-3 rounded-lg border border-border bg-card px-4 py-3 text-sm text-card-foreground shadow-xl shadow-foreground/10 dark:shadow-foreground/10"
       >
         <UIcon
           name="i-lucide-loader-circle"

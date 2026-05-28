@@ -88,6 +88,26 @@ border-sidebar-border
 
 Do not hardcode broad gray palettes unless it is temporary. Prefer the semantic classes above so light/dark mode remains consistent.
 
+### Hardcoded color exceptions
+
+Only small, localized status indicators may use hardcoded Tailwind colors directly (e.g. `bg-amber-500`, `text-emerald-500`). These are limited to:
+
+- Status dots (see `StatusPopover.vue` dots, tool block status dots in `ChatMessage.vue`)
+- Inline error / warning text within otherwise theme-token-styled blocks
+
+For any larger structural element — borders, backgrounds, text blocks, shadows — always use the semantic tokens above.
+
+### Shadows
+
+Shadow colors must follow the same theme-token convention:
+
+```txt
+shadow-foreground/10                     (light mode)
+dark:shadow-foreground/10                (dark mode)
+```
+
+Do not use `shadow-black/...` or other hardcoded shadow colors.
+
 ### Radius
 
 The design radius is configured as:
