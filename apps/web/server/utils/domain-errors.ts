@@ -49,7 +49,29 @@ export class PersistedSessionNotFoundError extends AgentazDomainError {
 /** The requested session cannot be removed because work is still in flight. */
 export class SessionBusyError extends AgentazDomainError {
   constructor() {
-    super("Session is busy and cannot be deleted.", 409, "session_busy");
+    super("Session is busy and cannot be modified.", 409, "session_busy");
+  }
+}
+
+/** The requested operation requires a persisted JSONL session file. */
+export class SessionNotPersistedError extends AgentazDomainError {
+  constructor() {
+    super(
+      "Session must be persisted before this operation can run.",
+      409,
+      "session_not_persisted",
+    );
+  }
+}
+
+/** The requested session entry is not selectable in the current branch. */
+export class SessionEntryNotFoundError extends AgentazDomainError {
+  constructor() {
+    super(
+      "Session entry was not found in the current branch.",
+      404,
+      "session_entry_not_found",
+    );
   }
 }
 

@@ -12,6 +12,8 @@ import type {
   MessageSubmitRequest,
   ModelStateResponse,
   ServerEvent,
+  SessionEntriesResponse,
+  SessionEntryInfo,
   SessionHistoryResponse,
   ThinkingLevel,
   UiLoadedSession,
@@ -23,11 +25,14 @@ import {
   BadRequestError,
   PersistedSessionNotFoundError,
   SessionBusyError,
+  SessionEntryNotFoundError,
   SessionLimitReachedError,
   SessionNotFoundError,
+  SessionNotPersistedError,
 } from "./domain-errors";
 import {
   DEFAULT_THINKING_LEVELS,
+  flattenText,
   PiSessionController,
   toUiModel,
   toUiSessionSummary,
@@ -334,6 +339,110 @@ export class PiSessionWorkspace {
     return this.requireSession(sessionId).getHistory();
   }
 
+  /**
+   * Returns selectable fork/revert entries for one loaded session.
+   *
+   * The list is intentionally limited to message entries on the current
+   * root-to-leaf branch. Full Pi SDK tree navigation remains internal until
+   * the product has a dedicated tree UI.
+   */
+  getSessionEntries(sessionId: string): SessionEntriesResponse {
+    const controller = this.requireSession(sessionId);
+    return {
+      sessionId,
+      entries: this.selectableEntries(controller),
+    };
+  }
+
+  /**
+   * Forks a loaded persisted session into a new loaded session.
+   *
+   * Full forks copy the source JSONL file through SessionManager.forkFrom().
+   * Entry-scoped forks use a temporary SessionManager opened from the source
+   * file before calling createBranchedSession(), because that Pi SDK method
+   * mutates the manager instance it is called on.
+   */
+  async forkSession(
+    sessionId: string,
+    options: { entryId?: string; name?: string },
+  ) {
+    const controller = this.mutableSession(sessionId);
+    this.assertForkRevertReady(controller);
+
+    const sourceFile = controller.sessionFile;
+    if (!sourceFile) throw new SessionNotPersistedError();
+
+    let newSessionFile: string | undefined;
+    if (options.entryId?.trim()) {
+      const entryId = options.entryId.trim();
+      this.requireSelectableEntry(controller, entryId);
+      const temporaryManager = SessionManager.open(
+        sourceFile,
+        undefined,
+        this.options.cwd,
+      );
+      newSessionFile = temporaryManager.createBranchedSession(entryId);
+      if (newSessionFile && !(await fileExists(newSessionFile))) {
+        forceRewriteSessionFile(temporaryManager);
+      }
+    } else {
+      newSessionFile = SessionManager.forkFrom(
+        sourceFile,
+        this.options.cwd,
+      ).getSessionFile();
+    }
+
+    if (!newSessionFile) throw new SessionNotPersistedError();
+
+    const normalizedName = options.name?.trim();
+    if (normalizedName) {
+      SessionManager.open(
+        newSessionFile,
+        undefined,
+        this.options.cwd,
+      ).appendSessionInfo(normalizedName);
+    }
+
+    const forkedController = await this.openLoadedSession(newSessionFile);
+    await this.refreshPersistedSessionCache();
+    this.emitStateChanged();
+    return forkedController;
+  }
+
+  /**
+   * Reverts a loaded persisted session in place to a current-branch entry.
+   *
+   * SessionManager.branch() only moves the in-memory leaf pointer. Appending
+   * a session_info entry after branching persists that leaf position as the
+   * last JSONL entry, so reopening the same file restores the reverted path.
+   */
+  async revertSession(sessionId: string, entryId: string) {
+    const normalizedEntryId = entryId.trim();
+    if (!normalizedEntryId) {
+      throw new BadRequestError("Session entry id is required.");
+    }
+
+    const controller = this.mutableSession(sessionId);
+    this.assertForkRevertReady(controller);
+    this.requireSelectableEntry(controller, normalizedEntryId);
+
+    const sessionFile = controller.sessionFile;
+    if (!sessionFile) throw new SessionNotPersistedError();
+
+    const sessionManager = controller.getSessionManager();
+    const currentName = sessionManager.getSessionName() ?? "";
+    sessionManager.branch(normalizedEntryId);
+    sessionManager.appendSessionInfo(currentName);
+
+    await controller.dispose();
+    this.sessions.delete(sessionId);
+
+    const reopenedController = await this.openLoadedSession(sessionFile);
+    await this.refreshPersistedSessionCache();
+    this.emitStateChanged();
+    return reopenedController;
+  }
+
   /** Returns HTTP model/thinking state for one loaded session. */
   getSessionModelState(sessionId: string): ModelStateResponse {
     return this.requireSession(sessionId).getModelState();
@@ -568,6 +677,48 @@ export class PiSessionWorkspace {
     return controller;
   }
 
+  /** Throws unless the loaded controller can be safely forked or reverted. */
+  private assertForkRevertReady(controller: PiSessionController) {
+    if (controller.isBusy()) {
+      throw new SessionBusyError();
+    }
+    if (!controller.sessionFile) {
+      throw new SessionNotPersistedError();
+    }
+  }
+
+  /** Returns the selectable current-branch message entries for a controller. */
+  private selectableEntries(
+    controller: PiSessionController,
+  ): SessionEntryInfo[] {
+    return controller
+      .getEntries()
+      .filter((entry) => entry.type === "message")
+      .map((entry, index) => {
+        const message = entry.message;
+        return {
+          id: entry.id,
+          type: entry.type,
+          role: isUiEntryRole(message?.role) ? message.role : undefined,
+          summary: summarizeEntryContent(message?.content),
+          timestamp: entry.timestamp,
+          index,
+        };
+      });
+  }
+
+  /** Ensures an entry id belongs to the current branch's selectable messages. */
+  private requireSelectableEntry(
+    controller: PiSessionController,
+    entryId: string,
+  ) {
+    if (
+      !this.selectableEntries(controller).some((entry) => entry.id === entryId)
+    ) {
+      throw new SessionEntryNotFoundError();
+    }
+  }
+
   /** Throws if the loaded session limit has been reached. */
   private assertCanLoadAnotherSession() {
     if (this.sessions.size >= this.options.maxLoadedSessions) {
@@ -594,4 +745,30 @@ async function fileExists(path: string) {
   } catch {
     return false;
   }
+}
+
+/** Returns whether an SDK message role can be exposed through SessionEntryInfo. */
+function isUiEntryRole(role: unknown): role is "user" | "assistant" {
+  return role === "user" || role === "assistant";
+}
+
+/** Builds a compact one-line preview for a fork/revert picker entry. */
+function summarizeEntryContent(content: unknown) {
+  const text = flattenText(content).replace(/\s+/g, " ").trim();
+  return text.length > 100 ? `${text.slice(0, 100)}...` : text;
+}
+
+/**
+ * Forces the Pi SDK manager to write its current JSONL content.
+ *
+ * createBranchedSession() intentionally defers file creation for paths that
+ * contain no assistant message. Agentaz fork APIs return a loaded persisted
+ * session immediately, so those user-only branch files must exist before open.
+ */
+function forceRewriteSessionFile(sessionManager: SessionManager) {
+  (
+    sessionManager as unknown as {
+      _rewriteFile: () => void;
+    }
+  )._rewriteFile();
 }

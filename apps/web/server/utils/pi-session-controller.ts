@@ -478,6 +478,28 @@ export class PiSessionController {
     return this.cachedHistory;
   }
 
+  /**
+   * Returns the entries on the current root-to-leaf branch.
+   *
+   * This intentionally does not expose the full append-only tree. The browser's
+   * first fork/revert picker is a linear current-history picker, so abandoned
+   * branches stay server-side until there is an explicit tree UI.
+   */
+  getEntries(): any[] {
+    return this.requireSessionManager().getBranch();
+  }
+
+  /**
+   * Returns the backing SessionManager for workspace-owned session operations.
+   *
+   * Callers must not invoke mutating branch/fork methods casually. In
+   * particular, createBranchedSession() mutates the manager instance; fork code
+   * should use a temporary SessionManager opened from the source file instead.
+   */
+  getSessionManager() {
+    return this.requireSessionManager();
+  }
+
   /** Invalidates the cached history when session messages change. */
   private invalidateHistoryCache() {
     this.cachedHistory = undefined;

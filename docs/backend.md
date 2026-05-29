@@ -99,11 +99,14 @@ GET    /api/agent/state
 GET    /api/agent/models
 POST   /api/agent/sessions
 POST   /api/agent/sessions/:sessionId/focus
+GET    /api/agent/sessions/:sessionId/entries
 GET    /api/agent/sessions/:sessionId/history
 GET    /api/agent/sessions/:sessionId/models
 PUT    /api/agent/sessions/:sessionId/model
 PUT    /api/agent/sessions/:sessionId/thinking
 POST   /api/agent/sessions/:sessionId/messages
+POST   /api/agent/sessions/:sessionId/fork
+POST   /api/agent/sessions/:sessionId/revert
 POST   /api/agent/sessions/:sessionId/abort
 POST   /api/agent/sessions/:sessionId/queue/clear
 POST   /api/agent/sessions/:sessionId/ui-requests/:requestId/response
@@ -253,7 +256,8 @@ Current behavior:
 - keep loaded sessions server-resident across focus changes and WebSocket disconnects
 - evict one idle, non-active session only when `maxLoadedSessions` is reached
 - do not expose loaded-session close/unload as a user-facing browser action
-- no fork/tree UI
+- expose simple loaded-session fork/revert HTTP APIs for the current branch only
+- do not expose full Pi tree navigation in the browser UI
 
 ## Error Handling
 

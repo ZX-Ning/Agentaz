@@ -236,6 +236,10 @@ export type AgentCapabilities = {
   modelSelect: true;
   /** Whether in-session thinking level selection is supported. */
   thinkingSelect: true;
+  /** Whether loaded sessions can be forked into a new session. */
+  sessionFork: true;
+  /** Whether loaded sessions can be reverted to an earlier entry. */
+  sessionRevert: true;
   /** Whether image attachments in prompts are supported. */
   images: false;
   /** Whether a file tree browser is implemented. */
@@ -441,6 +445,35 @@ export type SessionHistoryResponse = {
 };
 
 /**
+ * Browser-facing summary of one selectable session entry.
+ * Returned by GET /api/agent/sessions/:sessionId/entries for the current
+ * root-to-leaf branch only.
+ */
+export type SessionEntryInfo = {
+  /** Pi SDK session entry id. */
+  id: string;
+  /** Pi SDK entry type, currently "message" for selectable entries. */
+  type: string;
+  /** Message role for message entries. */
+  role?: "user" | "assistant";
+  /** Short plain-text preview for picker display. */
+  summary: string;
+  /** Entry timestamp as ISO 8601 text. */
+  timestamp: string;
+  /** Position within the returned current-branch entry list. */
+  index: number;
+};
+
+/**
+ * HTTP response carrying selectable fork/revert entries for a loaded session.
+ * Returned by GET /api/agent/sessions/:sessionId/entries.
+ */
+export type SessionEntriesResponse = {
+  sessionId: string;
+  entries: SessionEntryInfo[];
+};
+
+/**
  * HTTP request used to create a fresh session or open an existing persisted session.
  * Sent to POST /api/agent/sessions.
  */
@@ -467,6 +500,26 @@ export type SessionRenameRequest = {
 export type SessionDeleteRequest = {
   /** Absolute path to an existing, non-deleted session file in the configured cwd. */
   sessionFile: string;
+};
+
+/**
+ * HTTP request used to fork a loaded persisted session.
+ * Sent to POST /api/agent/sessions/:sessionId/fork.
+ */
+export type SessionForkRequest = {
+  /** Optional current-branch entry id to fork at; omitted means copy the full file. */
+  entryId?: string;
+  /** Optional display name to append to the forked session. */
+  name?: string;
+};
+
+/**
+ * HTTP request used to revert a loaded persisted session in place.
+ * Sent to POST /api/agent/sessions/:sessionId/revert.
+ */
+export type SessionRevertRequest = {
+  /** Current-branch entry id that becomes the restored conversation leaf. */
+  entryId: string;
 };
 
 /**

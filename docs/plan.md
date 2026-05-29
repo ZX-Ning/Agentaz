@@ -80,11 +80,14 @@ POST   /api/agent/sessions
 PATCH  /api/agent/sessions/metadata
 POST   /api/agent/sessions/delete
 POST   /api/agent/sessions/:sessionId/focus
+GET    /api/agent/sessions/:sessionId/entries
 GET    /api/agent/sessions/:sessionId/history
 GET    /api/agent/sessions/:sessionId/models
 PUT    /api/agent/sessions/:sessionId/model
 PUT    /api/agent/sessions/:sessionId/thinking
 POST   /api/agent/sessions/:sessionId/messages
+POST   /api/agent/sessions/:sessionId/fork
+POST   /api/agent/sessions/:sessionId/revert
 POST   /api/agent/sessions/:sessionId/abort
 POST   /api/agent/sessions/:sessionId/queue/clear
 POST   /api/agent/sessions/:sessionId/ui-requests/:requestId/response
@@ -105,7 +108,8 @@ WS     /api/agent/ws
 - Real sessions use `/session/:sessionId` browser routes. Draft sessions stay at `/`, and the frontend moves to the real session route after the first prompt materializes the draft.
 - Focusing a session changes the active browser view and then the frontend fetches history over HTTP.
 - Loaded-session eviction is an internal cache policy; the UI does not expose loaded/unloaded state as a user action.
-- Fork/tree/clone workflows are not implemented.
+- Simple loaded-session fork/revert backend APIs operate on the current branch only.
+- Full Pi tree navigation, clone workflows, labels, and branch-summary UI are not implemented.
 
 ### Browser Client Model
 
@@ -287,7 +291,8 @@ REST-only data must not be emitted as WS result events:
 - multi-user auth
 - API key management UI
 - cwd switching in Web UI
-- fork/clone/tree navigation
+- clone/tree navigation
+- fork/revert UI
 - file browser
 - image upload UI
 - diff viewer
@@ -302,7 +307,6 @@ REST-only data must not be emitted as WS result events:
   - explicit controller semantics
   - shared transcript state
 - Pi tree workflows:
-  - fork
   - clone
   - navigate tree
   - labels and branch summaries
