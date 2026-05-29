@@ -646,10 +646,25 @@ export function useAgentazAppController() {
 
     if (event.type === "state_snapshot") {
       const previousActiveSessionId = activeSessionId.value;
+      const previousActiveLoadedSession = loadedSessions.value.find(
+        (session) => session.sessionId === previousActiveSessionId,
+      );
       const state = event.state;
       if (!isDraftSessionId(activeSessionId.value)) {
         activeSessionId.value = state.activeSessionId ?? activeSessionId.value;
       }
+      const nextActiveLoadedSession = state.loadedSessions.find(
+        (session) => session.sessionId === activeSessionId.value,
+      );
+      const didCurrentSessionBecomeIdle = Boolean(
+        activeSessionId.value &&
+        activeSessionId.value === previousActiveSessionId &&
+        !isDraftSessionId(activeSessionId.value) &&
+        (previousActiveLoadedSession?.isWorking ||
+          previousActiveLoadedSession?.isStreaming) &&
+        !nextActiveLoadedSession?.isWorking &&
+        !nextActiveLoadedSession?.isStreaming,
+      );
       loadedSessions.value = state.loadedSessions;
       syncPendingUiRequestsFromLoadedSessions(state.loadedSessions);
       if (state.persistedSessions.length > 0)
@@ -660,6 +675,13 @@ export function useAgentazAppController() {
         activeSessionId.value !== previousActiveSessionId
       ) {
         void refreshSessionDetails(activeSessionId.value);
+      } else if (didCurrentSessionBecomeIdle && activeSessionId.value) {
+        // The optimistic user message created by sendPrompt() has no Pi entry
+        // anchors, so fork/revert controls stay hidden until we replace it with
+        // normalized history. Status events also force-refresh history, but this
+        // snapshot path is the reliable backend-settled fallback after a message
+        // task refreshes persisted metadata and emits state_changed.
+        void refreshHistory(activeSessionId.value, true);
       }
       if (
         hasAppliedInitialRoute.value &&
