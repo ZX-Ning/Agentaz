@@ -8,19 +8,27 @@ Agentaz is a local-first Nuxt app for a Pi SDK-powered coding agent with a brows
 
 Core architecture:
 
-- `apps/web`: Nuxt fullstack app.
-- `apps/web/app`: Vue/Nuxt frontend.
-- `apps/web/server`: Nitro backend.
-- `apps/web/server/api/agent`: HTTP endpoints for browser-initiated agent actions and snapshots.
-- `apps/web/server/routes/api/agent/ws.ts`: WebSocket endpoint for realtime server events.
-- `apps/web/server/utils/agent-runtime.ts`: process-wide runtime singleton wiring workspace, presence, projection, and WebSocket hub.
-- `apps/web/server/utils/pi-session-workspace.ts`: process-wide Pi SDK services and loaded-session working set.
-- `apps/web/server/utils/pi-session-controller.ts`: per-loaded-session Pi SDK operation controller.
-- `apps/web/server/utils/session-projector.ts`: browser-facing state snapshots.
-- `apps/web/server/utils/client-presence.ts`: browser client focus/control presence.
-- `apps/web/server/utils/ws-agent-hub.ts`: WebSocket subscriber lifecycle and heartbeat snapshots.
-- `apps/web/types/protocol.ts`: HTTP DTOs and WebSocket event protocol types.
-- `docs/plan.md`: confirmed product decisions and current baseline.
+```txt
+apps/web
+├── app/                         Vue/Nuxt frontend
+├── server/                      Nitro backend
+│   ├── api/agent/               HTTP endpoints for browser actions/snapshots
+│   ├── routes/api/agent/ws.ts   WebSocket endpoint for realtime server events
+│   └── utils/
+│       ├── agent-runtime.ts          process-wide runtime composition root
+│       ├── pi-session-workspace.ts   Pi SDK services and loaded-session working set
+│       ├── pi-session-controller.ts  per-loaded-session Pi operation controller
+│       ├── session-projector.ts      browser-facing state snapshots
+│       ├── client-presence.ts        browser focus/control presence
+│       └── ws-agent-hub.ts           WebSocket subscribers and heartbeat snapshots
+└── types/protocol.ts            HTTP DTOs and WebSocket event protocol types
+
+docs
+├── plan.md                      confirmed product decisions and baseline
+├── backend.md                   backend implementation guidance
+├── frontend.md                  frontend implementation guidance
+└── implementation/              focused implementation notes and investigations
+```
 
 ## Common Commands
 
@@ -60,33 +68,18 @@ Do not run `pnpm build` by default because it is slower. Run build only when req
 
 Be aggressive with comments — when in doubt, write more. Every API route (`apps/web/server/api/**/*.ts`) gets a top-level JSDoc covering HTTP method/path, request and response shapes, route params, headers, side effects, and error codes. Every non-trivial utility method gets a JSDoc documenting purpose, parameters, return value, and behavioral contracts. Long functions get inline section comments describing each logical phase.
 
-## Frontend Notes
+## Development Guides
 
-- Nuxt UI is installed and enabled.
-- Theme tokens live in `apps/web/app/assets/css/main.css`.
-- Use semantic Tailwind classes based on project tokens, for example:
-  - `bg-background`
-  - `text-foreground`
-  - `bg-card`
-  - `border-border`
-  - `bg-primary`
-  - `text-primary-foreground`
-  - `bg-sidebar`
-- Use the configured radius through normal Tailwind radius utilities such as `rounded-lg`.
-- Do not globally override Tailwind utilities like `.rounded-full`.
-- Current font is IBM Plex Sans loaded through Nuxt head config.
+Before changing frontend code, read `docs/frontend.md` for UI structure,
+theming, protocol handling, state shape, and transcript behavior.
 
-## Backend Notes
+Before changing backend code, read `docs/backend.md` for runtime ownership,
+route boundaries, Pi SDK integration, session behavior, permissions, and
+protocol rules.
 
-- Keep Pi SDK code server-side only.
-- `PiSessionWorkspace` should own process-wide Pi SDK services and loaded Pi session lifecycle.
-- `PiSessionController` should own browser-facing operations for one loaded Pi session.
-- `PiSessionController` should project one browser-facing assistant `UiMessage` per agent turn, including consecutive Pi SDK assistant messages and tool result blocks, so live streaming and HTTP history reload use the same grouping.
-- `SessionProjector` should own browser-facing state snapshots.
-- `WsAgentHub` should own browser WebSocket attach/detach and heartbeat snapshots only.
-- HTTP route files under `apps/web/server/api/agent` should stay thin and delegate through `getAgentRuntime()` to workspace, presence, and projector services.
-- `WebExtensionUIContext` bridges extension UI prompts/approvals to the browser.
-- `permission-config.ts` creates permission-system config under `<agentDir>/extensions/pi-permission-system/config.json`, where `agentDir` comes from `PI_CODING_AGENT_DIR` or the Pi SDK default.
+Use `docs/implementation/` for focused implementation notes when the task
+touches extension loading, session performance, or another documented
+investigation.
 
 ## Testing / Verification
 
@@ -118,16 +111,19 @@ Update docs when changing product decisions or architecture:
 - `docs/plan.md`: canonical product decisions and current baseline.
 - `docs/frontend.md`: frontend implementation guidance.
 - `docs/backend.md`: backend implementation guidance.
-- `docs/roadmap.md`: future ideas and direction.
+- `docs/implementation/`: focused implementation notes for specific backend/frontend choices.
 
 ## Things Not To Do Without Asking
 
-- Add authentication, user accounts, database persistence, or SaaS/team concepts.
-- Add project/cwd switching in the UI.
-- Replace the WebSocket protocol with HTTP polling or SSE.
-- Remove the Pi permission-system integration.
-- Run broad formatting or rewrite unrelated files.
-- Commit changes unless the user asks.
+- DO NOT add authentication, user accounts, database persistence, or SaaS/team concepts.
+- DO NOT add project/cwd switching in the UI.
+- DO NOT replace the WebSocket protocol with HTTP polling or SSE.
+- DO NOT remove the Pi permission-system integration.
+- DO NOT run broad formatting or rewrite unrelated files.
+- DO NOT overwrite existing working-tree changes. If the working tree already has
+  large changes, or existing changes would affect the current implementation,
+  pause editing and ask whether they should be committed first.
+- DO NOT commit changes unless the user asks.
 
 Before committing, run:
 

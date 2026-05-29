@@ -300,23 +300,42 @@ REST-only data must not be emitted as WS result events:
 - mobile-first design
 - writing model choices to Pi settings
 
-## 6. Open Product Directions
+## 6. Future Directions
 
-- Multi-tab UX:
-  - multiple viewers
-  - explicit controller semantics
-  - shared transcript state
-- Pi tree workflows:
-  - clone
-  - navigate tree
-  - labels and branch summaries
-- CWD switching/project selector.
-- Diff viewer for edit/write results.
-- Image upload/paste support.
-- File explorer/project browser.
-- Debug panel for raw Pi/WS events.
-- Permission settings UI.
-- Persist model/thinking defaults with an explicit "set as default" action.
+These are not committed product scope. Move an item into the baseline sections
+above when it becomes an accepted implementation decision.
+
+### Near-Term UX
+
+- Improve assistant streaming, tool rendering, collapsed thinking blocks, and
+  transcript auto-scroll behavior.
+- Make approval prompts more informative, including timeout state and richer
+  approve-once / approve-session / deny affordances where the backend supports them.
+- Improve session list scanning, active session indication, manual refresh, and
+  confirmation around switching while work is running.
+- Add dedicated UI for fork/revert once the current backend API shape is proven.
+
+### Product Expansion
+
+- Multi-tab semantics: multiple viewers, explicit controller takeover, shared
+  transcript state, and per-client connection status.
+- Project/cwd switching: recent projects, project selector, runtime
+  reinitialization, and per-project permission configuration.
+- Pi tree workflows beyond simple current-branch fork/revert: clone, full tree
+  navigation, labels, and branch summaries.
+- File and diff views: file tree, read-only previews, edit/write diffs, tool
+  result previews, and safe apply/revert affordances.
+- UI-only persistence such as sidebar state, recent prompts, and per-project
+  display settings. Avoid adding a database until there is a concrete need.
+
+### Hardening And Packaging
+
+- Stronger frontend handling for unknown events and protocol-version mismatch.
+- More detailed backend smoke tests and optional structured local logs.
+- Security review before broader network exposure: CSRF/origin checks,
+  WebSocket exposure, filesystem/tool-access assumptions, and permission defaults.
+- Packaging options such as a local CLI wrapper, desktop wrapper,
+  single-command project launcher, and improved environment checks.
 - Authentication/token mode for non-localhost deployments.
 
 ## 7. Verification

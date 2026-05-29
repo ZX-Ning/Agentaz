@@ -2,8 +2,6 @@
 
 This document describes the Nitro backend for Agentaz.
 
-For server runtime diagrams, see `docs/server-runtime-architecture.md`.
-
 ## Scope
 
 The backend runs the Pi SDK server-side and exposes browser-facing HTTP APIs plus a WebSocket event stream. The current implementation is local-first and single-user by default:
@@ -112,7 +110,10 @@ POST   /api/agent/sessions/:sessionId/queue/clear
 POST   /api/agent/sessions/:sessionId/ui-requests/:requestId/response
 ```
 
-Route files should stay thin. Put session/runtime behavior in the runtime services, not the route layer.
+Route files should stay thin. Put session/runtime behavior in the runtime
+services, not the route layer. Agent routes should resolve the process runtime
+through `getAgentRuntime()` or route helpers that wrap it, then delegate to the
+workspace, presence, and projector services.
 
 ## WebSocket Endpoint
 
@@ -173,12 +174,17 @@ or pre-WebSocket callers.
 - bind extension UI context
 - dispose loaded sessions explicitly
 
+`PiSessionController` owns browser-facing operations for one loaded Pi session.
+It projects one browser-facing assistant `UiMessage` per agent turn, including
+consecutive Pi SDK assistant messages and tool result blocks, so live streaming
+and HTTP history reload use the same grouping.
+
 The workspace creates Pi SDK services once for the configured `cwd` and reuses those services across
 loaded sessions. This avoids reloading SDK extensions, skills, prompts, themes, and context files on
 every new session.
 
 For the performance investigation and measured SDK costs behind this choice, see
-`docs/session-performance.md`.
+`docs/implementation/session-performance.md`.
 
 Keep Pi SDK details out of the frontend and route handlers.
 
@@ -231,6 +237,8 @@ Dangerous tool approvals use `@gotgenes/pi-permission-system`.
 ```txt
 <agentDir>/extensions/pi-permission-system/config.json
 ```
+
+`agentDir` comes from `PI_CODING_AGENT_DIR` or the Pi SDK default.
 
 `WebExtensionUIContext` bridges extension UI prompts to the browser by emitting protocol events and waiting for browser responses. It also renders extension widgets as plain text lines for browser display, currently used by `@juicesharp/rpiv-todo`.
 
