@@ -375,7 +375,7 @@ export class PiSessionWorkspace {
     let newSessionFile: string | undefined;
     if (options.entryId?.trim()) {
       const entryId = options.entryId.trim();
-      this.requireSelectableEntry(controller, entryId);
+      this.requireCurrentBranchEntry(controller, entryId);
       const temporaryManager = SessionManager.open(
         sourceFile,
         undefined,
@@ -424,7 +424,7 @@ export class PiSessionWorkspace {
 
     const controller = this.mutableSession(sessionId);
     this.assertForkRevertReady(controller);
-    this.requireSelectableEntry(controller, normalizedEntryId);
+    this.requireCurrentBranchEntry(controller, normalizedEntryId);
 
     const sessionFile = controller.sessionFile;
     if (!sessionFile) throw new SessionNotPersistedError();
@@ -707,14 +707,12 @@ export class PiSessionWorkspace {
       });
   }
 
-  /** Ensures an entry id belongs to the current branch's selectable messages. */
-  private requireSelectableEntry(
+  /** Ensures an entry id belongs to the current branch. */
+  private requireCurrentBranchEntry(
     controller: PiSessionController,
     entryId: string,
   ) {
-    if (
-      !this.selectableEntries(controller).some((entry) => entry.id === entryId)
-    ) {
+    if (!controller.getEntries().some((entry) => entry.id === entryId)) {
       throw new SessionEntryNotFoundError();
     }
   }

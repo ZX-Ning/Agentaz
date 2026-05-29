@@ -17,7 +17,8 @@ import {
  * Response (200): SessionHistoryResponse
  *   - sessionId: Echo of the route param
  *   - messages: Array of normalized UiMessage objects, each containing
- *     blocks (text, thinking, tool_call, tool_result) with stable ids
+ *     blocks (text, thinking, tool_call, tool_result) with stable ids and,
+ *     for persisted current-branch messages, entryId and rewindEntryId anchors
  *
  * Errors:
  *   - 400: Missing sessionId route param

@@ -7,10 +7,12 @@ import type {
   ServerEvent,
   ServerHello,
   SessionDeleteRequest,
+  SessionForkRequest,
   SessionHistoryResponse,
   SessionListItem,
   SessionOperationResponse,
   SessionRenameRequest,
+  SessionRevertRequest,
   ThinkingLevel,
   UiLoadedSession,
   UiMessage,
@@ -357,9 +359,9 @@ export function useAgentazAppController() {
 
   // --- session operations ---
 
-  async function refreshHistory(sessionId: string) {
+  async function refreshHistory(sessionId: string, force = false) {
     if (isDraftSessionId(sessionId)) return;
-    if (messagesBySessionId.value[sessionId]?.length) return;
+    if (!force && messagesBySessionId.value[sessionId]?.length) return;
     const history = await agentFetch<SessionHistoryResponse>(
       sessionUrl(sessionId, "/history"),
     );
@@ -402,11 +404,15 @@ export function useAgentazAppController() {
   async function postSessionOperation(
     path: string,
     options?: Parameters<typeof $fetch<SessionOperationResponse>>[1],
+    refreshHistoryForce = false,
   ) {
     const state = await agentFetch<SessionOperationResponse>(path, options);
     applyState(state);
     if (state.activeSessionId)
-      await refreshSessionDetails(state.activeSessionId);
+      await Promise.all([
+        refreshHistory(state.activeSessionId, refreshHistoryForce),
+        refreshModelState(state.activeSessionId),
+      ]);
     return state;
   }
 
@@ -554,6 +560,45 @@ export function useAgentazAppController() {
     await syncBrowserRouteToSession(activeSessionId.value, "replace");
   }
 
+  async function forkFromMessage(rewindEntryId: string) {
+    const sessionId = activeSessionId.value;
+    if (!sessionId || isDraftSessionId(sessionId)) return;
+    const body: SessionForkRequest = {
+      entryId: rewindEntryId,
+      name: `${activeSessionTitle.value} (fork)`,
+    };
+    const state = await postSessionOperation(
+      sessionUrl(sessionId, "/fork"),
+      {
+        method: "POST",
+        body,
+      },
+      true,
+    );
+    await syncBrowserRouteToSession(
+      state.sessionId ?? state.activeSessionId,
+      "push",
+    );
+  }
+
+  async function revertToMessage(rewindEntryId: string) {
+    const sessionId = activeSessionId.value;
+    if (!sessionId || isDraftSessionId(sessionId)) return;
+    const body: SessionRevertRequest = { entryId: rewindEntryId };
+    const state = await postSessionOperation(
+      sessionUrl(sessionId, "/revert"),
+      {
+        method: "POST",
+        body,
+      },
+      true,
+    );
+    await syncBrowserRouteToSession(
+      state.activeSessionId ?? sessionId,
+      "replace",
+    );
+  }
+
   // --- event handling ---
 
   async function sendPrompt() {
@@ -675,6 +720,9 @@ export function useAgentazAppController() {
         });
         if ((event.pendingApprovalCount ?? 0) === 0) {
           pendingUiRequestsBySessionId.value[event.sessionId] = [];
+        }
+        if (!event.isStreaming && event.sessionId === activeSessionId.value) {
+          void refreshHistory(event.sessionId, true);
         }
         if (shouldRefreshModelState) void refreshModelState(event.sessionId);
       }
@@ -1074,6 +1122,8 @@ export function useAgentazAppController() {
     focusSessionAndClose,
     renameSessionAndClose,
     deleteSessionAndClose,
+    forkFromMessage,
+    revertToMessage,
     clearActiveQueue,
     respondToUiRequest,
     submitComposer,

@@ -16,15 +16,15 @@ import { BadRequestError } from "../../../../utils/domain-errors";
  * POST /api/agent/sessions/:sessionId/revert
  *
  * Reverts a loaded, persisted, idle Pi session in place to a current-branch
- * message entry. The session JSONL remains append-only: the backend moves the
- * Pi SDK leaf pointer to entryId and appends a session_info entry so reopening
- * the same file restores the reverted branch.
+ * entry. The session JSONL remains append-only: the backend moves the Pi SDK
+ * leaf pointer to entryId and appends a session_info entry so reopening the
+ * same file restores the reverted branch.
  *
  * Route params:
  *   - sessionId: The loaded session identifier to revert
  *
  * Request body (JSON): SessionRevertRequest
- *   - entryId: Current-branch message entry id that becomes the restored leaf
+ *   - entryId: Current-branch entry id that becomes the restored leaf
  *
  * Headers:
  *   - x-agentaz-client-id (optional): Browser tab identity for session
@@ -44,7 +44,7 @@ import { BadRequestError } from "../../../../utils/domain-errors";
  *   - 400: Missing entryId or malformed JSON request body
  *   - 400: Missing sessionId route param
  *   - 404: Session not loaded
- *   - 404: entryId is not selectable in the current branch
+ *   - 404: entryId is not in the current branch
  *   - 409: Session is busy
  *   - 409: Session is not persisted
  *   - 409: Session is controlled by another browser client

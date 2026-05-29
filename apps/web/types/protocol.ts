@@ -82,6 +82,10 @@ export type UiBlock =
 export type UiMessage = {
   /** Stable identifier for this message within the transcript. */
   id: string;
+  /** Current-branch Pi session entry id, present for persisted history messages. */
+  entryId?: string;
+  /** Previous current-branch Pi entry id used to rewind before this message. */
+  rewindEntryId?: string;
   /** Speaker role: user, assistant, tool (result), or system. */
   role: "user" | "assistant" | "tool" | "system";
   /** Ordered content blocks composing this message. */

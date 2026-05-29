@@ -34,6 +34,8 @@ const {
   // loadDummySession,
   clearActiveQueue,
   respondToUiRequest,
+  forkFromMessage,
+  revertToMessage,
   handleModelSelect,
   handleThinkingSelect,
   submitComposer,
@@ -42,8 +44,23 @@ const {
 } = useAgentazAppController();
 
 const isSidebarOpen = ref(false);
+const revertTargetMessage = ref<null | {
+  id: string;
+  rewindEntryId: string;
+  text: string;
+}>(null);
+const activeSessionOperation = ref<null | {
+  type: "fork" | "revert";
+  messageId: string;
+}>(null);
 const hasMessages = computed(() => activeMessages.value.length > 0);
 const canSubmitToActiveSession = computed(() => Boolean(activeSessionId.value));
+const canForkRevertActiveSession = computed(
+  () =>
+    Boolean(activeLoadedSession.value?.sessionFile) &&
+    !isActiveDraftSession.value &&
+    !activeLoadedSession.value?.isWorking,
+);
 const isInitialSessionListLoading = computed(
   () =>
     !hello.value &&
@@ -77,6 +94,70 @@ async function handleSidebarSessionRename(payload: {
 async function handleSidebarSessionDelete(session: SessionListItem) {
   await deleteSessionAndClose(session);
   closeSidebarOnMobile();
+}
+
+async function handleForkMessage(message: {
+  id: string;
+  rewindEntryId?: string;
+  blocks?: Array<{ type: string; text?: string }>;
+}) {
+  if (!message.rewindEntryId || activeSessionOperation.value) return;
+  const text = messageText(message);
+  activeSessionOperation.value = { type: "fork", messageId: message.id };
+  try {
+    await forkFromMessage(message.rewindEntryId);
+    promptText.value = text;
+  } finally {
+    activeSessionOperation.value = null;
+  }
+}
+
+function openRevertConfirmation(message: {
+  id: string;
+  rewindEntryId?: string;
+  blocks?: Array<{ type: string; text?: string }>;
+}) {
+  if (!message.rewindEntryId || activeSessionOperation.value) return;
+  revertTargetMessage.value = {
+    id: message.id,
+    rewindEntryId: message.rewindEntryId,
+    text: messageText(message),
+  };
+}
+
+function handleRevertModalOpenChange(open: boolean) {
+  if (!open) revertTargetMessage.value = null;
+}
+
+async function confirmRevert() {
+  const target = revertTargetMessage.value;
+  if (!target || activeSessionOperation.value) return;
+  activeSessionOperation.value = { type: "revert", messageId: target.id };
+  try {
+    await revertToMessage(target.rewindEntryId);
+    promptText.value = target.text;
+    revertTargetMessage.value = null;
+  } finally {
+    activeSessionOperation.value = null;
+  }
+}
+
+function messageText(message: {
+  blocks?: Array<{ type: string; text?: string }>;
+}) {
+  return (
+    message.blocks
+      ?.filter((block) => block.type === "text" && block.text)
+      .map((block) => block.text)
+      .join("\n\n") ?? ""
+  ).trim();
+}
+
+function isMessageOperationPending(type: "fork" | "revert", messageId: string) {
+  return (
+    activeSessionOperation.value?.type === type &&
+    activeSessionOperation.value.messageId === messageId
+  );
 }
 
 // function handleSidebarLoadDummy() {
@@ -150,6 +231,11 @@ useHead({
             v-for="message in activeMessages"
             :key="message.id"
             :message="message"
+            :can-fork-revert="canForkRevertActiveSession"
+            :is-forking="isMessageOperationPending('fork', message.id)"
+            :is-reverting="isMessageOperationPending('revert', message.id)"
+            @fork="handleForkMessage"
+            @revert="openRevertConfirmation"
           />
         </div>
       </div>
@@ -201,5 +287,40 @@ useHead({
         <span>Loading sessions...</span>
       </div>
     </div>
+
+    <UModal
+      :open="Boolean(revertTargetMessage)"
+      title="Revert session"
+      :ui="{ content: 'sm:max-w-lg' }"
+      @update:open="handleRevertModalOpenChange"
+    >
+      <template #body>
+        <div class="space-y-4">
+          <p class="text-sm leading-6 text-muted-foreground">
+            Remove this user message from the current session and move its text
+            back to the composer? Messages after it on the current path will no
+            longer be shown in this session.
+          </p>
+          <div class="flex justify-end gap-2">
+            <UButton
+              color="neutral"
+              variant="ghost"
+              type="button"
+              @click="revertTargetMessage = null"
+            >
+              Cancel
+            </UButton>
+            <UButton
+              color="error"
+              type="button"
+              :loading="activeSessionOperation?.type === 'revert'"
+              @click="confirmRevert"
+            >
+              Revert
+            </UButton>
+          </div>
+        </div>
+      </template>
+    </UModal>
   </div>
 </template>

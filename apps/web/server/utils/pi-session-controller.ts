@@ -465,15 +465,40 @@ export class PiSessionController {
    */
   getHistory(): SessionHistoryResponse {
     if (this.cachedHistory) return this.cachedHistory;
-    const session = this.session;
-    // If the Pi session isn't initialized, fall back to the SessionManager's
-    // persisted messages from disk.
-    const messages =
-      session?.messages ??
-      this.requireSessionManager().buildSessionContext().messages;
+    const branchEntries = this.requireSessionManager()
+      .getBranch()
+      .filter((entry: any) => entry.id);
+    const entryIdByMessageId = new Map<string, string>();
+    const entryIdByMessageIndex = new Map<number, string>();
+    const rewindEntryIdByMessageId = new Map<string, string>();
+    const rewindEntryIdByMessageIndex = new Map<number, string>();
+    const messageEntries = branchEntries.filter(
+      (entry: any) => entry.type === "message",
+    );
+
+    const messages = messageEntries.map((entry: any, index: number) => {
+      const message = entry.message;
+      const branchIndex = branchEntries.findIndex(
+        (branchEntry: any) => branchEntry.id === entry.id,
+      );
+      const rewindEntryId = branchEntries[branchIndex - 1]?.id;
+      if (message?.id) entryIdByMessageId.set(String(message.id), entry.id);
+      if (message?.id && rewindEntryId) {
+        rewindEntryIdByMessageId.set(String(message.id), rewindEntryId);
+      }
+      entryIdByMessageIndex.set(index, entry.id);
+      if (rewindEntryId) rewindEntryIdByMessageIndex.set(index, rewindEntryId);
+      return message;
+    });
+
     this.cachedHistory = {
       sessionId: this.sessionId,
-      messages: normalizeMessages(messages as any[]),
+      messages: normalizeMessages(messages as any[], {
+        entryIdByMessageId,
+        entryIdByMessageIndex,
+        rewindEntryIdByMessageId,
+        rewindEntryIdByMessageIndex,
+      }),
     };
     return this.cachedHistory;
   }
@@ -1169,7 +1194,15 @@ export class PiSessionController {
  * and tool_result blocks. This function decomposes the raw content array
  * into a flat list of UiBlock objects with stable ids.
  */
-export function normalizeMessages(messages: any[]): UiMessage[] {
+export function normalizeMessages(
+  messages: any[],
+  options: {
+    entryIdByMessageId?: Map<string, string>;
+    entryIdByMessageIndex?: Map<number, string>;
+    rewindEntryIdByMessageId?: Map<string, string>;
+    rewindEntryIdByMessageIndex?: Map<number, string>;
+  } = {},
+): UiMessage[] {
   const normalized: UiMessage[] = [];
   let lastAssistant: UiMessage | undefined;
 
@@ -1193,6 +1226,12 @@ export function normalizeMessages(messages: any[]): UiMessage[] {
     const role = normalizeRole(message.role);
     const uiMessage: UiMessage = {
       id: messageId,
+      entryId:
+        options.entryIdByMessageId?.get(String(message.id)) ??
+        options.entryIdByMessageIndex?.get(index),
+      rewindEntryId:
+        options.rewindEntryIdByMessageId?.get(String(message.id)) ??
+        options.rewindEntryIdByMessageIndex?.get(index),
       role,
       blocks: normalizeContent(message.content ?? message, messageId),
       createdAt: message.createdAt ?? message.timestamp,

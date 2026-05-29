@@ -285,6 +285,7 @@ REST-only data must not be emitted as WS result events:
 - generated Pi agent-dir permission config if missing
 - browser-backed approval requests and HTTP approval responses
 - structured smoke test for REST and WS protocol boundaries
+- simple user-message anchored fork/revert UI for loaded persisted sessions
 
 ### Excluded
 
@@ -292,7 +293,6 @@ REST-only data must not be emitted as WS result events:
 - API key management UI
 - cwd switching in Web UI
 - clone/tree navigation
-- fork/revert UI
 - file browser
 - image upload UI
 - diff viewer
@@ -313,7 +313,8 @@ above when it becomes an accepted implementation decision.
   approve-once / approve-session / deny affordances where the backend supports them.
 - Improve session list scanning, active session indication, manual refresh, and
   confirmation around switching while work is running.
-- Add dedicated UI for fork/revert once the current backend API shape is proven.
+- Expand fork/revert from simple user-message anchors into richer branch
+  navigation once full Pi tree semantics are productized.
 
 ### Product Expansion
 

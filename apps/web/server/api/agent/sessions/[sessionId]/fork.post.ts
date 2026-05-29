@@ -23,7 +23,7 @@ import { getAgentRuntime } from "../../../../utils/agent-runtime";
  *   - sessionId: The source loaded session identifier
  *
  * Request body (JSON): SessionForkRequest
- *   - entryId (optional): Current-branch message entry id to fork at
+ *   - entryId (optional): Current-branch entry id to fork at
  *   - name (optional): Display name to append to the new fork
  *
  * Headers:
@@ -45,7 +45,7 @@ import { getAgentRuntime } from "../../../../utils/agent-runtime";
  *   - 400: Malformed JSON request body
  *   - 400: Missing sessionId route param
  *   - 404: Source session not loaded
- *   - 404: entryId is not selectable in the current branch
+ *   - 404: entryId is not in the current branch
  *   - 409: Source session is busy
  *   - 409: Source session is not persisted
  *   - 409: Session is controlled by another browser client

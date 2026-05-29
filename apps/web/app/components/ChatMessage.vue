@@ -24,6 +24,13 @@ type RenderBlock =
 
 const props = defineProps<{
   message: UiMessage;
+  canForkRevert?: boolean;
+  isForking?: boolean;
+  isReverting?: boolean;
+}>();
+
+const emit = defineEmits<{
+  (event: "fork" | "revert", message: UiMessage): void;
 }>();
 
 const collapsedStates = ref<Record<string, boolean>>({});
@@ -519,4 +526,33 @@ function filterMarkdownAttributes(
       </div>
     </div>
   </article>
+  <div
+    v-if="message.role === 'user' && message.rewindEntryId"
+    class="-mt-3 flex justify-end gap-1 px-4 pb-1"
+  >
+    <UButton
+      type="button"
+      color="neutral"
+      variant="ghost"
+      size="xs"
+      icon="i-lucide-git-fork"
+      :loading="props.isForking"
+      :disabled="!props.canForkRevert || props.isReverting"
+      @click="emit('fork', message)"
+    >
+      Fork
+    </UButton>
+    <UButton
+      type="button"
+      color="neutral"
+      variant="ghost"
+      size="xs"
+      icon="i-lucide-rotate-ccw"
+      :loading="props.isReverting"
+      :disabled="!props.canForkRevert || props.isForking"
+      @click="emit('revert', message)"
+    >
+      Revert
+    </UButton>
+  </div>
 </template>

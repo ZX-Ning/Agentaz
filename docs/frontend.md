@@ -152,7 +152,15 @@ Important HTTP reads include:
 GET /api/agent/state
 GET /api/agent/models
 GET /api/agent/sessions/:sessionId/history
+GET /api/agent/sessions/:sessionId/entries
 GET /api/agent/sessions/:sessionId/models
+```
+
+Important HTTP mutations include:
+
+```txt
+POST /api/agent/sessions/:sessionId/fork
+POST /api/agent/sessions/:sessionId/revert
 ```
 
 ## Frontend State Model
@@ -188,6 +196,15 @@ Render user and assistant messages differently:
 User and assistant text blocks render Markdown with Comark. Tool output, tool results, and thinking blocks stay in plain `<pre>` rendering so command output and internal reasoning text are not parsed as Markdown. `message_block_delta` may append to text, thinking, or tool result blocks; tool result deltas should update the block's `content` field, while text/thinking deltas update `text`.
 
 The browser transcript should match the backend projection: one assistant `UiMessage` per agent turn, with ordered blocks for text, thinking, tool calls, and tool results. Reloaded HTTP history should render with the same grouping as live WebSocket streaming.
+
+Persisted history messages may include `UiMessage.entryId`, which identifies
+the current-branch Pi session entry backing that rendered message, and
+`UiMessage.rewindEntryId`, which identifies the previous current-branch entry.
+The first fork/revert UI uses only user messages with a `rewindEntryId` as
+anchors. Forking from a user message creates and focuses a new loaded session
+before that message, then moves the message text into the composer. Reverting
+asks for confirmation, then removes the user message from the current session,
+moves its text into the composer, and reloads history.
 
 ## Composer Behavior
 
