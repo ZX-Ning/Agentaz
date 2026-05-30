@@ -1,5 +1,6 @@
 import {
   configureAgentRuntime,
+  initAgentRuntime,
   disposeAgentRuntime,
 } from "../utils/agent-runtime";
 import { assertAuthConfig } from "../utils/auth";
@@ -33,6 +34,10 @@ export default defineNitroPlugin((nitroApp) => {
     maxLoadedSessions: Number(config.piWeb.maxLoadedSessions),
   });
 
+  // Initialize the process-wide runtime singleton after configuration.
+  // This creates the Pi SDK workspace, event bus, presence tracking,
+  // session projector, and WebSocket hub.
+  initAgentRuntime();
   // Security: warn if binding to a non-loopback address. Auth is present, but
   // the app still exposes a powerful single-user coding agent control surface.
   if (host && !["127.0.0.1", "localhost"].includes(host)) {

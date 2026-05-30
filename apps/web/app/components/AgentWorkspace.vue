@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { SessionListItem } from "../../types/protocol";
+import type { SessionListItem } from "../types/sessions";
 
 const emit = defineEmits<{
   (event: "logout"): void;

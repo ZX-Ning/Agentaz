@@ -1,5 +1,7 @@
 import type {
   SessionListItem,
+} from "../types/sessions";
+import type {
   UiLoadedSession,
   UiSessionSummary,
 } from "../../types/protocol";

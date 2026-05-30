@@ -50,25 +50,26 @@ export type PiSessionWorkspaceOptions = {
 };
 
 /**
- * Owns Pi SDK services and the process-resident loaded session working set.
+ * Process-wide singleton (owned by AgentRuntime) that holds Pi SDK shared services
+ * and the loaded-session working set.
  *
- * The workspace deliberately has no knowledge of browser clients or WebSocket peers.
- * It emits runtime events when session state changes, and separate services
- * (SessionProjector, WsAgentHub) project those changes for browser clients.
+ * There is exactly one PiSessionWorkspace per Node.js process, created during
+ * Nitro startup by initAgentRuntime. All HTTP routes and WebSocket handlers
+ * share the same instance.
+ *
+ * The workspace has no knowledge of browser clients or WebSocket peers.
+ * It emits runtime events on the event bus when session state changes;
+ * separate services (SessionProjector, WsAgentHub) translate those events
+ * into browser-facing state snapshots and realtime messages.
  *
  * Session lifecycle:
  *   - Sessions are loaded on demand via createLoadedSession() or openLoadedSession().
  *   - When the working set reaches maxLoadedSessions, idle sessions may be evicted.
- *   - Sessions currently focused by a browser client are protected from eviction
+ *   - Sessions focused by a browser client are protected from eviction
  *     (identified by the getProtectedSessionIds callback).
- *   - Persisted session metadata is cached separately and refreshed asynchronously.
- *
- * Service lifecycle:
- *   - Pi SDK services (AgentSessionServices) are created lazily on first access.
- *   - They include auth storage, model registry, and shared infrastructure.
- *   - Required Pi packages are auto-configured in the agent's settings.json on creation.
+ *   - Persisted session metadata is cached separately and refreshed after mutations.
  */
-export class PiSessionWorkspace {
+ export class PiSessionWorkspace {
   /** Pi agent home directory (defaults to ~/.pi or PI_CODING_AGENT_DIR). */
   private agentDir = getAgentDir();
   /** Shared auth storage for API keys and credentials. */
@@ -78,7 +79,14 @@ export class PiSessionWorkspace {
     this.authStorage,
     join(this.agentDir, "models.json"),
   );
-  /** Lazily-initialized Pi SDK services. Resolved on first use. */
+  /**
+   * Lazily-initialized Pi SDK shared services (auth storage, model registry,
+   * and other infrastructure shared across all loaded sessions).
+   *
+   * Created on first access; prewarmed in the constructor to avoid blocking
+   * the first session creation on package installation. Required Pi packages
+   * are auto-configured in the agent's settings.json on creation.
+   */
   private servicesPromise?: Promise<AgentSessionServices>;
   /** The loaded session working set indexed by sessionId. */
   private sessions = new Map<string, PiSessionController>();
@@ -117,9 +125,14 @@ export class PiSessionWorkspace {
   }
 
   /**
-   * Returns (and lazily creates) SDK services shared by all loaded sessions.
-   * The services promise is cached so only one initialization runs, even if
-   * multiple sessions are being opened concurrently.
+   * Returns (and lazily creates) Pi SDK services shared by all loaded sessions.
+   *
+   * The promise is cached so only one initialization runs, even if multiple
+   * sessions are being opened concurrently. On failure, the cached promise is
+   * reset so the next caller can retry.
+   *
+   * Creation includes auth storage, model registry setup, and auto-
+   * configuration of required Pi packages in settings.json.
    */
   private getServices() {
     this.servicesPromise ??= this.createServices().catch((error) => {

@@ -9,17 +9,17 @@ import type {
   SessionDeleteRequest,
   SessionForkRequest,
   SessionHistoryResponse,
-  SessionListItem,
   SessionOperationResponse,
   SessionRenameRequest,
   SessionRevertRequest,
   ThinkingLevel,
+  UiExtensionWidget,
   UiLoadedSession,
   UiMessage,
   UiRequestResponseRequest,
   UiSessionSummary,
-  UiExtensionWidget,
 } from "../../types/protocol";
+import type { SessionListItem } from "../types/sessions";
 import {
   type SessionModelState,
   thinkingOptions,

@@ -42,7 +42,7 @@ export type AgentRuntime = {
   hub: WsAgentHub;
 };
 
-/** Lazily-initialized process-wide runtime singleton. */
+/** Process-wide runtime singleton, initialized during Nitro startup. */
 let runtime: AgentRuntime | undefined;
 
 /**
@@ -88,9 +88,10 @@ export function configureAgentRuntime(options: AgentRuntimeOptions) {
 }
 
 /**
- * Returns the configured process-wide agent runtime singleton.
+ * Initializes the process-wide agent runtime singleton.
  *
- * Lazy-initializes all services on first call. The initialization order matters:
+ * Must be called exactly once during Nitro startup (plugins/startup.ts),
+ * after configureAgentRuntime. Creates all services in dependency order:
  *
  *   1. AgentEventBus — must exist first so other services can subscribe.
  *   2. ClientPresence — independent of Pi SDK; tracks browser state.
@@ -105,45 +106,60 @@ export function configureAgentRuntime(options: AgentRuntimeOptions) {
  * the working set (e.g. evicted due to capacity).
  *
  * @throws Error if configureAgentRuntime has not been called first
+ * @throws Error if the runtime has already been initialized
  */
-export function getAgentRuntime() {
+export function initAgentRuntime() {
   if (!runtimeOptions) {
     throw new Error("AgentRuntime configuration has not been set.");
   }
-
-  if (!runtime) {
-    // Phase 1: Create transport-independent services.
-    const eventBus = new AgentEventBus();
-    const presence = new ClientPresence();
-
-    // Phase 2: Create the Pi SDK workspace. The getProtectedSessionIds
-    // callback prevents eviction of sessions that a connected browser
-    // client is currently focused on or controlling.
-    const workspace = new PiSessionWorkspace(runtimeOptions, eventBus, () => {
-      const protectedSessionIds = new Set<string>();
-      for (const clientId of [LOCAL_CLIENT_ID, ...presence.clients()]) {
-        const activeSessionId = presence.activeFor(clientId);
-        if (activeSessionId) protectedSessionIds.add(activeSessionId);
-      }
-      return protectedSessionIds;
-    });
-
-    // Phase 3: Wire session_removed events → presence cleanup.
-    // When the workspace evicts a session, remove it from presence tracking
-    // so other services don't reference a stale session id.
-    eventBus.subscribe((event) => {
-      if (event.type !== "session_removed") return;
-      presence.removeSession(event.sessionId, event.fallbackSessionId);
-      eventBus.publish({ type: "state_changed" });
-    });
-
-    // Phase 4: Create browser-facing services on top of the core services.
-    const projector = new SessionProjector(workspace, presence);
-    const hub = new WsAgentHub(eventBus, presence, projector);
-
-    runtime = { eventBus, presence, workspace, projector, hub };
+  if (runtime) {
+    throw new Error("AgentRuntime has already been initialized.");
   }
 
+  // Phase 1: Create transport-independent services.
+  const eventBus = new AgentEventBus();
+  const presence = new ClientPresence();
+
+  // Phase 2: Create the Pi SDK workspace. The getProtectedSessionIds
+  // callback prevents eviction of sessions that a connected browser
+  // client is currently focused on or controlling.
+  const workspace = new PiSessionWorkspace(runtimeOptions, eventBus, () => {
+    const protectedSessionIds = new Set<string>();
+    for (const clientId of [LOCAL_CLIENT_ID, ...presence.clients()]) {
+      const activeSessionId = presence.activeFor(clientId);
+      if (activeSessionId) protectedSessionIds.add(activeSessionId);
+    }
+    return protectedSessionIds;
+  });
+
+  // Phase 3: Wire session_removed events → presence cleanup.
+  // When the workspace evicts a session, remove it from presence tracking
+  // so other services don't reference a stale session id.
+  eventBus.subscribe((event) => {
+    if (event.type !== "session_removed") return;
+    presence.removeSession(event.sessionId, event.fallbackSessionId);
+    eventBus.publish({ type: "state_changed" });
+  });
+
+  // Phase 4: Create browser-facing services on top of the core services.
+  const projector = new SessionProjector(workspace, presence);
+  const hub = new WsAgentHub(eventBus, presence, projector);
+
+  runtime = { eventBus, presence, workspace, projector, hub };
+}
+
+/**
+ * Returns the fully-initialized process-wide agent runtime singleton.
+ *
+ * initAgentRuntime() must have been called first (normally during Nitro
+ * startup). This accessor is safe to call from any route or handler.
+ *
+ * @throws Error if initAgentRuntime has not been called first
+ */
+export function getAgentRuntime() {
+  if (!runtime) {
+    throw new Error("AgentRuntime has not been initialized. Call initAgentRuntime() first.");
+  }
   return runtime;
 }
 

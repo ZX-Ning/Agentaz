@@ -10,14 +10,19 @@ export type SessionControlState = {
 
 /**
  * Tracks browser client presence, per-client focus, and session control leases.
- *
+ * Tracks browser client presence, per-client focus, and session control leases
+ * via an owner + reference-count model (re-entrant acquire/release).
  * This service is intentionally independent from WebSocket peers and Pi SDK controllers. It only
  * stores client ids and session ids so session lifecycle code can stay transport-agnostic.
  */
 export class ClientPresence {
+  /** clientId — connected browser clients. */
   private connectedClients = new Set<string>();
+  /** clientId → sessionId — the session each client currently has focused. */
   private activeSessionByClient = new Map<string, string>();
+  /** sessionId → clientId — which client holds mutation control over each session. */
   private controlOwnerBySession = new Map<string, string>();
+  /** sessionId → reference count — supports re-entrant acquireControl / releaseControl. */
   private controlHoldCountBySession = new Map<string, number>();
   private lastActiveSessionId?: string;
 
@@ -36,10 +41,11 @@ export class ClientPresence {
     this.activeSessionByClient.delete(clientId);
     const changedSessionIds: string[] = [];
     for (const [sessionId, ownerClientId] of this.controlOwnerBySession) {
-      if (ownerClientId !== clientId) continue;
-      this.controlOwnerBySession.delete(sessionId);
-      this.controlHoldCountBySession.delete(sessionId);
-      changedSessionIds.push(sessionId);
+      if (ownerClientId === clientId) {
+        this.controlOwnerBySession.delete(sessionId);
+        this.controlHoldCountBySession.delete(sessionId);
+        changedSessionIds.push(sessionId);
+      }
     }
     return changedSessionIds;
   }
@@ -69,10 +75,10 @@ export class ClientPresence {
     const nextCount = (this.controlHoldCountBySession.get(sessionId) ?? 1) - 1;
     if (nextCount > 0) {
       this.controlHoldCountBySession.set(sessionId, nextCount);
-      return;
+    } else {
+      this.controlHoldCountBySession.delete(sessionId);
+      this.controlOwnerBySession.delete(sessionId);
     }
-    this.controlHoldCountBySession.delete(sessionId);
-    this.controlOwnerBySession.delete(sessionId);
   }
 
   /** Returns the active session visible to one client. */
@@ -100,7 +106,8 @@ export class ClientPresence {
     );
   }
 
-  /** Removes stale active/control references after a session leaves the workspace. */
+  /** Removes stale active/control references for a session that has been
+   *  evicted, deleted, or disposed from the workspace. */
   removeSession(sessionId: string, fallbackSessionId?: string) {
     this.controlOwnerBySession.delete(sessionId);
     this.controlHoldCountBySession.delete(sessionId);
