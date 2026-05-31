@@ -36,11 +36,22 @@ export default defineNuxtConfig({
       },
     },
     piWeb: {
-      cwd: process.env.PI_WEB_CWD ?? process.cwd(),
-      approvalTimeoutMs: Number(
-        process.env.PI_WEB_APPROVAL_TIMEOUT_MS ?? 5 * 60 * 1000,
-      ),
-      maxLoadedSessions: Number(process.env.PI_WEB_MAX_LOADED_SESSIONS ?? 5),
+      /**
+       * Default working directory for Pi sessions.
+       *
+       * This value is baked into the build at build time and acts as a
+       * fallback. The server startup plugin reads PI_WEB_CWD and
+       * PI_WEB_APPROVAL_TIMEOUT_MS / PI_WEB_MAX_LOADED_SESSIONS at
+       * runtime and overrides these defaults accordingly.
+       *
+       * An empty string signals "no build-time override" so the startup
+       * plugin falls through to process.cwd() at runtime.
+       */
+      cwd: "",
+      /** Default 5-minute timeout for browser-backed approval prompts. */
+      approvalTimeoutMs: 5 * 60 * 1000,
+      /** Default maximum number of simultaneously loaded Pi sessions. */
+      maxLoadedSessions: 5,
     },
   },
 });

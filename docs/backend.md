@@ -41,12 +41,27 @@ runtimeConfig: {
     maxAge: 60 * 60 * 24,
   },
   piWeb: {
-    cwd: process.env.PI_WEB_CWD ?? process.cwd(),
-    approvalTimeoutMs: Number(process.env.PI_WEB_APPROVAL_TIMEOUT_MS ?? 5 * 60 * 1000),
-    maxLoadedSessions: Number(process.env.PI_WEB_MAX_LOADED_SESSIONS ?? 5),
+    /**
+     * Build-time defaults only. The startup plugin
+     * (server/plugins/startup.ts) reads PI_WEB_CWD,
+     * PI_WEB_APPROVAL_TIMEOUT_MS, and
+     * PI_WEB_MAX_LOADED_SESSIONS at runtime and
+     * overrides these values.
+     */
+    cwd: "",
+    approvalTimeoutMs: 5 * 60 * 1000,
+    maxLoadedSessions: 5,
   },
 }
 ```
+
+**Why not `process.env.PI_WEB_CWD` in nuxt.config.ts?**
+
+Nuxt evaluates `process.env` expressions at build time and bakes
+the resulting value into the build output. Setting `PI_WEB_CWD` at
+runtime would have no effect if the value were read in
+`nuxt.config.ts`. The startup plugin is server-only code that runs at
+process start, so it reads the runtime environment correctly.
 
 Important constraints:
 

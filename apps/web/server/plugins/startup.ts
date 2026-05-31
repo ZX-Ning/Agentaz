@@ -25,13 +25,28 @@ export default defineNitroPlugin((nitroApp) => {
   // Fail closed unless the single-user admin auth secrets are configured.
   assertAuthConfig();
 
-  // Seed the runtime singleton with startup configuration.
-  // Values come from runtimeConfig.piWeb (set in nuxt.config.ts or via
-  // PI_WEB_CWD / PI_WEB_APPROVAL_TIMEOUT_MS / PI_WEB_MAX_LOADED_SESSIONS).
+  // Resolve runtime configuration from environment variables, falling back
+  // to build-time defaults in nuxt.config.ts runtimeConfig.piWeb.
+  //
+  // IMPORTANT: Nuxt bakes runtimeConfig values at build time. Direct
+  // process.env reads in nuxt.config.ts only produce the build-machine
+  // value, not the runtime value. Environment variables intended to
+  // vary per deployment MUST be read here (or in other server-only code).
+  //
+  // Fallback chain: env var → runtimeConfig default → runtime process.cwd()
+  const cwd =
+    process.env.PI_WEB_CWD || String(config.piWeb.cwd) || process.cwd();
+  const approvalTimeoutMs =
+    Number(process.env.PI_WEB_APPROVAL_TIMEOUT_MS) ||
+    Number(config.piWeb.approvalTimeoutMs);
+  const maxLoadedSessions =
+    Number(process.env.PI_WEB_MAX_LOADED_SESSIONS) ||
+    Number(config.piWeb.maxLoadedSessions);
+
   configureAgentRuntime({
-    cwd: String(config.piWeb.cwd),
-    approvalTimeoutMs: Number(config.piWeb.approvalTimeoutMs),
-    maxLoadedSessions: Number(config.piWeb.maxLoadedSessions),
+    cwd,
+    approvalTimeoutMs,
+    maxLoadedSessions,
   });
 
   // Initialize the process-wide runtime singleton after configuration.
