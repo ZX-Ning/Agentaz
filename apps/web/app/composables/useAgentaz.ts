@@ -51,9 +51,9 @@ import {
  * This composable is intentionally a single-owner controller for `app.vue`, not
  * a reusable shared-state composable. Each invocation creates a fresh set of
  * refs, registers route watchers and component lifecycle hooks, opens a browser
- * WebSocket connection to `/api/agent/ws`, and closes that socket when the owner
+ * SSE connection to `/api/agent/events`, and closes that connection when the owner
  * component unmounts. Calling it from multiple components would create multiple
- * independent controller instances and duplicate WebSocket subscriptions.
+ * independent controller instances and duplicate SSE subscriptions.
  *
  * Keep cross-component UI state flowing through the values returned to
  * `app.vue` and passed down as props/events. If nested components need more
@@ -80,7 +80,7 @@ export function useAgentazAppController() {
   );
   const promptText = ref("");
   const lastError = ref<string | null>(null);
-  const socket = shallowRef<WebSocket | null>(null);
+  const eventSource = shallowRef<EventSource | null>(null);
   const hasAppliedInitialRoute = ref(false);
   const isSyncingBrowserRoute = ref(false);
   const isUnmounting = ref(false);
@@ -793,20 +793,17 @@ export function useAgentazAppController() {
     }
   }
 
-  function connectWebSocket() {
-    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const ws = new WebSocket(
-      `${protocol}//${window.location.host}/api/agent/ws`,
-    );
-    socket.value = ws;
+  function connectEventSource() {
+    const es = new EventSource("/api/agent/events");
+    eventSource.value = es;
 
     return new Promise<ServerHello>((resolve, reject) => {
-      ws.addEventListener("open", () => {
+      es.addEventListener("open", () => {
         status.value = "connected";
         hasShownDisconnectToast.value = false;
       });
 
-      ws.addEventListener("message", (message) => {
+      es.addEventListener("message", (message) => {
         try {
           const event = JSON.parse(message.data) as ServerEvent;
           handleEvent(event);
@@ -818,30 +815,26 @@ export function useAgentazAppController() {
         }
       });
 
-      ws.addEventListener("close", () => {
+      es.addEventListener("error", () => {
         const hadInitialConnection = Boolean(hello.value);
+        if (!hadInitialConnection) {
+          // Connection never succeeded — treat as failure.
+          status.value = "error";
+          lastError.value = "SSE connection failed.";
+          reject(new Error("SSE connection failed before hello."));
+          return;
+        }
+        // Already had a successful connection — EventSource will auto-reconnect.
         status.value = "disconnected";
-        if (
-          hadInitialConnection &&
-          !isUnmounting.value &&
-          !hasShownDisconnectToast.value
-        ) {
+        if (!isUnmounting.value && !hasShownDisconnectToast.value) {
           hasShownDisconnectToast.value = true;
           toast.add({
-            title: "Connection disconnected",
-            description:
-              "The realtime agent connection was closed. Refresh the page or restart the backend.",
-            color: "error",
-            duration: 60_000,
+            title: "Connection lost",
+            description: "The realtime agent connection was lost. Attempting to reconnect...",
+            color: "warning",
+            duration: 15_000,
           });
         }
-        reject(new Error("WebSocket connection closed before hello."));
-      });
-
-      ws.addEventListener("error", () => {
-        status.value = "error";
-        lastError.value = "WebSocket connection failed.";
-        reject(new Error("WebSocket connection failed."));
       });
     });
   }
@@ -1085,7 +1078,7 @@ export function useAgentazAppController() {
   );
 
   onMounted(() => {
-    connectWebSocket()
+    connectEventSource()
       .then((event) => applyInitialRoute(event.state))
       .catch(() => {
         status.value = "error";
@@ -1094,7 +1087,7 @@ export function useAgentazAppController() {
 
   onBeforeUnmount(() => {
     isUnmounting.value = true;
-    socket.value?.close();
+    eventSource.value?.close();
   });
 
   return {
@@ -1110,7 +1103,7 @@ export function useAgentazAppController() {
     pendingUiRequestsBySessionId,
     promptText,
     lastError,
-    socket,
+    eventSource,
     hasAppliedInitialRoute,
     isSyncingBrowserRoute,
     // computed

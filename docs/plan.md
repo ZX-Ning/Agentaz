@@ -15,7 +15,7 @@ The app is not a multi-user SaaS or team platform. It has moved beyond the origi
 - Access is protected by single-user admin-password auth using an encrypted
   `nuxt-auth-utils` session cookie.
 - The agent runs on the Nuxt/Nitro server side.
-- The browser UI talks to the server over HTTP APIs plus a WebSocket event stream.
+- The browser UI talks to the server over HTTP APIs plus an SSE event stream.
 - Multi-user auth, accounts, team concepts, and SaaS behavior are not confirmed goals.
 
 ### Authentication
@@ -29,7 +29,7 @@ The app is not a multi-user SaaS or team platform. It has moved beyond the origi
   browser and compares it with `AGENTAZ_ADMIN_PASSWORD_HASH`.
 - Sessions last 24 hours.
 - All existing app API endpoints are protected, including `GET /api/health` and
-  `WS /api/agent/ws`. The only public API endpoints are login and the
+  `GET /api/agent/events`. The only public API endpoints are login and the
   `nuxt-auth-utils` session discovery endpoint required by the frontend.
 
 ### Working Directory
@@ -49,13 +49,13 @@ Important backend pieces:
 
 ```txt
 apps/web/server/api/agent/                HTTP agent API routes
-apps/web/server/routes/api/agent/ws.ts    WebSocket event route
+apps/web/server/api/agent/events.get.ts   SSE streaming endpoint
 apps/web/server/utils/agent-runtime.ts
 apps/web/server/utils/pi-session-workspace.ts
 apps/web/server/utils/client-presence.ts
 apps/web/server/utils/session-projector.ts
 apps/web/server/utils/agent-event-bus.ts
-apps/web/server/utils/ws-agent-hub.ts
+apps/web/server/utils/sse-agent-hub.ts
 apps/web/server/utils/extension-ui-context.ts
 apps/web/server/utils/permission-config.ts
 ```
@@ -63,9 +63,9 @@ apps/web/server/utils/permission-config.ts
 ### Transport
 
 - Use **HTTP** for browser-initiated actions and snapshot queries.
-- Use **WebSocket** for server-initiated realtime events only.
-- Full session history is fetched over HTTP, not pushed as a WebSocket event.
-- Model/thinking state is queried and changed over HTTP, not pushed through dedicated WS model events.
+- Use **SSE (Server-Sent Events)** over HTTP streaming for server-initiated realtime events.
+- Full session history is fetched over HTTP, not pushed as an SSE event.
+- Model/thinking state is queried and changed over HTTP, not pushed through dedicated SSE model events.
 
 Current HTTP endpoints:
 
@@ -91,16 +91,16 @@ POST   /api/agent/sessions/:sessionId/revert
 POST   /api/agent/sessions/:sessionId/abort
 POST   /api/agent/sessions/:sessionId/queue/clear
 POST   /api/agent/sessions/:sessionId/ui-requests/:requestId/response
-WS     /api/agent/ws
+GET    /api/agent/events
 ```
 
 ### Session Behavior
 
 - The server owns a small loaded Pi session working set in a process-wide `PiSessionWorkspace`.
-- Loaded sessions stay resident across focus changes and WebSocket detach until the working set reaches `maxLoadedSessions`.
+- Loaded sessions stay resident across focus changes and SSE detach until the working set reaches `maxLoadedSessions`.
 - When the loaded-session cap is reached, the workspace evicts one idle, non-active session before opening another persisted session.
 - Pi SDK services/resources are initialized once per configured `cwd` and reused across loaded sessions.
-- The backend does not create an initial loaded session for `GET /api/agent/state` or WebSocket attach.
+- The backend does not create an initial loaded session for `GET /api/agent/state` or SSE attach.
 - The frontend represents startup/New session as a local draft and creates the real Pi session on the first user prompt.
 - Draft sessions fetch global model options without creating a Pi session and apply the selected model/thinking settings when materialized.
 - Users can create new sessions and open available persisted sessions for the configured `cwd`.
@@ -114,7 +114,7 @@ WS     /api/agent/ws
 ### Browser Client Model
 
 - This is still a single-user app.
-- WebSocket clients are realtime subscribers, not multi-user principals; they
+- SSE clients are realtime subscribers, not multi-user principals; they
   must still present a valid single-user auth session cookie before connecting.
 - Browser-initiated mutations use HTTP APIs.
 - Runtime control leases are acquired automatically around mutating operations and surface as conflict errors, not as a manual browser action.
@@ -136,11 +136,11 @@ WS     /api/agent/ws
 <agentDir>/extensions/pi-permission-system/config.json
 ```
 
-- Browser-backed extension UI prompts are emitted over WebSocket:
+- Browser-backed extension UI prompts are emitted over SSE:
   - `ui_select_request`
   - `ui_input_request`
   - `ui_confirm_request`
-- Browser-backed extension text widgets are emitted over WebSocket:
+- Browser-backed extension text widgets are emitted over SSE:
   - `extension_widget_update`
 - Browser responses are submitted over HTTP:
 
@@ -177,7 +177,7 @@ The frontend should keep state normalized around `UiMessage` and `UiBlock`, not 
 ```txt
 Browser / Nuxt Frontend
   ├─ HTTP client for actions and snapshots
-  ├─ WebSocket event subscriber
+  ├─ SSE event subscriber
   ├─ Session/sidebar state
   ├─ Transcript state
   ├─ Model/thinking controls
@@ -185,13 +185,13 @@ Browser / Nuxt Frontend
 
 Nuxt/Nitro Server
   ├─ HTTP agent routes
-  ├─ WebSocket route /api/agent/ws
+  ├─ SSE route /api/agent/events
   ├─ AgentRuntime
   ├─ PiSessionWorkspace
   ├─ ClientPresence
   ├─ SessionProjector
   ├─ AgentEventBus
-  ├─ WsAgentHub
+  ├─ SseAgentHub
   ├─ WebExtensionUIContext
   ├─ Permission config generator
   └─ Protocol/event normalization
@@ -233,9 +233,9 @@ HTTP errors should use a structured payload:
 { code: string, message: string, recoverable: boolean }
 ```
 
-### WebSocket Events
+### SSE Events
 
-WebSocket is server-to-client for realtime events. Browser commands should not be sent over WS.
+SSE is server-to-client for realtime events. Browser commands should not be sent over SSE.
 
 Current important events:
 
@@ -255,7 +255,7 @@ Current important events:
 - `status`
 - `error`
 
-REST-only data must not be emitted as WS result events:
+REST-only data must not be emitted as SSE result events:
 
 - full `history`
 - session list result
@@ -270,12 +270,12 @@ REST-only data must not be emitted as WS result events:
 - startup-specified `cwd`
 - server-side Pi SDK integration
 - HTTP agent API for actions and snapshots
-- WebSocket server event stream
+- SSE server event stream
 - process-wide server-resident working session workspace
 - new/open/focus sessions, with capped server-resident loaded session retention
 - persisted session listing for current `cwd`
 - history loading over HTTP
-- prompt/steer/follow-up over HTTP with streaming output over WS
+- prompt/steer/follow-up over HTTP with streaming output over SSE
 - assistant text/thinking deltas
 - tool lifecycle events, including streaming bash tool output as `tool_result` deltas
 - stop and clear queue
@@ -284,7 +284,7 @@ REST-only data must not be emitted as WS result events:
 - `@gotgenes/pi-permission-system` integration
 - generated Pi agent-dir permission config if missing
 - browser-backed approval requests and HTTP approval responses
-- structured smoke test for REST and WS protocol boundaries
+- structured smoke test for REST and SSE protocol boundaries
 - simple user-message anchored fork/revert UI for loaded persisted sessions
 
 ### Excluded
@@ -334,7 +334,7 @@ above when it becomes an accepted implementation decision.
 - Stronger frontend handling for unknown events and protocol-version mismatch.
 - More detailed backend smoke tests and optional structured local logs.
 - Security review before broader network exposure: CSRF/origin checks,
-  WebSocket exposure, filesystem/tool-access assumptions, and permission defaults.
+  SSE exposure, filesystem/tool-access assumptions, and permission defaults.
 - Packaging options such as a local CLI wrapper, desktop wrapper,
   single-command project launcher, and improved environment checks.
 - Authentication/token mode for non-localhost deployments.

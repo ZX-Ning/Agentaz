@@ -11,7 +11,7 @@ The frontend is a Nuxt/Vue browser UI for a Pi SDK agent. The current UI should 
 - a transcript area for user/assistant/tool output
 - a bottom composer for prompts
 - web approval UI for dangerous operations
-- a single-user admin password page at `/login` before agent HTTP/WS startup
+- a single-user admin password page at `/login` before agent HTTP/SSE startup
 
 The frontend should not introduce multi-user, project switching, or database-backed concepts unless the product plan changes. The server already owns loaded sessions; richer multi-tab/controller semantics remain future product work until recorded in `docs/plan.md`.
 
@@ -30,7 +30,7 @@ apps/web/types/protocol.ts
 
 `app.vue` is only the Nuxt shell around `NuxtPage`. It gives protected app
 routes a stable page key so navigation inside the agent workspace stays
-SPA-like and does not recreate the WebSocket client. Route-specific UI lives in
+SPA-like and does not recreate the SSE client. Route-specific UI lives in
 file routes, with `/login` as the public login page. The protected workspace
 lives in `pages/index.vue`, which also declares `/session/:sessionId` as a Nuxt
 route alias. Authentication redirects live in `auth.global.ts`.
@@ -122,16 +122,16 @@ Use normal Tailwind radius utilities such as `rounded-lg`; do not globally overr
 
 IBM Plex Sans is loaded in Nuxt head config and applied globally in `main.css`.
 
-## WebSocket Protocol
+## SSE Protocol
 
-The frontend uses HTTP for browser-initiated actions and state snapshots, and WebSocket only for realtime server events. The `/login` page must complete before the agent workspace mounts, because the WebSocket connects to a protected endpoint:
+The frontend uses HTTP for browser-initiated actions and state snapshots, and SSE (Server-Sent Events) only for realtime server events. The `/login` page must complete before the agent workspace mounts, because the SSE endpoint requires authentication:
 
 ```txt
-/api/agent/ws
+/api/agent/events
 ```
 
 The browser relies on the same-origin `nuxt-auth-utils` session cookie for both
-HTTP APIs and the WebSocket upgrade.
+HTTP APIs and the SSE request.
 
 Protocol types live in:
 
@@ -142,7 +142,7 @@ apps/web/types/protocol.ts
 When protocol shapes change:
 
 1. Update `types/protocol.ts`.
-2. Update backend HTTP routes and WebSocket emitters.
+2. Update backend HTTP routes and SSE emitters.
 3. Update frontend `$fetch` calls and event handling.
 4. Consider updating `scripts/smoke-backend.mjs` if handshake or required startup events change.
 
@@ -195,7 +195,7 @@ Render user and assistant messages differently:
 
 User and assistant text blocks render Markdown with Comark. Tool output, tool results, and thinking blocks stay in plain `<pre>` rendering so command output and internal reasoning text are not parsed as Markdown. `message_block_delta` may append to text, thinking, or tool result blocks; tool result deltas should update the block's `content` field, while text/thinking deltas update `text`.
 
-The browser transcript should match the backend projection: one assistant `UiMessage` per agent turn, with ordered blocks for text, thinking, tool calls, and tool results. Reloaded HTTP history should render with the same grouping as live WebSocket streaming.
+The browser transcript should match the backend projection: one assistant `UiMessage` per agent turn, with ordered blocks for text, thinking, tool calls, and tool results. Reloaded HTTP history should render with the same grouping as live SSE streaming.
 
 Persisted history messages may include `UiMessage.entryId`, which identifies
 the current-branch Pi session entry backing that rendered message, and
@@ -237,7 +237,7 @@ Extension widgets arrive through `extension_widget_update` events and are render
 
 ## Error Handling
 
-Use backend `error` events and websocket failures to show:
+Use backend `error` events and SSE failures to show:
 
 - a visible alert in the main UI
 - a toast for transient events

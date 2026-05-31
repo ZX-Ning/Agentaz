@@ -4,10 +4,7 @@ const httpBaseUrl = process.env.PI_WEB_BASE_URL || "http://127.0.0.1:3000";
 const timeoutMs = Number(process.env.PI_WEB_SMOKE_TIMEOUT_MS || 30_000);
 const smokePassword = process.env.PI_WEB_SMOKE_ADMIN_PASSWORD;
 
-const wsBaseUrl = httpBaseUrl
-  .replace(/^http:/, "ws:")
-  .replace(/^https:/, "wss:");
-const wsUrl = `${wsBaseUrl}/api/agent/ws`;
+const sseUrl = `${httpBaseUrl}/api/agent/events`;
 
 let authCookie = "";
 
@@ -113,30 +110,18 @@ async function testUnauthenticatedHttp() {
   }
 }
 
-async function testUnauthenticatedWebSocket() {
-  logStep("checking unauthenticated websocket rejection");
-  await new Promise((resolve, reject) => {
-    const timer = setTimeout(
-      () => reject(new Error("websocket did not close after auth rejection")),
-      timeoutMs,
-    );
-    const ws = new WebSocket(wsUrl);
-    ws.addEventListener("open", () => {
-      clearTimeout(timer);
-      ws.close();
-      reject(new Error("unauthenticated websocket unexpectedly opened"));
-    });
-    ws.addEventListener("close", () => {
-      clearTimeout(timer);
-      resolve();
-    });
-    ws.addEventListener("error", () => {
-      clearTimeout(timer);
-      resolve();
-    });
+async function testUnauthenticatedSse() {
+  logStep("checking unauthenticated SSE rejection");
+  const response = await fetch(sseUrl, {
+    signal: AbortSignal.timeout(timeoutMs),
   }).catch((error) => {
-    fail("unauthenticated websocket smoke test failed", error);
+    fail("unauthenticated SSE endpoint is not reachable. Is `pnpm dev` running?", error);
   });
+  assert(
+    response.status === 401,
+    "GET /api/agent/events should require authentication",
+    `got HTTP ${response.status}`,
+  );
 }
 
 async function login() {
@@ -242,7 +227,7 @@ async function logout() {
 }
 
 await testUnauthenticatedHttp();
-await testUnauthenticatedWebSocket();
+await testUnauthenticatedSse();
 await login();
 await testAuthenticatedRestApi();
 await logout();

@@ -4,7 +4,7 @@ This document describes the Nitro backend for Agentaz.
 
 ## Scope
 
-The backend runs the Pi SDK server-side and exposes browser-facing HTTP APIs plus a WebSocket event stream. The current implementation is local-first and single-user by default:
+The backend runs the Pi SDK server-side and exposes browser-facing HTTP APIs plus an SSE event stream. The current implementation is local-first and single-user by default:
 
 - one startup-configured working directory
 - server-resident loaded sessions
@@ -19,13 +19,13 @@ The product has moved beyond the original MVP planning phase. Treat this guide a
 ```txt
 apps/web/server/api/health.get.ts
 apps/web/server/api/agent/
-apps/web/server/routes/api/agent/ws.ts
+apps/web/server/api/agent/events.get.ts
 apps/web/server/utils/agent-runtime.ts
 apps/web/server/utils/pi-session-workspace.ts
 apps/web/server/utils/client-presence.ts
 apps/web/server/utils/session-projector.ts
 apps/web/server/utils/agent-event-bus.ts
-apps/web/server/utils/ws-agent-hub.ts
+apps/web/server/utils/sse-agent-hub.ts
 apps/web/server/utils/extension-ui-context.ts
 apps/web/server/utils/permission-config.ts
 apps/web/types/protocol.ts
@@ -81,8 +81,8 @@ POST   /api/auth/logout
 ```
 
 All other `/api/**` endpoints are protected by server middleware, including
-`GET /api/health`. The WebSocket upgrade for `/api/agent/ws` also requires a
-valid session cookie before the connection is attached to `WsAgentHub`.
+`GET /api/health`. The SSE endpoint `GET /api/agent/events` also requires a
+valid session cookie before the event stream is opened.
 
 The login route compares `base64(SHA3-256(password))` with
 `AGENTAZ_ADMIN_PASSWORD_HASH` and calls `setUserSession()` with the admin user
@@ -115,29 +115,30 @@ services, not the route layer. Agent routes should resolve the process runtime
 through `getAgentRuntime()` or route helpers that wrap it, then delegate to the
 workspace, presence, and projector services.
 
-## WebSocket Endpoint
+## SSE Endpoint
 
 Endpoint:
 
 ```txt
-/api/agent/ws
+GET /api/agent/events
 ```
+
+Uses h3's built-in `createEventStream` to send `text/event-stream` formatted data.
 
 Responsibilities:
 
 - Resolve the configured `AgentRuntime`.
-- Forward lifecycle events to `WsAgentHub`.
+- Adapt the per-request h3 `EventStream` to the `SseAgentHub` writer interface.
 - Emit realtime server events to connected browser subscribers.
 
 The route should stay thin. Put connection/session logic in utilities, not the route file.
 
-## WebSocket Hub
+## SSE Hub
 
-`WsAgentHub` owns browser connection lifecycle:
+`SseAgentHub` owns browser connection lifecycle:
 
 - client attach/detach
 - heartbeat snapshots
-- rejecting legacy WebSocket command messages
 - leaving loaded session lifecycle to `PiSessionWorkspace` when browsers disconnect
 
 The hub is owned by the process-wide `AgentRuntime`. Configuration is centralized there:
@@ -155,20 +156,20 @@ The first config wins. Reconfiguration with different values should fail loudly.
 
 - `PiSessionWorkspace`: Pi SDK services and loaded session lifecycle.
 - `ClientPresence`: browser client ids, focus, and control leases.
-- `SessionProjector`: client-specific HTTP/WS state snapshots.
+- `SessionProjector`: client-specific HTTP/SSE state snapshots.
 - `AgentEventBus`: typed in-process pub/sub between session runtime and realtime transport.
-- `WsAgentHub`: WebSocket peer lifecycle and event forwarding.
+- `SseAgentHub`: SSE stream lifecycle and event forwarding.
 
-WebSocket `hello` assigns the browser tab `clientId`. Client-specific HTTP requests should send that
+SSE `hello` assigns the browser tab `clientId`. Client-specific HTTP requests should send that
 identity back through `X-Agentaz-Client-Id`; routes fall back to `LOCAL_CLIENT_ID` only for non-browser
-or pre-WebSocket callers.
+or pre-SSE callers.
 
 `PiSessionWorkspace` owns server-resident Pi SDK session lifecycle:
 
 - create/open/list the loaded working set and available persisted sessions for the current cwd
 - return global model picker defaults without creating a Pi session
 - normalize Pi messages/events into `ServerEvent`
-- accept prompt/steer/follow-up over HTTP and stream output over WebSocket
+- accept prompt/steer/follow-up over HTTP and stream output over SSE
 - abort and clear queue
 - return/set model and thinking state over HTTP
 - bind extension UI context
@@ -199,7 +200,7 @@ apps/web/types/protocol.ts
 Rules:
 
 - Add protocol changes explicitly.
-- Keep WebSocket server events discriminated by `type`.
+- Keep SSE server events discriminated by `type`.
 - Keep HTTP request/response DTOs in the same protocol file.
 - Keep frontend message rendering on normalized `UiMessage` / `UiBlock`, not raw Pi SDK internals.
 - If adding/changing events, update frontend handling and smoke tests as needed.
@@ -261,7 +262,7 @@ Current behavior:
 - create a real Pi session only when the frontend opens a persisted session or materializes a draft
 - list sessions for current cwd
 - open/resume selected session
-- keep loaded sessions server-resident across focus changes and WebSocket disconnects
+- keep loaded sessions server-resident across focus changes and SSE disconnects
 - evict one idle, non-active session only when `maxLoadedSessions` is reached
 - do not expose loaded-session close/unload as a user-facing browser action
 - expose simple loaded-session fork/revert HTTP APIs for the current branch only
@@ -298,7 +299,7 @@ pnpm smoke:backend
 
 The smoke test assumes the dev server is already running. It checks:
 
-- unauthenticated HTTP and WebSocket rejection
+- unauthenticated HTTP and SSE rejection
 - login with `PI_WEB_SMOKE_ADMIN_PASSWORD`
 - authenticated health endpoint
 - authenticated REST state/history/models/session lifecycle endpoints
@@ -314,7 +315,7 @@ After backend code changes, run:
 pnpm typecheck
 ```
 
-For WebSocket/protocol changes, also consider:
+For SSE/protocol changes, also consider:
 
 ```bash
 # terminal 1

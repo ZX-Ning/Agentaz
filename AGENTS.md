@@ -13,15 +13,15 @@ apps/web
 ├── app/                         Vue/Nuxt frontend
 ├── server/                      Nitro backend
 │   ├── api/agent/               HTTP endpoints for browser actions/snapshots
-│   ├── routes/api/agent/ws.ts   WebSocket endpoint for realtime server events
+│   ├── api/agent/events.get.ts  SSE endpoint for realtime server events
 │   └── utils/
 │       ├── agent-runtime.ts          process-wide runtime composition root
 │       ├── pi-session-workspace.ts   Pi SDK services and loaded-session working set
 │       ├── pi-session-controller.ts  per-loaded-session Pi operation controller
 │       ├── session-projector.ts      browser-facing state snapshots
 │       ├── client-presence.ts        browser focus/control presence
-│       └── ws-agent-hub.ts           WebSocket subscribers and heartbeat snapshots
-└── types/protocol.ts            HTTP DTOs and WebSocket event protocol types
+│       └── sse-agent-hub.ts          SSE subscribers and heartbeat snapshots
+└── types/protocol.ts            HTTP DTOs and SSE event protocol types
 
 docs
 ├── plan.md                      confirmed product decisions and baseline
@@ -39,7 +39,7 @@ pnpm dev          # run Nuxt dev server
 pnpm lint         # ESLint; assumes Nuxt has already generated .nuxt/eslint.config.mjs
 pnpm typecheck    # TypeScript/Nuxt typecheck
 pnpm build        # production build; run only when explicitly needed
-pnpm test:api      # REST/WS smoke test; requires dev server already running
+pnpm test:api      # REST/SSE smoke test; requires dev server already running
 pnpm smoke:backend # backend smoke test; requires dev server already running
 ```
 
@@ -50,9 +50,9 @@ Do not run `pnpm build` by default because it is slower. Run build only when req
 - Keep the app local-first and single-user unless explicitly asked otherwise.
 - Do not add authentication or multi-user concepts without updating docs/plan.
 - The backend should bind to `127.0.0.1` by default. Non-localhost bind is allowed only through env override and should warn loudly.
-- The WebSocket hub is currently a process singleton.
-- Browser-initiated actions should use HTTP APIs; WebSocket is for realtime server events only.
-- Loaded Pi sessions are server-resident and should survive WebSocket detach.
+- The SSE hub is currently a process singleton.
+- Browser-initiated actions should use HTTP APIs; SSE is for realtime server events only.
+- Loaded Pi sessions are server-resident and should survive SSE detach.
 - The agent `cwd` is startup-configured and is not currently selected in the web UI.
 - Dangerous tool permissions should route through the web approval path, currently using `@gotgenes/pi-permission-system`.
 
@@ -60,7 +60,7 @@ Do not run `pnpm build` by default because it is slower. Run build only when req
 
 - TypeScript everywhere.
 - Keep protocol changes explicit in `apps/web/types/protocol.ts`.
-- If adding/changing HTTP DTOs or WebSocket event shapes, update both frontend handling and backend emitters/routes.
+- If adding/changing HTTP DTOs or SSE event shapes, update both frontend handling and backend emitters/routes.
 - Prefer small, focused server utilities under `apps/web/server/utils/`.
 - Keep frontend state simple until there is a strong reason to introduce a larger store.
 
@@ -117,7 +117,6 @@ Update docs when changing product decisions or architecture:
 
 - DO NOT add authentication, user accounts, database persistence, or SaaS/team concepts.
 - DO NOT add project/cwd switching in the UI.
-- DO NOT replace the WebSocket protocol with HTTP polling or SSE.
 - DO NOT remove the Pi permission-system integration.
 - DO NOT run broad formatting or rewrite unrelated files.
 - DO NOT overwrite existing working-tree changes. If the working tree already has

@@ -1,7 +1,7 @@
 /**
  * Current wire protocol version used by the browser and backend handshake.
  *
- * Incremented when backward-incompatible changes are made to the WebSocket
+ * Incremented when backward-incompatible changes are made to the SSE
  * event shapes or HTTP DTOs. The frontend should refuse to operate if the
  * server's protocol version doesn't match its expected version.
  */
@@ -119,7 +119,7 @@ export type UiSessionSummary = {
 /**
  * Browser-backed extension UI prompt awaiting a user response.
  *
- * These prompts are emitted as realtime WebSocket events when they are created
+ * These prompts are emitted as realtime SSE events when they are created
  * and are also included in loaded-session snapshots so a browser can recover
  * the clickable approval UI after reconnecting or refreshing while a prompt is
  * still pending.
@@ -253,12 +253,12 @@ export type AgentCapabilities = {
 };
 
 // ──────────────────────────────────────────────────────────────────────────
-// WebSocket events (server → client)
+// SSE events (server → client)
 // ──────────────────────────────────────────────────────────────────────────
 
 /**
  * Initial server-to-client handshake that declares protocol version and
- * backend capabilities. Sent immediately after WebSocket connection is
+ * backend capabilities. Sent immediately after SSE connection is
  * established, before any other events.
  */
 export type ServerHello = {
@@ -289,7 +289,7 @@ export type ServerErrorEvent = {
 };
 
 /**
- * All backend events that may be emitted over the agent WebSocket connection.
+ * All backend events that may be emitted over the agent SSE connection.
  *
  * Events are categorized by purpose:
  *   - Connection: hello, error

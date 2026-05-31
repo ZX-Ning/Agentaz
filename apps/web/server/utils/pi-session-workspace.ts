@@ -59,7 +59,7 @@ export type PiSessionWorkspaceOptions = {
  *
  * The workspace has no knowledge of browser clients or WebSocket peers.
  * It emits runtime events on the event bus when session state changes;
- * separate services (SessionProjector, WsAgentHub) translate those events
+ * separate services (SessionProjector, SseAgentHub) translate those events
  * into browser-facing state snapshots and realtime messages.
  *
  * Session lifecycle:

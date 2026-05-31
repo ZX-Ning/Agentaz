@@ -14,11 +14,7 @@ export default defineNuxtConfig({
     "@fontsource-variable/ibm-plex-sans/wdth-italic.css",
     "~/assets/css/main.css",
   ],
-  nitro: {
-    experimental: {
-      websocket: true,
-    },
-  },
+  nitro: {},
   runtimeConfig: {
     session: {
       maxAge: 60 * 60 * 24,

@@ -5,7 +5,7 @@ import {
   type PiSessionWorkspaceOptions,
 } from "./pi-session-workspace";
 import { SessionProjector } from "./session-projector";
-import { WsAgentHub } from "./ws-agent-hub";
+import { SseAgentHub } from "./sse-agent-hub";
 
 /**
  * Startup options shared by the process-wide agent runtime.
@@ -38,8 +38,8 @@ export type AgentRuntime = {
   workspace: PiSessionWorkspace;
   /** Builds browser-facing state snapshots from runtime state. */
   projector: SessionProjector;
-  /** Manages browser WebSocket connections and event forwarding. */
-  hub: WsAgentHub;
+  /** Manages browser SSE connections and event forwarding. */
+  hub: SseAgentHub;
 };
 
 /** Process-wide runtime singleton, initialized during Nitro startup. */
@@ -99,7 +99,7 @@ export function configureAgentRuntime(options: AgentRuntimeOptions) {
  *      that identifies sessions protected from eviction (any session currently
  *      focused by a connected browser client).
  *   4. SessionProjector — bridges workspace + presence into browser snapshots.
- *   5. WsAgentHub — manages WebSocket peer lifecycle on top of the event bus.
+   *   5. SseAgentHub — manages SSE stream lifecycle on top of the event bus.
  *
  * After construction, the workspace is subscribed to session_removed events
  * from the event bus so ClientPresence stays in sync when sessions leave
@@ -143,7 +143,7 @@ export function initAgentRuntime() {
 
   // Phase 4: Create browser-facing services on top of the core services.
   const projector = new SessionProjector(workspace, presence);
-  const hub = new WsAgentHub(eventBus, presence, projector);
+  const hub = new SseAgentHub(eventBus, presence, projector);
 
   runtime = { eventBus, presence, workspace, projector, hub };
 }
