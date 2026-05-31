@@ -1,10 +1,5 @@
-import type {
-  SessionListItem,
-} from "../types/sessions";
-import type {
-  UiLoadedSession,
-  UiSessionSummary,
-} from "../../types/protocol";
+import type { SessionListItem } from "../types/sessions";
+import type { UiLoadedSession, UiSessionSummary } from "../../types/protocol";
 import { isDraftSessionId, sessionTitle } from "./app.util";
 
 export function findLoadedSessionByFile(

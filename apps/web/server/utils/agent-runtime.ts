@@ -99,7 +99,7 @@ export function configureAgentRuntime(options: AgentRuntimeOptions) {
  *      that identifies sessions protected from eviction (any session currently
  *      focused by a connected browser client).
  *   4. SessionProjector — bridges workspace + presence into browser snapshots.
-   *   5. SseAgentHub — manages SSE stream lifecycle on top of the event bus.
+ *   5. SseAgentHub — manages SSE stream lifecycle on top of the event bus.
  *
  * After construction, the workspace is subscribed to session_removed events
  * from the event bus so ClientPresence stays in sync when sessions leave
@@ -158,7 +158,9 @@ export function initAgentRuntime() {
  */
 export function getAgentRuntime() {
   if (!runtime) {
-    throw new Error("AgentRuntime has not been initialized. Call initAgentRuntime() first.");
+    throw new Error(
+      "AgentRuntime has not been initialized. Call initAgentRuntime() first.",
+    );
   }
   return runtime;
 }

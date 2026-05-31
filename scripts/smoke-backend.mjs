@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-const httpBaseUrl = process.env.PI_WEB_BASE_URL || "http://127.0.0.1:3000";
+const httpBaseUrl = process.env.PI_WEB_BASE_URL || "http://localhost:3000";
 const timeoutMs = Number(process.env.PI_WEB_SMOKE_TIMEOUT_MS || 30_000);
 const smokePassword = process.env.PI_WEB_SMOKE_ADMIN_PASSWORD;
 
@@ -70,8 +70,8 @@ async function requestJson(method, path, body, options = {}) {
 
 function assertAgentState(state, context) {
   assert(
-    state?.protocolVersion === 6,
-    `${context} protocolVersion should be 6`,
+    state?.protocolVersion === 7,
+    `${context} protocolVersion should be 7`,
     JSON.stringify(state, null, 2),
   );
   assert(
@@ -115,7 +115,10 @@ async function testUnauthenticatedSse() {
   const response = await fetch(sseUrl, {
     signal: AbortSignal.timeout(timeoutMs),
   }).catch((error) => {
-    fail("unauthenticated SSE endpoint is not reachable. Is `pnpm dev` running?", error);
+    fail(
+      "unauthenticated SSE endpoint is not reachable. Is `pnpm dev` running?",
+      error,
+    );
   });
   assert(
     response.status === 401,

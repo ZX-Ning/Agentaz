@@ -69,7 +69,7 @@ export type PiSessionWorkspaceOptions = {
  *     (identified by the getProtectedSessionIds callback).
  *   - Persisted session metadata is cached separately and refreshed after mutations.
  */
- export class PiSessionWorkspace {
+export class PiSessionWorkspace {
   /** Pi agent home directory (defaults to ~/.pi or PI_CODING_AGENT_DIR). */
   private agentDir = getAgentDir();
   /** Shared auth storage for API keys and credentials. */

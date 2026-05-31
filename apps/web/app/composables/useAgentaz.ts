@@ -830,7 +830,8 @@ export function useAgentazAppController() {
           hasShownDisconnectToast.value = true;
           toast.add({
             title: "Connection lost",
-            description: "The realtime agent connection was lost. Attempting to reconnect...",
+            description:
+              "The realtime agent connection was lost. Attempting to reconnect...",
             color: "warning",
             duration: 15_000,
           });
