@@ -7,3 +7,5 @@ allowBuilds:
   koffi: true
   protobufjs: true
   tree-sitter-bash: true
+  unrs-resolver: true
+  vue-demi: true

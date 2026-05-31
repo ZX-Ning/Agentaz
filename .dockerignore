@@ -1,0 +1,13 @@
+node_modules
+.output
+.nuxt
+.data
+.env
+.env.*
+!.env.example
+.DS_Store
+*.log
+.pnpm-store
+coverage
+.pi/
+_debug*
