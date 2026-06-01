@@ -149,10 +149,16 @@ When protocol shapes change:
 Prompt submissions use protocol v8 turn reconciliation. The browser generates
 `clientMessageId` before `POST /api/agent/sessions/:sessionId/messages`,
 renders a local optimistic user message, and replaces that local message when
-SSE `turn_started` returns the canonical backend `UiMessage`. `status` and
+SSE `turn_started` returns the canonical backend `UiMessage`. If the prompt
+fails, `turn_failed` removes the optimistic/canonical placeholder and forces a
+history refresh so Pi's persisted history remains authoritative. `status` and
 `state_snapshot` update runtime UI only; transcript history should refresh from
-explicit `turn_completed.transcriptRevision` or direct user actions such as
-fork/revert/reload.
+explicit `turn_completed.transcriptRevision`, `turn_failed`, or direct user
+actions such as fork/revert/reload.
+
+`follow_up` messages currently mutate Pi's pending queue only. They do not
+participate in optimistic transcript reconciliation and should not send
+`clientMessageId` until the product has a dedicated queued-message protocol.
 
 Important HTTP reads include:
 
@@ -208,8 +214,10 @@ The browser transcript should match the backend projection: one assistant `UiMes
 History responses include a monotonic `revision`. The frontend should keep the
 newest revision per session, ignore stale history responses, and keep
 `mergeHistoryWithOptimisticMessages()` only as a recovery fallback for unusual
-timing or older persisted data. The normal confirmation path is
-`clientMessageId`, not matching by prompt text.
+timing or older persisted data. The normal prompt confirmation path is
+`clientMessageId`, not matching by prompt text. On `turn_failed`, remove the
+matching optimistic/canonical user message before refreshing history; if Pi
+persisted it, history will restore it.
 
 Persisted history messages may include `UiMessage.entryId`, which identifies
 the current-branch Pi session entry backing that rendered message, and
@@ -231,7 +239,8 @@ Current behavior:
 
 Future behavior:
 
-- If streaming, allow choosing between `steer` and `follow_up`.
+- If streaming, allow choosing between `steer` and `follow_up`; add an explicit
+  queued-message UI/protocol before rendering follow-up as optimistic chat.
 - Add attachment/image affordance only after backend image handling is implemented.
 
 ## Approval UI

@@ -26,14 +26,15 @@ import { BadRequestError } from "../../../../utils/domain-errors";
  *   - mode: "prompt" for a new agent turn, "steer" to redirect streaming output,
  *     "follow_up" to queue a message after the current turn completes.
  *   - text: The message text to send to the Pi agent.
- *   - clientMessageId: Browser-generated id required for prompt/follow_up
- *     submissions so SSE can confirm optimistic user messages.
+ *   - clientMessageId: Browser-generated id required for prompt submissions
+ *     so SSE can confirm optimistic user messages. Follow-up messages mutate
+ *     Pi's queue and do not currently create optimistic transcript messages.
  *   - images (optional): Base64-encoded image attachments (reserved for future use).
  *
  * Response (200): MessageSubmitResponse
  *   - accepted: Always true
  *   - sessionId: Echo of the route param
- *   - clientMessageId: Echo for prompt/follow_up submissions
+ *   - clientMessageId: Echo for prompt submissions
  *   - turnId: Server-side turn id for prompt submissions
  *
  * Lifecycle:
@@ -59,15 +60,19 @@ export default defineEventHandler(
       if (!body.text || !body.mode)
         throw new BadRequestError("Message mode and text are required.");
       if (
+        body.mode !== "prompt" &&
         body.mode !== "steer" &&
-        (!("clientMessageId" in body) || !body.clientMessageId)
+        body.mode !== "follow_up"
       ) {
-        throw new BadRequestError(
-          "clientMessageId is required for prompt and follow_up messages.",
-        );
+        throw new BadRequestError("Unsupported message mode.");
       }
       const clientMessageId =
         "clientMessageId" in body ? body.clientMessageId : undefined;
+      if (body.mode === "prompt" && !clientMessageId) {
+        throw new BadRequestError(
+          "clientMessageId is required for prompt messages.",
+        );
+      }
 
       // Acquire request-scoped control — blocks other clients from mutating
       // this session while we submit the message.
@@ -81,10 +86,18 @@ export default defineEventHandler(
             lease.release,
           );
         }
+        if (body.mode === "follow_up") {
+          return lease.runtime.workspace.submitMessage(
+            sessionId,
+            { mode: "follow_up", text: body.text, images: body.images },
+            // Release control when the message task settles (completes or errors).
+            lease.release,
+          );
+        }
         return lease.runtime.workspace.submitMessage(
           sessionId,
           {
-            mode: body.mode,
+            mode: "prompt",
             clientMessageId: clientMessageId!,
             text: body.text,
             images: body.images,

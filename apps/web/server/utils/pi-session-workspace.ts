@@ -557,7 +557,7 @@ export class PiSessionWorkspace {
       accepted: true,
       sessionId,
       clientMessageId:
-        request.mode === "steer" ? undefined : request.clientMessageId,
+        request.mode === "prompt" ? request.clientMessageId : undefined,
       turnId: turn?.turnId,
     };
   }

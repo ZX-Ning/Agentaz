@@ -242,9 +242,16 @@ Current important server events include:
 backend `UiMessage` keyed by `clientMessageId`. `turn_completed` is the normal
 signal that HTTP history is stable enough to refresh, and carries the
 `transcriptRevision` that the frontend uses to ignore stale history responses.
+`turn_failed` carries the prompt correlation fields when available so the
+frontend can discard local placeholders and re-read authoritative history.
 `status` and `state_snapshot` must not be used as implicit transcript-refresh
 signals; they are for runtime state, control, pending UI, and reconnect
 recovery.
+
+`clientMessageId` belongs to prompt submissions only. `follow_up` currently
+queues text inside Pi's pending queue and does not create a confirmed browser
+transcript turn; adding visible queued user messages requires a separate
+queued-message protocol instead of reusing `turn_started`.
 
 `message_block_delta` can stream `text`, `thinking`, and `tool_result` blocks.
 Pi SDK bash updates provide accumulated `partialResult.content`; the backend

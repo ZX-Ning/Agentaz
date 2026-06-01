@@ -616,10 +616,14 @@ export type MessageSubmitRequest =
       images?: ImagePayload[];
     }
   | {
-      /** Queue a message after the current turn completes. */
+      /**
+       * Queue a message after the current turn completes.
+       *
+       * Follow-up currently mutates Pi's pending queue only. It does not create a
+       * browser-optimistic transcript turn, so there is no clientMessageId echo
+       * or turn_started confirmation path for this request shape.
+       */
       mode: "follow_up";
-      /** Browser-generated id used to confirm the queued user message. */
-      clientMessageId: string;
       /** Message text content. */
       text: string;
       /** Optional image attachments (reserved for future use). */
@@ -635,7 +639,7 @@ export type MessageSubmitResponse = {
   accepted: true;
   /** Echo of the session id from the route param. */
   sessionId: string;
-  /** Echo of the browser-generated optimistic message id, when provided. */
+  /** Echo of the browser-generated optimistic message id for prompt submissions. */
   clientMessageId?: string;
   /** Server-side turn id for prompt submissions. */
   turnId?: string;

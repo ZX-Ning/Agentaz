@@ -261,6 +261,10 @@ Current important events:
 Transcript refresh is driven by explicit turn completion and history revision,
 not by `status` or `state_snapshot` becoming idle. User prompt reconciliation
 uses browser-generated `clientMessageId` values echoed in `turn_started`.
+`turn_failed` forces the frontend back to authoritative HTTP history after
+removing any matching local placeholder. `follow_up` remains a queue mutation
+without optimistic transcript rendering until a dedicated queued-message
+protocol is designed.
 
 REST-only data must not be emitted as SSE result events:
 

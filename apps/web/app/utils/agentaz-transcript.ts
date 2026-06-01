@@ -129,6 +129,44 @@ export function confirmOptimisticUserMessage(
   }
 }
 
+/**
+ * Removes a prompt's browser-local or backend-confirmed user message before a
+ * failure recovery history refresh.
+ *
+ * If Pi persisted the prompt before failing, the subsequent history response
+ * will restore the message. If Pi failed during preflight, this prevents the
+ * optimistic/canonical placeholder from becoming an orphaned transcript entry.
+ */
+export function removeUserMessageByClientMessageId(
+  messagesBySessionId: Record<string, UiMessage[]>,
+  sessionId: string,
+  clientMessageId: string,
+) {
+  const bucket = messagesBySessionId[sessionId];
+  if (!bucket?.length) return;
+  messagesBySessionId[sessionId] = bucket.filter(
+    (item) =>
+      !(
+        item.role === "user" &&
+        (item.clientMessageId === clientMessageId ||
+          item.id === `local-${clientMessageId}` ||
+          item.id === `user-${clientMessageId}`)
+      ),
+  );
+}
+
+/**
+ * Creates a browser-side prompt correlation id.
+ *
+ * `crypto.randomUUID()` is unavailable in some non-secure browser contexts.
+ * The fallback only needs local collision resistance for optimistic UI
+ * reconciliation, not cryptographic secrecy.
+ */
+export function createClientMessageId() {
+  if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();
+  return `cm-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+}
+
 export function upsertMessageBlock(
   messagesBySessionId: Record<string, UiMessage[]>,
   sessionId: string,

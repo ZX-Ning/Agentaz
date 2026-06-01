@@ -41,8 +41,10 @@ import {
 import {
   appendMessageBlockDelta,
   confirmOptimisticUserMessage,
+  createClientMessageId,
   ensureMessageBucket,
   mergeHistoryWithOptimisticMessages,
+  removeUserMessageByClientMessageId,
   upsertMessage,
   upsertMessageBlock,
 } from "../utils/agentaz-transcript";
@@ -619,7 +621,7 @@ export function useAgentazAppController() {
     const text = promptText.value.trim();
     if (!sessionId || !text) return;
 
-    const clientMessageId = crypto.randomUUID();
+    const clientMessageId = createClientMessageId();
     const localMessageId = `local-${clientMessageId}`;
     ensureMessageBucket(messagesBySessionId.value, sessionId).push({
       id: localMessageId,
@@ -719,12 +721,20 @@ export function useAgentazAppController() {
     }
 
     if (event.type === "turn_failed") {
+      if (event.clientMessageId) {
+        removeUserMessageByClientMessageId(
+          messagesBySessionId.value,
+          event.sessionId,
+          event.clientMessageId,
+        );
+      }
       if (event.transcriptRevision !== undefined) {
         transcriptRevisionBySessionId.value[event.sessionId] = Math.max(
           transcriptRevisionBySessionId.value[event.sessionId] ?? -1,
           event.transcriptRevision,
         );
       }
+      void refreshHistory(event.sessionId, true);
       return;
     }
 
