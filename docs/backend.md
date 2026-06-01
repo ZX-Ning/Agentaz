@@ -225,6 +225,9 @@ Current important server events include:
 - `hello`
 - `state_snapshot`
 - `control_changed`
+- `turn_started`
+- `turn_completed`
+- `turn_failed`
 - `message_upsert`
 - `message_block_upsert`
 - `message_block_delta`
@@ -234,6 +237,14 @@ Current important server events include:
 - extension widget update events
 - `status`
 - `error`
+
+`turn_started` confirms the browser's optimistic user message with a canonical
+backend `UiMessage` keyed by `clientMessageId`. `turn_completed` is the normal
+signal that HTTP history is stable enough to refresh, and carries the
+`transcriptRevision` that the frontend uses to ignore stale history responses.
+`status` and `state_snapshot` must not be used as implicit transcript-refresh
+signals; they are for runtime state, control, pending UI, and reconnect
+recovery.
 
 `message_block_delta` can stream `text`, `thinking`, and `tool_result` blocks.
 Pi SDK bash updates provide accumulated `partialResult.content`; the backend

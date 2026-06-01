@@ -26,11 +26,15 @@ import { BadRequestError } from "../../../../utils/domain-errors";
  *   - mode: "prompt" for a new agent turn, "steer" to redirect streaming output,
  *     "follow_up" to queue a message after the current turn completes.
  *   - text: The message text to send to the Pi agent.
+ *   - clientMessageId: Browser-generated id required for prompt/follow_up
+ *     submissions so SSE can confirm optimistic user messages.
  *   - images (optional): Base64-encoded image attachments (reserved for future use).
  *
  * Response (200): MessageSubmitResponse
  *   - accepted: Always true
  *   - sessionId: Echo of the route param
+ *   - clientMessageId: Echo for prompt/follow_up submissions
+ *   - turnId: Server-side turn id for prompt submissions
  *
  * Lifecycle:
  *   1. Validate required fields (text, mode)
@@ -54,15 +58,34 @@ export default defineEventHandler(
       // Validate required message fields before acquiring control.
       if (!body.text || !body.mode)
         throw new BadRequestError("Message mode and text are required.");
+      if (
+        body.mode !== "steer" &&
+        (!("clientMessageId" in body) || !body.clientMessageId)
+      ) {
+        throw new BadRequestError(
+          "clientMessageId is required for prompt and follow_up messages.",
+        );
+      }
+      const clientMessageId =
+        "clientMessageId" in body ? body.clientMessageId : undefined;
 
       // Acquire request-scoped control — blocks other clients from mutating
       // this session while we submit the message.
       const lease = acquireRequestSessionControl(event, sessionId);
       try {
-        lease.runtime.workspace.submitMessage(
+        if (body.mode === "steer") {
+          return lease.runtime.workspace.submitMessage(
+            sessionId,
+            { mode: "steer", text: body.text, images: body.images },
+            // Release control when the message task settles (completes or errors).
+            lease.release,
+          );
+        }
+        return lease.runtime.workspace.submitMessage(
           sessionId,
           {
             mode: body.mode,
+            clientMessageId: clientMessageId!,
             text: body.text,
             images: body.images,
           },
@@ -74,7 +97,6 @@ export default defineEventHandler(
         lease.release();
         throw error;
       }
-      return { accepted: true, sessionId };
     } catch (error) {
       throw agentHttpError(error);
     }

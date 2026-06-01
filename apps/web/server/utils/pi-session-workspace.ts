@@ -10,6 +10,7 @@ import { access, rename } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import type {
   MessageSubmitRequest,
+  MessageSubmitResponse,
   ModelStateResponse,
   ServerEvent,
   SessionEntriesResponse,
@@ -508,8 +509,15 @@ export class PiSessionWorkspace {
     sessionId: string,
     request: MessageSubmitRequest,
     onSettled?: () => void,
-  ) {
+  ): MessageSubmitResponse {
     const controller = this.mutableSession(sessionId);
+    const turn =
+      request.mode === "prompt"
+        ? {
+            turnId: crypto.randomUUID(),
+            clientMessageId: request.clientMessageId,
+          }
+        : undefined;
 
     // Dispatch to the correct controller method based on mode.
     const task =
@@ -517,7 +525,7 @@ export class PiSessionWorkspace {
         ? controller.steer(request.text, request.images)
         : request.mode === "follow_up"
           ? controller.followUp(request.text, request.images)
-          : controller.prompt(request.text, request.images);
+          : controller.prompt(request.text, request.images, turn!);
 
     // Attach settlement handlers to the async task.
     // We don't await — the HTTP response returns immediately.
@@ -544,6 +552,14 @@ export class PiSessionWorkspace {
 
     // Emit immediately so the frontend shows the session as busy.
     this.emitStateChanged();
+
+    return {
+      accepted: true,
+      sessionId,
+      clientMessageId:
+        request.mode === "steer" ? undefined : request.clientMessageId,
+      turnId: turn?.turnId,
+    };
   }
 
   /**

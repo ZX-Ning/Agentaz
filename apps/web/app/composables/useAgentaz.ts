@@ -40,7 +40,9 @@ import {
 } from "../utils/agentaz-session-list";
 import {
   appendMessageBlockDelta,
+  confirmOptimisticUserMessage,
   ensureMessageBucket,
+  mergeHistoryWithOptimisticMessages,
   upsertMessage,
   upsertMessageBlock,
 } from "../utils/agentaz-transcript";
@@ -74,6 +76,7 @@ export function useAgentazAppController() {
   const loadedSessions = ref<UiLoadedSession[]>([]);
   const persistedSessions = ref<UiSessionSummary[]>([]);
   const messagesBySessionId = ref<Record<string, UiMessage[]>>({});
+  const transcriptRevisionBySessionId = ref<Record<string, number>>({});
   const modelStateBySessionId = ref<Record<string, SessionModelState>>({});
   const pendingUiRequestsBySessionId = ref<Record<string, PendingUiRequest[]>>(
     {},
@@ -365,7 +368,13 @@ export function useAgentazAppController() {
     const history = await agentFetch<SessionHistoryResponse>(
       sessionUrl(sessionId, "/history"),
     );
-    messagesBySessionId.value[sessionId] = history.messages;
+    const knownRevision = transcriptRevisionBySessionId.value[sessionId] ?? -1;
+    if (history.revision < knownRevision) return;
+    transcriptRevisionBySessionId.value[sessionId] = history.revision;
+    messagesBySessionId.value[sessionId] = mergeHistoryWithOptimisticMessages(
+      messagesBySessionId.value[sessionId],
+      history.messages,
+    );
   }
 
   async function refreshModelState(sessionId: string) {
@@ -477,6 +486,9 @@ export function useAgentazAppController() {
     messagesBySessionId.value[sessionId] =
       messagesBySessionId.value[draftSessionId] ?? [];
     delete messagesBySessionId.value[draftSessionId];
+    transcriptRevisionBySessionId.value[sessionId] =
+      transcriptRevisionBySessionId.value[draftSessionId] ?? 0;
+    delete transcriptRevisionBySessionId.value[draftSessionId];
     modelStateBySessionId.value[sessionId] =
       modelStateBySessionId.value[draftSessionId] ?? defaultModelState();
     delete modelStateBySessionId.value[draftSessionId];
@@ -553,6 +565,7 @@ export function useAgentazAppController() {
 
     if (deletedSessionId) {
       delete messagesBySessionId.value[deletedSessionId];
+      delete transcriptRevisionBySessionId.value[deletedSessionId];
       delete modelStateBySessionId.value[deletedSessionId];
       delete pendingUiRequestsBySessionId.value[deletedSessionId];
     }
@@ -606,9 +619,11 @@ export function useAgentazAppController() {
     const text = promptText.value.trim();
     if (!sessionId || !text) return;
 
-    const localMessageId = `local-${Date.now()}`;
+    const clientMessageId = crypto.randomUUID();
+    const localMessageId = `local-${clientMessageId}`;
     ensureMessageBucket(messagesBySessionId.value, sessionId).push({
       id: localMessageId,
+      clientMessageId,
       role: "user",
       blocks: [{ id: `${localMessageId}:text`, type: "text", text }],
       createdAt: Date.now(),
@@ -618,7 +633,11 @@ export function useAgentazAppController() {
       sessionId = await materializeDraftSession(sessionId);
     }
 
-    const body: MessageSubmitRequest = { mode: "prompt", text };
+    const body: MessageSubmitRequest = {
+      mode: "prompt",
+      clientMessageId,
+      text,
+    };
     await agentFetch(sessionUrl(sessionId, "/messages"), {
       method: "POST",
       body,
@@ -646,25 +665,10 @@ export function useAgentazAppController() {
 
     if (event.type === "state_snapshot") {
       const previousActiveSessionId = activeSessionId.value;
-      const previousActiveLoadedSession = loadedSessions.value.find(
-        (session) => session.sessionId === previousActiveSessionId,
-      );
       const state = event.state;
       if (!isDraftSessionId(activeSessionId.value)) {
         activeSessionId.value = state.activeSessionId ?? activeSessionId.value;
       }
-      const nextActiveLoadedSession = state.loadedSessions.find(
-        (session) => session.sessionId === activeSessionId.value,
-      );
-      const didCurrentSessionBecomeIdle = Boolean(
-        activeSessionId.value &&
-        activeSessionId.value === previousActiveSessionId &&
-        !isDraftSessionId(activeSessionId.value) &&
-        (previousActiveLoadedSession?.isWorking ||
-          previousActiveLoadedSession?.isStreaming) &&
-        !nextActiveLoadedSession?.isWorking &&
-        !nextActiveLoadedSession?.isStreaming,
-      );
       loadedSessions.value = state.loadedSessions;
       syncPendingUiRequestsFromLoadedSessions(state.loadedSessions);
       if (state.persistedSessions.length > 0)
@@ -675,13 +679,6 @@ export function useAgentazAppController() {
         activeSessionId.value !== previousActiveSessionId
       ) {
         void refreshSessionDetails(activeSessionId.value);
-      } else if (didCurrentSessionBecomeIdle && activeSessionId.value) {
-        // The optimistic user message created by sendPrompt() has no Pi entry
-        // anchors, so fork/revert controls stay hidden until we replace it with
-        // normalized history. Status events also force-refresh history, but this
-        // snapshot path is the reliable backend-settled fallback after a message
-        // task refreshes persisted metadata and emits state_changed.
-        void refreshHistory(activeSessionId.value, true);
       }
       if (
         hasAppliedInitialRoute.value &&
@@ -699,6 +696,35 @@ export function useAgentazAppController() {
         controlledByCurrentClient:
           event.controlOwnerClientId === clientId.value,
       });
+      return;
+    }
+
+    if (event.type === "turn_started") {
+      confirmOptimisticUserMessage(
+        messagesBySessionId.value,
+        event.sessionId,
+        event.clientMessageId,
+        event.userMessage,
+      );
+      return;
+    }
+
+    if (event.type === "turn_completed") {
+      const knownRevision =
+        transcriptRevisionBySessionId.value[event.sessionId] ?? -1;
+      if (event.transcriptRevision > knownRevision) {
+        void refreshHistory(event.sessionId, true);
+      }
+      return;
+    }
+
+    if (event.type === "turn_failed") {
+      if (event.transcriptRevision !== undefined) {
+        transcriptRevisionBySessionId.value[event.sessionId] = Math.max(
+          transcriptRevisionBySessionId.value[event.sessionId] ?? -1,
+          event.transcriptRevision,
+        );
+      }
       return;
     }
 
@@ -742,9 +768,6 @@ export function useAgentazAppController() {
         });
         if ((event.pendingApprovalCount ?? 0) === 0) {
           pendingUiRequestsBySessionId.value[event.sessionId] = [];
-        }
-        if (!event.isStreaming && event.sessionId === activeSessionId.value) {
-          void refreshHistory(event.sessionId, true);
         }
         if (shouldRefreshModelState) void refreshModelState(event.sessionId);
       }

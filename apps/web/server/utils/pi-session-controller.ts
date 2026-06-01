@@ -51,6 +51,14 @@ type ToolBlockLocation = {
   resultBlockId: string;
 };
 
+/** Metadata for one browser-submitted prompt turn. */
+type PromptTurn = {
+  /** Server-side id for this prompt turn. */
+  turnId: string;
+  /** Browser-generated id used to reconcile optimistic user messages. */
+  clientMessageId: string;
+};
+
 /** The complete set of thinking levels exposed through the web UI. */
 export const DEFAULT_THINKING_LEVELS: ThinkingLevel[] = [
   "off",
@@ -119,6 +127,8 @@ export class PiSessionController {
   private toolResultEmittedLength = new Map<string, number>();
   /** Cached normalized history; invalidated when messages change. */
   private cachedHistory?: SessionHistoryResponse;
+  /** Monotonic counter for normalized transcript/history changes. */
+  private transcriptRevision = 0;
 
   private constructor(
     private readonly cwd: string,
@@ -289,9 +299,33 @@ export class PiSessionController {
    * Sends a prompt to this session and waits for the Pi agent loop to finish.
    * This is the primary message entry point — starts a new agent turn.
    */
-  async prompt(text: string, images?: ImagePayload[]) {
+  async prompt(
+    text: string,
+    images: ImagePayload[] | undefined,
+    turn: PromptTurn,
+  ) {
     await this.ensureInitialized();
-    await this.requireSession().prompt(text, { images: toPiImages(images) });
+    this.startPromptTurn(text, turn);
+    try {
+      await this.requireSession().prompt(text, { images: toPiImages(images) });
+      this.emit({
+        type: "turn_completed",
+        sessionId: this.sessionId,
+        turnId: turn.turnId,
+        transcriptRevision: this.transcriptRevision,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.emit({
+        type: "turn_failed",
+        sessionId: this.sessionId,
+        turnId: turn.turnId,
+        clientMessageId: turn.clientMessageId,
+        message,
+        transcriptRevision: this.transcriptRevision,
+      });
+      throw error;
+    }
   }
 
   /**
@@ -493,6 +527,7 @@ export class PiSessionController {
 
     this.cachedHistory = {
       sessionId: this.sessionId,
+      revision: this.transcriptRevision,
       messages: normalizeMessages(messages as any[], {
         entryIdByMessageId,
         entryIdByMessageIndex,
@@ -528,6 +563,37 @@ export class PiSessionController {
   /** Invalidates the cached history when session messages change. */
   private invalidateHistoryCache() {
     this.cachedHistory = undefined;
+    this.transcriptRevision += 1;
+  }
+
+  /**
+   * Records and broadcasts the canonical user message for a prompt turn.
+   *
+   * Pi persists the user message inside session.prompt(), but that persistence
+   * is not exposed as a dedicated realtime event. Emitting this explicit turn
+   * start gives the browser a server-confirmed message id before assistant
+   * streaming begins, so optimistic local messages never depend on history
+   * refresh timing.
+   */
+  private startPromptTurn(text: string, turn: PromptTurn) {
+    const messageId = `user-${turn.clientMessageId}`;
+    const userMessage: UiMessage = {
+      id: messageId,
+      clientMessageId: turn.clientMessageId,
+      turnId: turn.turnId,
+      role: "user",
+      blocks: [{ id: `${messageId}:text`, type: "text", text }],
+      createdAt: Date.now(),
+    };
+    this.transcript.set(messageId, userMessage);
+    this.invalidateHistoryCache();
+    this.emit({
+      type: "turn_started",
+      sessionId: this.sessionId,
+      turnId: turn.turnId,
+      clientMessageId: turn.clientMessageId,
+      userMessage,
+    });
   }
 
   /** Sets the SessionManager and triggers lazy session initialization. */

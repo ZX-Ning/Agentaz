@@ -146,6 +146,14 @@ When protocol shapes change:
 3. Update frontend `$fetch` calls and event handling.
 4. Consider updating `scripts/smoke-backend.mjs` if handshake or required startup events change.
 
+Prompt submissions use protocol v8 turn reconciliation. The browser generates
+`clientMessageId` before `POST /api/agent/sessions/:sessionId/messages`,
+renders a local optimistic user message, and replaces that local message when
+SSE `turn_started` returns the canonical backend `UiMessage`. `status` and
+`state_snapshot` update runtime UI only; transcript history should refresh from
+explicit `turn_completed.transcriptRevision` or direct user actions such as
+fork/revert/reload.
+
 Important HTTP reads include:
 
 ```txt
@@ -196,6 +204,12 @@ Render user and assistant messages differently:
 User and assistant text blocks render Markdown with Comark. Tool output, tool results, and thinking blocks stay in plain `<pre>` rendering so command output and internal reasoning text are not parsed as Markdown. `message_block_delta` may append to text, thinking, or tool result blocks; tool result deltas should update the block's `content` field, while text/thinking deltas update `text`.
 
 The browser transcript should match the backend projection: one assistant `UiMessage` per agent turn, with ordered blocks for text, thinking, tool calls, and tool results. Reloaded HTTP history should render with the same grouping as live SSE streaming.
+
+History responses include a monotonic `revision`. The frontend should keep the
+newest revision per session, ignore stale history responses, and keep
+`mergeHistoryWithOptimisticMessages()` only as a recovery fallback for unusual
+timing or older persisted data. The normal confirmation path is
+`clientMessageId`, not matching by prompt text.
 
 Persisted history messages may include `UiMessage.entryId`, which identifies
 the current-branch Pi session entry backing that rendered message, and

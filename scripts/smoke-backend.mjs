@@ -70,8 +70,8 @@ async function requestJson(method, path, body, options = {}) {
 
 function assertAgentState(state, context) {
   assert(
-    state?.protocolVersion === 7,
-    `${context} protocolVersion should be 7`,
+    state?.protocolVersion === 8,
+    `${context} protocolVersion should be 8`,
     JSON.stringify(state, null, 2),
   );
   assert(
@@ -187,8 +187,10 @@ async function testAuthenticatedRestApi() {
     { authenticated: true },
   );
   assert(
-    history?.sessionId === created.sessionId && Array.isArray(history.messages),
-    "history response should include sessionId and messages[]",
+    history?.sessionId === created.sessionId &&
+      typeof history.revision === "number" &&
+      Array.isArray(history.messages),
+    "history response should include sessionId, revision, and messages[]",
     JSON.stringify(history, null, 2),
   );
 

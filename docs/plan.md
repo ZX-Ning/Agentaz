@@ -242,6 +242,9 @@ Current important events:
 - `hello`
 - `state_snapshot`
 - `control_changed`
+- `turn_started`
+- `turn_completed`
+- `turn_failed`
 - `message_upsert`
 - `message_block_upsert`
 - `message_block_delta` for streaming `text`, `thinking`, and `tool_result` blocks
@@ -254,6 +257,10 @@ Current important events:
 - `extension_widget_update`
 - `status`
 - `error`
+
+Transcript refresh is driven by explicit turn completion and history revision,
+not by `status` or `state_snapshot` becoming idle. User prompt reconciliation
+uses browser-generated `clientMessageId` values echoed in `turn_started`.
 
 REST-only data must not be emitted as SSE result events:
 

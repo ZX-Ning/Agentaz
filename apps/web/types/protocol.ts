@@ -5,7 +5,7 @@
  * event shapes or HTTP DTOs. The frontend should refuse to operate if the
  * server's protocol version doesn't match its expected version.
  */
-export const PROTOCOL_VERSION = 7;
+export const PROTOCOL_VERSION = 8;
 
 /**
  * Supported Pi thinking levels exposed through the web UI.
@@ -82,6 +82,10 @@ export type UiBlock =
 export type UiMessage = {
   /** Stable identifier for this message within the transcript. */
   id: string;
+  /** Browser-generated id used to reconcile optimistic user messages. */
+  clientMessageId?: string;
+  /** Agent turn that created this message, when known. */
+  turnId?: string;
   /** Current-branch Pi session entry id, present for persisted history messages. */
   entryId?: string;
   /** Previous current-branch Pi entry id used to rewind before this message. */
@@ -264,7 +268,7 @@ export type AgentCapabilities = {
 export type ServerHello = {
   type: "hello";
   /** Must match the client's expected protocol version. */
-  protocolVersion: 7;
+  protocolVersion: 8;
   /** Working directory shared by all sessions. */
   cwd: string;
   /** Unique client id assigned by the server for this connection. */
@@ -294,7 +298,8 @@ export type ServerErrorEvent = {
  * Events are categorized by purpose:
  *   - Connection: hello, error
  *   - State sync: state_snapshot, control_changed, status
- *   - Transcript: message_upsert, message_block_upsert, message_block_delta
+ *   - Transcript: turn_started, turn_completed, turn_failed,
+ *     message_upsert, message_block_upsert, message_block_delta
  *   - Permissions: permission_decision
  *   - Queue: queue_update
  *   - Extension UI: ui_select_request, ui_input_request, ui_confirm_request,
@@ -313,6 +318,35 @@ export type ServerEvent =
       sessionId: string;
       /** Client id that now owns the lease, or undefined if released. */
       controlOwnerClientId?: string;
+    }
+  | {
+      /** A prompt turn was accepted and its canonical user message is available. */
+      type: "turn_started";
+      sessionId: string;
+      /** Stable server-side id for this agent turn. */
+      turnId: string;
+      /** Browser-generated id for optimistic user-message reconciliation. */
+      clientMessageId: string;
+      /** Canonical user message replacing the local optimistic copy. */
+      userMessage: UiMessage;
+    }
+  | {
+      /** A prompt turn finished and the normalized history can be refreshed. */
+      type: "turn_completed";
+      sessionId: string;
+      turnId: string;
+      /** Monotonic transcript revision after the completed turn. */
+      transcriptRevision: number;
+    }
+  | {
+      /** A prompt turn failed before normal completion. */
+      type: "turn_failed";
+      sessionId: string;
+      turnId: string;
+      clientMessageId?: string;
+      message: string;
+      /** Current transcript revision, if a user message was already recorded. */
+      transcriptRevision?: number;
     }
   | {
       /** A message was created or updated in the transcript. */
@@ -425,7 +459,7 @@ export type AuthLoginResponse = {
  * requesting client, the working directory, and capability flags.
  */
 export type AgentStateResponse = {
-  protocolVersion: 7;
+  protocolVersion: 8;
   /** Working directory shared by all sessions. */
   cwd: string;
   /** The session currently focused by the requesting client. */
@@ -444,6 +478,8 @@ export type AgentStateResponse = {
  */
 export type SessionHistoryResponse = {
   sessionId: string;
+  /** Monotonic transcript revision represented by this history payload. */
+  revision: number;
   /** Normalized chat messages in display order. */
   messages: UiMessage[];
 };
@@ -560,14 +596,35 @@ export type ModelStateResponse = {
  * HTTP request used to submit prompts, steering, or queued follow-up text.
  * Sent to POST /api/agent/sessions/:sessionId/messages.
  */
-export type MessageSubmitRequest = {
-  /** Message dispatch mode. */
-  mode: "prompt" | "steer" | "follow_up";
-  /** Message text content. */
-  text: string;
-  /** Optional image attachments (reserved for future use). */
-  images?: ImagePayload[];
-};
+export type MessageSubmitRequest =
+  | {
+      /** Start a new agent turn. */
+      mode: "prompt";
+      /** Browser-generated id used to confirm the optimistic user message. */
+      clientMessageId: string;
+      /** Message text content. */
+      text: string;
+      /** Optional image attachments (reserved for future use). */
+      images?: ImagePayload[];
+    }
+  | {
+      /** Redirect the current streaming output; does not create a user message. */
+      mode: "steer";
+      /** Message text content. */
+      text: string;
+      /** Optional image attachments (reserved for future use). */
+      images?: ImagePayload[];
+    }
+  | {
+      /** Queue a message after the current turn completes. */
+      mode: "follow_up";
+      /** Browser-generated id used to confirm the queued user message. */
+      clientMessageId: string;
+      /** Message text content. */
+      text: string;
+      /** Optional image attachments (reserved for future use). */
+      images?: ImagePayload[];
+    };
 
 /**
  * HTTP response returned after a message has been accepted for processing.
@@ -578,6 +635,10 @@ export type MessageSubmitResponse = {
   accepted: true;
   /** Echo of the session id from the route param. */
   sessionId: string;
+  /** Echo of the browser-generated optimistic message id, when provided. */
+  clientMessageId?: string;
+  /** Server-side turn id for prompt submissions. */
+  turnId?: string;
 };
 
 /**
