@@ -323,13 +323,16 @@ export class PiSessionWorkspace {
     const normalizedSessionFile =
       await this.requirePersistedSessionFile(sessionFile);
     const loaded = this.findLoadedSessionByFile(normalizedSessionFile);
+    // Capture the loaded id before disposal. A disposed controller is
+    // intentionally unusable, so reading loaded.sessionId after dispose()
+    // would turn a successful delete into an agent_error response.
+    const loadedSessionId = loaded?.sessionId;
 
     if (loaded?.isBusy()) {
       throw new SessionBusyError();
     }
 
-    if (loaded) {
-      const loadedSessionId = loaded.sessionId;
+    if (loadedSessionId && loaded) {
       this.sessions.delete(loadedSessionId);
       await loaded.dispose();
     }
@@ -341,14 +344,14 @@ export class PiSessionWorkspace {
 
     this.eventBus.publish({
       type: "session_removed",
-      sessionId: loaded?.sessionId ?? normalizedSessionFile,
+      sessionId: loadedSessionId ?? normalizedSessionFile,
       fallbackSessionId: this.firstLoadedSessionId(),
     });
     await this.refreshPersistedSessionCache();
     this.emitStateChanged();
 
     return {
-      sessionId: loaded?.sessionId,
+      sessionId: loadedSessionId,
       sessionFile: normalizedSessionFile,
     };
   }

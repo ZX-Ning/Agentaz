@@ -96,6 +96,9 @@ export function useAgentazAppController() {
   const isUnmounting = ref(false);
   const hasShownDisconnectToast = ref(false);
   let completedTurnFocusNonce = 0;
+  let sessionSwitchRequestNonce = 0;
+  let latestSessionFocusIntent: { nonce: number; sessionId: string } | null =
+    null;
 
   // --- computed ---
 
@@ -238,13 +241,87 @@ export function useAgentazAppController() {
     }
   }
 
-  function applyState(state: AgentStateResponse | SessionOperationResponse) {
-    activeSessionId.value =
-      state.activeSessionId ??
-      (isDraftSessionId(activeSessionId.value) ? activeSessionId.value : null);
+  function applyState(
+    state: AgentStateResponse | SessionOperationResponse,
+    options: { preserveLocalFocusIntent?: boolean } = {},
+  ) {
+    activeSessionId.value = resolveActiveSessionFromState(
+      state,
+      options.preserveLocalFocusIntent,
+    );
     loadedSessions.value = state.loadedSessions;
     persistedSessions.value = state.persistedSessions;
     syncPendingUiRequestsFromLoadedSessions(state.loadedSessions);
+  }
+
+  /**
+   * Starts a browser-local session switch intent.
+   *
+   * Network responses can arrive out of order when the user clicks several
+   * sessions quickly. The nonce lets HTTP handlers ignore stale responses, and
+   * the remembered session id lets SSE snapshots avoid visually pulling the UI
+   * back to an older server-side focus while the latest user choice is still a
+   * valid session.
+   */
+  function beginSessionSwitchIntent(sessionId?: string | null) {
+    const nonce = ++sessionSwitchRequestNonce;
+    if (sessionId) {
+      latestSessionFocusIntent = { nonce, sessionId };
+      activeSessionId.value = sessionId;
+    }
+    return nonce;
+  }
+
+  /** Returns whether an async session-switch response still matches latest user intent. */
+  function isCurrentSessionSwitchIntent(nonce: number) {
+    return nonce === sessionSwitchRequestNonce;
+  }
+
+  /**
+   * Updates the latest local focus target after an operation reveals the real
+   * loaded session id (for example opening a persisted session by file path).
+   */
+  function rememberSessionFocusIntent(
+    nonce: number,
+    sessionId?: string | null,
+  ) {
+    if (!sessionId || !isCurrentSessionSwitchIntent(nonce)) return;
+    latestSessionFocusIntent = { nonce, sessionId };
+    activeSessionId.value = sessionId;
+  }
+
+  /**
+   * Resolves the visible active session for a backend state snapshot.
+   *
+   * A local focus intent wins while the intended session still exists in the
+   * snapshot. If the target disappears (delete/eviction), the intent is cleared
+   * and the backend active session/fallback is allowed to take over.
+   */
+  function resolveActiveSessionFromState(
+    state: AgentStateResponse | SessionOperationResponse,
+    preserveLocalFocusIntent = false,
+  ) {
+    const intentSessionId = latestSessionFocusIntent?.sessionId;
+    if (preserveLocalFocusIntent && intentSessionId) {
+      if (
+        isDraftSessionId(intentSessionId) ||
+        state.activeSessionId === intentSessionId ||
+        state.loadedSessions.some(
+          (session) => session.sessionId === intentSessionId,
+        ) ||
+        state.persistedSessions.some(
+          (session) => session.sessionId === intentSessionId,
+        )
+      ) {
+        return intentSessionId;
+      }
+      latestSessionFocusIntent = null;
+    }
+
+    return (
+      state.activeSessionId ??
+      (isDraftSessionId(activeSessionId.value) ? activeSessionId.value : null)
+    );
   }
 
   function applyModelState(state: ModelStateResponse) {
@@ -476,13 +553,21 @@ export function useAgentazAppController() {
     path: string,
     options?: Parameters<typeof $fetch<SessionOperationResponse>>[1],
     refreshHistoryForce = false,
+    switchRequestNonce?: number,
   ) {
     const state = await agentFetch<SessionOperationResponse>(path, options);
+    if (
+      switchRequestNonce !== undefined &&
+      !isCurrentSessionSwitchIntent(switchRequestNonce)
+    ) {
+      return state;
+    }
     applyState(state);
-    if (state.activeSessionId)
+    const detailSessionId = activeSessionId.value ?? state.activeSessionId;
+    if (detailSessionId && !isDraftSessionId(detailSessionId))
       await Promise.all([
-        refreshHistory(state.activeSessionId, refreshHistoryForce),
-        refreshModelState(state.activeSessionId),
+        refreshHistory(detailSessionId, refreshHistoryForce),
+        refreshModelState(detailSessionId),
       ]);
     return state;
   }
@@ -509,7 +594,7 @@ export function useAgentazAppController() {
       ? modelStateBySessionId.value[activeSessionId.value]
       : undefined;
     const sessionId = createDraftSessionId();
-    activeSessionId.value = sessionId;
+    beginSessionSwitchIntent(sessionId);
     ensureMessageBucket(messagesBySessionId.value, sessionId);
     modelStateBySessionId.value[sessionId] = previousModelState
       ? {
@@ -554,8 +639,9 @@ export function useAgentazAppController() {
     modelStateBySessionId.value[sessionId] =
       modelStateBySessionId.value[draftSessionId] ?? defaultModelState();
     delete modelStateBySessionId.value[draftSessionId];
-    activeSessionId.value = sessionId;
+    const switchNonce = beginSessionSwitchIntent(sessionId);
     applyState(state);
+    rememberSessionFocusIntent(switchNonce, sessionId);
     activeSessionId.value = sessionId;
     await syncBrowserRouteToSession(sessionId, "replace");
     if (draftModel) {
@@ -586,24 +672,40 @@ export function useAgentazAppController() {
     await syncBrowserRouteToSession(activeSessionId.value, "push");
   }
 
-  async function openPersistedSession(sessionFile: string, syncRoute = true) {
-    const state = await postSessionOperation("/api/agent/sessions", {
-      method: "POST",
-      body: { sessionFile },
-    });
+  async function openPersistedSession(
+    sessionFile: string,
+    syncRoute = true,
+    expectedSessionId?: string | null,
+  ) {
+    const switchNonce = beginSessionSwitchIntent(expectedSessionId);
+    const state = await postSessionOperation(
+      "/api/agent/sessions",
+      {
+        method: "POST",
+        body: { sessionFile },
+      },
+      false,
+      switchNonce,
+    );
+    if (!isCurrentSessionSwitchIntent(switchNonce)) return;
+    const sessionId = state.sessionId ?? state.activeSessionId;
+    rememberSessionFocusIntent(switchNonce, sessionId);
     if (syncRoute) {
-      await syncBrowserRouteToSession(
-        state.sessionId ?? state.activeSessionId,
-        "push",
-      );
+      await syncBrowserRouteToSession(sessionId, "push");
     }
   }
 
   async function focusSession(sessionId: string, syncRoute = true) {
-    activeSessionId.value = sessionId;
-    await postSessionOperation(sessionUrl(sessionId, "/focus"), {
-      method: "POST",
-    });
+    const switchNonce = beginSessionSwitchIntent(sessionId);
+    await postSessionOperation(
+      sessionUrl(sessionId, "/focus"),
+      {
+        method: "POST",
+      },
+      false,
+      switchNonce,
+    );
+    if (!isCurrentSessionSwitchIntent(switchNonce)) return;
     if (syncRoute) await syncBrowserRouteToSession(sessionId, "push");
   }
 
@@ -738,9 +840,7 @@ export function useAgentazAppController() {
     if (event.type === "state_snapshot") {
       const previousActiveSessionId = activeSessionId.value;
       const state = event.state;
-      if (!isDraftSessionId(activeSessionId.value)) {
-        activeSessionId.value = state.activeSessionId ?? activeSessionId.value;
-      }
+      activeSessionId.value = resolveActiveSessionFromState(state, true);
       loadedSessions.value = state.loadedSessions;
       syncPendingUiRequestsFromLoadedSessions(state.loadedSessions);
       if (state.persistedSessions.length > 0)
@@ -973,7 +1073,7 @@ export function useAgentazAppController() {
     );
     if (!persisted) return false;
 
-    await openPersistedSession(persisted.file, false);
+    await openPersistedSession(persisted.file, false, sessionId);
     return true;
   }
 
@@ -1010,7 +1110,7 @@ export function useAgentazAppController() {
 
   async function handleSessionClick(session: SessionListItem) {
     if (session.isDraft && session.sessionId) {
-      activeSessionId.value = session.sessionId;
+      beginSessionSwitchIntent(session.sessionId);
       return;
     }
     if (session.isLoaded && session.sessionId) {
@@ -1024,7 +1124,7 @@ export function useAgentazAppController() {
         await focusSession(loaded.sessionId);
         return;
       }
-      await openPersistedSession(session.file);
+      await openPersistedSession(session.file, true, session.sessionId);
     }
   }
 
