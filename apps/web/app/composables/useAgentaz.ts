@@ -83,6 +83,11 @@ export function useAgentazAppController() {
   const pendingUiRequestsBySessionId = ref<Record<string, PendingUiRequest[]>>(
     {},
   );
+  const locallyPendingPromptBySessionId = ref<Record<string, boolean>>({});
+  const completedTurnFocusRequest = ref<{
+    sessionId: string;
+    nonce: number;
+  } | null>(null);
   const promptText = ref("");
   const lastError = ref<string | null>(null);
   const eventSource = shallowRef<EventSource | null>(null);
@@ -90,6 +95,7 @@ export function useAgentazAppController() {
   const isSyncingBrowserRoute = ref(false);
   const isUnmounting = ref(false);
   const hasShownDisconnectToast = ref(false);
+  let completedTurnFocusNonce = 0;
 
   // --- computed ---
 
@@ -128,6 +134,11 @@ export function useAgentazAppController() {
       ? (pendingUiRequestsBySessionId.value[activeSessionId.value] ?? [])
       : [],
   );
+  const isAwaitingActivePromptResponse = computed(() =>
+    activeSessionId.value
+      ? Boolean(locallyPendingPromptBySessionId.value[activeSessionId.value])
+      : false,
+  );
   const activeExtensionWidgets = computed(() =>
     activeLoadedSession.value ? activeLoadedSession.value.extensionWidgets : [],
   );
@@ -163,6 +174,14 @@ export function useAgentazAppController() {
     () =>
       activeLoadedSession.value?.pendingApprovalCount ??
       activePendingUiRequests.value.length,
+  );
+  const isActiveSessionWorking = computed(() =>
+    Boolean(
+      isAwaitingActivePromptResponse.value ||
+      activeLoadedSession.value?.isWorking ||
+      activeLoadedSession.value?.isStreaming ||
+      (activeLoadedSession.value?.pendingMessageCount ?? 0) > 0,
+    ),
   );
   const selectedModelKey = computed(() =>
     currentModel.value ? modelKey(currentModel.value) : "",
@@ -360,6 +379,47 @@ export function useAgentazAppController() {
     upsertLoadedSession(sessionId, {
       pendingApprovalCount: nextRequests.length,
     });
+  }
+
+  /**
+   * Tracks prompt work that the browser initiated before the next server state
+   * snapshot arrives.
+   *
+   * The message submit endpoint is fire-and-forget, so this local bit keeps the
+   * transcript footer responsive during the short gap between HTTP acceptance
+   * and the first SSE snapshot/status update for the agent turn.
+   */
+  function setLocalPromptWorking(sessionId: string, isWorking: boolean) {
+    const next = { ...locallyPendingPromptBySessionId.value };
+    if (isWorking) next[sessionId] = true;
+    else delete next[sessionId];
+    locallyPendingPromptBySessionId.value = next;
+  }
+
+  /**
+   * Moves local prompt-working state when the first prompt turns a draft
+   * frontend session into a real backend session.
+   */
+  function moveLocalPromptWorking(fromSessionId: string, toSessionId: string) {
+    if (fromSessionId === toSessionId) return;
+    const wasWorking = locallyPendingPromptBySessionId.value[fromSessionId];
+    if (!wasWorking) return;
+
+    const next = { ...locallyPendingPromptBySessionId.value };
+    delete next[fromSessionId];
+    next[toSessionId] = true;
+    locallyPendingPromptBySessionId.value = next;
+  }
+
+  /**
+   * Requests that the workspace move keyboard focus to the newest assistant
+   * response once the completed turn has settled into the DOM.
+   */
+  function requestCompletedTurnFocus(sessionId: string) {
+    completedTurnFocusRequest.value = {
+      sessionId,
+      nonce: ++completedTurnFocusNonce,
+    };
   }
 
   // --- session operations ---
@@ -620,6 +680,7 @@ export function useAgentazAppController() {
     let sessionId = activeSessionId.value;
     const text = promptText.value.trim();
     if (!sessionId || !text) return;
+    const startingSessionId = sessionId;
 
     const clientMessageId = createClientMessageId();
     const localMessageId = `local-${clientMessageId}`;
@@ -630,21 +691,30 @@ export function useAgentazAppController() {
       blocks: [{ id: `${localMessageId}:text`, type: "text", text }],
       createdAt: Date.now(),
     });
+    setLocalPromptWorking(sessionId, true);
 
-    if (isDraftSessionId(sessionId)) {
-      sessionId = await materializeDraftSession(sessionId);
+    try {
+      if (isDraftSessionId(sessionId)) {
+        sessionId = await materializeDraftSession(sessionId);
+        moveLocalPromptWorking(startingSessionId, sessionId);
+      }
+
+      const body: MessageSubmitRequest = {
+        mode: "prompt",
+        clientMessageId,
+        text,
+      };
+      await agentFetch(sessionUrl(sessionId, "/messages"), {
+        method: "POST",
+        body,
+      });
+      promptText.value = "";
+    } catch (error) {
+      setLocalPromptWorking(startingSessionId, false);
+      if (sessionId !== startingSessionId)
+        setLocalPromptWorking(sessionId, false);
+      throw error;
     }
-
-    const body: MessageSubmitRequest = {
-      mode: "prompt",
-      clientMessageId,
-      text,
-    };
-    await agentFetch(sessionUrl(sessionId, "/messages"), {
-      method: "POST",
-      body,
-    });
-    promptText.value = "";
   }
 
   async function submitComposer() {
@@ -712,15 +782,20 @@ export function useAgentazAppController() {
     }
 
     if (event.type === "turn_completed") {
-      const knownRevision =
-        transcriptRevisionBySessionId.value[event.sessionId] ?? -1;
-      if (event.transcriptRevision > knownRevision) {
-        void refreshHistory(event.sessionId, true);
-      }
+      setLocalPromptWorking(event.sessionId, false);
+      void (async () => {
+        const knownRevision =
+          transcriptRevisionBySessionId.value[event.sessionId] ?? -1;
+        if (event.transcriptRevision > knownRevision) {
+          await refreshHistory(event.sessionId, true);
+        }
+        requestCompletedTurnFocus(event.sessionId);
+      })();
       return;
     }
 
     if (event.type === "turn_failed") {
+      setLocalPromptWorking(event.sessionId, false);
       if (event.clientMessageId) {
         removeUserMessageByClientMessageId(
           messagesBySessionId.value,
@@ -771,7 +846,12 @@ export function useAgentazAppController() {
         const shouldRefreshModelState =
           !event.isStreaming &&
           (mState.pendingModelChange || mState.pendingThinkingChange);
+        const isWorking =
+          event.isStreaming ||
+          event.pendingMessageCount > 0 ||
+          (event.pendingApprovalCount ?? 0) > 0;
         upsertLoadedSession(event.sessionId, {
+          isWorking,
           isStreaming: event.isStreaming,
           pendingMessageCount: event.pendingMessageCount,
           pendingApprovalCount: event.pendingApprovalCount ?? 0,
@@ -1135,11 +1215,13 @@ export function useAgentazAppController() {
     messagesBySessionId,
     modelStateBySessionId,
     pendingUiRequestsBySessionId,
+    locallyPendingPromptBySessionId,
     promptText,
     lastError,
     eventSource,
     hasAppliedInitialRoute,
     isSyncingBrowserRoute,
+    completedTurnFocusRequest,
     // computed
     activeLoadedSession,
     activeSessionTitle,
@@ -1149,6 +1231,7 @@ export function useAgentazAppController() {
     activePendingUiRequests,
     activeExtensionWidgets,
     unifiedSessions,
+    isAwaitingActivePromptResponse,
     models,
     currentModel,
     currentThinkingLevel,
@@ -1156,6 +1239,7 @@ export function useAgentazAppController() {
     pendingModelChange,
     pendingThinkingChange,
     isStreaming,
+    isActiveSessionWorking,
     pendingMessageCount,
     pendingApprovalCount,
     selectedModelKey,

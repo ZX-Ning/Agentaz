@@ -46,7 +46,7 @@
   --secondary-foreground: oklch(0.205 0 0);
   --muted: oklch(0.97 0 0);
   --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
+  --accent: oklch(85% 0 271.152);
   --accent-foreground: oklch(0.205 0 0);
   --destructive: oklch(0.577 0.245 27.325);
   --border: oklch(0.922 0 0);
@@ -84,7 +84,7 @@
   --secondary-foreground: oklch(0.985 0 0);
   --muted: oklch(0.269 0 0);
   --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
+  --accent: oklch(15% 0 271.152);
   --accent-foreground: oklch(0.985 0 0);
   --destructive: oklch(0.704 0.191 22.216);
   --border: oklch(1 0 0 / 10%);
@@ -138,4 +138,49 @@ body {
 }
 [data-state="closed"] {
   animation-duration: 50ms !important;
+}
+
+@media (max-width: 639px) {
+  .agentaz-markdown {
+    overflow-wrap: anywhere;
+    word-break: normal;
+  }
+
+  .agentaz-markdown h1 {
+    font-size: 1.5rem;
+    line-height: 2rem;
+  }
+
+  .agentaz-markdown h2 {
+    font-size: 1.25rem;
+    line-height: 1.75rem;
+  }
+
+  .agentaz-markdown h3 {
+    font-size: 1.125rem;
+    line-height: 1.5rem;
+  }
+
+  .agentaz-markdown table {
+    display: block;
+    max-width: 100%;
+    overflow-x: auto;
+    white-space: normal;
+  }
+
+  .agentaz-markdown th,
+  .agentaz-markdown td {
+    min-width: 7rem;
+    word-break: normal;
+  }
+
+  .agentaz-markdown pre {
+    max-width: 100%;
+    overflow-x: auto;
+    white-space: pre-wrap;
+  }
+
+  .agentaz-markdown code {
+    overflow-wrap: anywhere;
+  }
 }

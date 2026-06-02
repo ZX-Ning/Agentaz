@@ -134,11 +134,11 @@ onBeforeUnmount(() => {
 
 <template>
   <form
-    class="mx-auto flex w-full max-w-3xl flex-col overflow-hidden rounded-lg border border-input bg-card/95 text-card-foreground shadow-xl shadow-foreground/10 backdrop-blur dark:shadow-foreground/10"
+    class="mx-auto flex w-full max-w-3xl flex-col overflow-hidden rounded-lg border border-input bg-card/95 text-card-foreground shadow-lg shadow-foreground/10 backdrop-blur dark:shadow-foreground/10 sm:shadow-xl"
     @submit.prevent="emit('submit')"
   >
     <div
-      class="h-2 w-full cursor-ns-resize border-b border-border/60 hover:bg-accent/40"
+      class="hidden h-2 w-full cursor-ns-resize border-b border-border/60 hover:bg-accent/40 sm:block"
       @mousedown.prevent="onTopResizeStart"
     />
 
@@ -147,7 +147,7 @@ onBeforeUnmount(() => {
       :value="props.promptText"
       rows="1"
       :style="{ height: composerHeight ? `${composerHeight}px` : undefined }"
-      class="max-h-56 min-h-12 resize-y bg-transparent px-4 py-3 text-sm leading-6 text-foreground outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring/35"
+      class="max-h-32 min-h-10 resize-y bg-transparent px-3 py-2 text-sm leading-6 text-foreground outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring/35 sm:max-h-56 sm:min-h-12 sm:px-4 sm:py-3"
       placeholder="Message Pi…"
       @input="onPromptInput"
       @keydown="onComposerKeydown"
@@ -155,9 +155,9 @@ onBeforeUnmount(() => {
     />
 
     <div
-      class="flex min-h-11 items-center justify-between gap-2 border-t border-border px-2.5 py-1.5"
+      class="flex min-h-10 items-center justify-between gap-1.5 border-t border-border px-2 py-1 sm:min-h-11 sm:gap-2 sm:px-2.5 sm:py-1.5"
     >
-      <div class="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
+      <div class="flex min-w-0 flex-1 items-center gap-1">
         <UPopover
           :open="isModelMenuOpen"
           :content="{
@@ -167,7 +167,7 @@ onBeforeUnmount(() => {
             collisionPadding: 12,
           }"
           :modal="false"
-          class="min-w-0 flex-[1_1_16rem] sm:max-w-96"
+          class="min-w-0 flex-1 sm:flex-[1_1_16rem] sm:max-w-96"
           :ui="{
             content:
               'w-[min(30rem,calc(100vw-2rem))] overflow-hidden rounded-lg border border-border bg-popover p-0 text-popover-foreground shadow-xl shadow-foreground/10 dark:shadow-foreground/10',
@@ -254,7 +254,7 @@ onBeforeUnmount(() => {
           color="neutral"
           variant="ghost"
           size="sm"
-          class="w-24 shrink-0 text-xs font-normal text-foreground sm:w-28"
+          class="w-20 shrink-0 text-xs font-normal text-foreground sm:w-28"
           :ui="{
             base: 'bg-transparent text-xs font-normal text-foreground hover:bg-accent hover:text-accent-foreground focus-visible:ring-ring/35 disabled:opacity-60',
             content: 'bg-popover text-popover-foreground border-border',
@@ -265,7 +265,7 @@ onBeforeUnmount(() => {
 
         <span
           v-if="props.pendingModelChange || props.pendingThinkingChange"
-          class="rounded-lg border border-border bg-secondary px-2 py-1 text-xs text-secondary-foreground"
+          class="hidden rounded-lg border border-border bg-secondary px-2 py-1 text-xs text-secondary-foreground sm:inline-flex"
         >
           Pending after current turn
         </span>
@@ -275,10 +275,13 @@ onBeforeUnmount(() => {
         type="submit"
         :icon="props.isStreaming ? 'i-lucide-square' : 'i-lucide-send'"
         size="sm"
+        :aria-label="props.isStreaming ? 'Stop streaming' : 'Send message'"
         :disabled="!props.isStreaming && !props.promptText.trim()"
         class="shrink-0 bg-primary px-2.5 py-1.5 text-xs font-normal text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
       >
-        {{ props.isStreaming ? "Stop" : "Send" }}
+        <span class="hidden sm:inline">{{
+          props.isStreaming ? "Stop" : "Send"
+        }}</span>
       </UButton>
     </div>
   </form>

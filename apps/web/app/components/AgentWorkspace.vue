@@ -22,6 +22,7 @@ const {
   activeMessages,
   activePendingUiRequests,
   activeExtensionWidgets,
+  isAwaitingActivePromptResponse,
   unifiedSessions,
   modelOptions,
   selectedModelKey,
@@ -29,6 +30,7 @@ const {
   visibleThinkingOptions,
   pendingModelChange,
   pendingThinkingChange,
+  completedTurnFocusRequest,
   handleSessionClick,
   createSessionAndClose,
   // loadDummySession,
@@ -44,6 +46,8 @@ const {
 } = useAgentazAppController();
 
 const isSidebarOpen = ref(false);
+const isAutoStickToBottomEnabled = ref(false);
+const transcriptScrollRef = ref<HTMLElement | null>(null);
 const revertTargetMessage = ref<null | {
   id: string;
   rewindEntryId: string;
@@ -53,7 +57,28 @@ const activeSessionOperation = ref<null | {
   type: "fork" | "revert";
   messageId: string;
 }>(null);
+type ChatMessageFocusHandle = {
+  focusStart: () => void;
+};
+
+const messageComponentById = new Map<string, ChatMessageFocusHandle>();
+let scrollToBottomFrame: number | null = null;
 const hasMessages = computed(() => activeMessages.value.length > 0);
+const showWorkingIndicator = computed(
+  () =>
+    hasMessages.value &&
+    (isAwaitingActivePromptResponse.value ||
+      isStreaming.value ||
+      pendingMessageCount.value > 0),
+);
+const workingIndicatorMessageId = computed(() => {
+  if (!showWorkingIndicator.value) return null;
+  const messages = activeMessages.value;
+  const assistantMessage = [...messages]
+    .reverse()
+    .find((message) => message.role === "assistant");
+  return assistantMessage?.id ?? messages.at(-1)?.id ?? null;
+});
 const canSubmitToActiveSession = computed(() => Boolean(activeSessionId.value));
 const canForkRevertActiveSession = computed(
   () =>
@@ -160,6 +185,72 @@ function isMessageOperationPending(type: "fork" | "revert", messageId: string) {
   );
 }
 
+/**
+ * Narrows a Vue component ref to the public handle exposed by ChatMessage.
+ */
+function isChatMessageFocusHandle(
+  component: unknown,
+): component is ChatMessageFocusHandle {
+  return (
+    typeof component === "object" &&
+    component !== null &&
+    "focusStart" in component &&
+    typeof (component as { focusStart?: unknown }).focusStart === "function"
+  );
+}
+
+/**
+ * Keeps a small lookup table from protocol message id to rendered ChatMessage.
+ */
+function setMessageComponent(messageId: string, component: unknown) {
+  if (!component) {
+    messageComponentById.delete(messageId);
+    return;
+  }
+  if (isChatMessageFocusHandle(component)) {
+    messageComponentById.set(messageId, component);
+  }
+}
+
+/**
+ * Moves focus to the newest assistant response in the active transcript.
+ */
+function focusLastAssistantMessageStart() {
+  const assistantMessage = [...activeMessages.value]
+    .reverse()
+    .find((message) => message.role === "assistant");
+  if (!assistantMessage) return;
+  messageComponentById.get(assistantMessage.id)?.focusStart();
+}
+
+/**
+ * Scrolls the transcript viewport to the newest rendered content.
+ */
+function scrollTranscriptToBottom() {
+  const container = transcriptScrollRef.value;
+  if (!container) return;
+  container.scrollTo({
+    top: container.scrollHeight,
+    behavior: "auto",
+  });
+}
+
+/**
+ * Schedules bottom sticking after Vue has rendered message and block updates.
+ *
+ * Streaming deltas can arrive quickly, so this batches repeated transcript
+ * changes into one animation-frame scroll instead of scrolling on every patch.
+ */
+async function scheduleTranscriptBottomStick() {
+  if (!isAutoStickToBottomEnabled.value) return;
+  await nextTick();
+  if (scrollToBottomFrame !== null) return;
+  scrollToBottomFrame = window.requestAnimationFrame(() => {
+    scrollToBottomFrame = null;
+    scrollTranscriptToBottom();
+  });
+}
+
 // function handleSidebarLoadDummy() {
 //   loadDummySession();
 //   closeSidebarOnMobile();
@@ -167,6 +258,44 @@ function isMessageOperationPending(type: "fork" | "revert", messageId: string) {
 
 onMounted(() => {
   isSidebarOpen.value = window.matchMedia("(min-width: 1024px)").matches;
+});
+
+watch(completedTurnFocusRequest, async (request) => {
+  if (!request || request.sessionId !== activeSessionId.value) return;
+  if (isAutoStickToBottomEnabled.value) {
+    await scheduleTranscriptBottomStick();
+    return;
+  }
+  await nextTick();
+  await nextTick();
+  focusLastAssistantMessageStart();
+});
+
+watch(
+  () => activeMessages.value,
+  () => {
+    void scheduleTranscriptBottomStick();
+  },
+  { deep: true, flush: "post" },
+);
+
+watch(
+  showWorkingIndicator,
+  () => {
+    void scheduleTranscriptBottomStick();
+  },
+  { flush: "post" },
+);
+
+watch(isAutoStickToBottomEnabled, (enabled) => {
+  if (enabled) void scheduleTranscriptBottomStick();
+});
+
+onBeforeUnmount(() => {
+  if (scrollToBottomFrame !== null) {
+    window.cancelAnimationFrame(scrollToBottomFrame);
+    scrollToBottomFrame = null;
+  }
 });
 
 useHead({
@@ -194,6 +323,7 @@ useHead({
     >
       <AppHeader
         :is-sidebar-open="isSidebarOpen"
+        :auto-stick-to-bottom="isAutoStickToBottomEnabled"
         :active-loaded-session="activeLoadedSession"
         :session-title="activeSessionTitle"
         :is-active-draft-session="isActiveDraftSession"
@@ -204,14 +334,16 @@ useHead({
         :pending-approval-count="pendingApprovalCount"
         :models-count="models.length"
         @update:is-sidebar-open="isSidebarOpen = $event"
+        @update:auto-stick-to-bottom="isAutoStickToBottomEnabled = $event"
         @clear-queue="clearActiveQueue"
         @logout="emit('logout')"
       />
 
       <div
-        class="min-h-0 flex-1 overflow-y-auto bg-background px-4 py-6 sm:px-6"
+        ref="transcriptScrollRef"
+        class="min-h-0 flex-1 overflow-y-auto bg-background px-2 py-3 sm:px-6 sm:py-6"
       >
-        <div class="mx-auto flex w-full max-w-3xl flex-col gap-5">
+        <div class="mx-auto flex w-full max-w-3xl flex-col gap-3 sm:gap-5">
           <UAlert
             v-if="lastError"
             color="error"
@@ -230,7 +362,9 @@ useHead({
           <ChatMessage
             v-for="message in activeMessages"
             :key="message.id"
+            :ref="(component) => setMessageComponent(message.id, component)"
             :message="message"
+            :show-working-indicator="message.id === workingIndicatorMessageId"
             :can-fork-revert="canForkRevertActiveSession"
             :is-forking="isMessageOperationPending('fork', message.id)"
             :is-reverting="isMessageOperationPending('revert', message.id)"
@@ -241,7 +375,7 @@ useHead({
       </div>
 
       <div
-        class="shrink-0 space-y-3 px-4 pb-[calc(1rem+env(safe-area-inset-bottom))] sm:px-6 sm:pb-[calc(1.5rem+env(safe-area-inset-bottom))]"
+        class="shrink-0 space-y-2 px-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))] sm:space-y-3 sm:px-6 sm:pb-[calc(1.5rem+env(safe-area-inset-bottom))]"
       >
         <div class="mx-auto w-full max-w-3xl">
           <PendingUiRequests

@@ -24,6 +24,7 @@ type RenderBlock =
 
 const props = defineProps<{
   message: UiMessage;
+  showWorkingIndicator?: boolean;
   canForkRevert?: boolean;
   isForking?: boolean;
   isReverting?: boolean;
@@ -33,6 +34,7 @@ const emit = defineEmits<{
   (event: "fork" | "revert", message: UiMessage): void;
 }>();
 
+const articleRef = ref<HTMLElement | null>(null);
 const collapsedStates = ref<Record<string, boolean>>({});
 const markdownOptions = { html: false };
 const markdownComponents = { math: ComarkMath };
@@ -256,6 +258,26 @@ function roleLabel(role: UiMessage["role"]) {
   return role;
 }
 
+/**
+ * Moves keyboard focus and scroll position to the start of this message.
+ *
+ * The workspace calls this after an assistant turn completes so keyboard and
+ * screen-reader users land at the beginning of the final response rather than
+ * remaining at the composer or transcript bottom.
+ */
+function focusStart() {
+  const article = articleRef.value;
+  if (!article) return;
+  article.focus({ preventScroll: true });
+  article.scrollIntoView({
+    block: "start",
+    inline: "nearest",
+    behavior: "smooth",
+  });
+}
+
+defineExpose({ focusStart });
+
 function plainMarkdownOnly() {
   return {
     name: "agentaz-plain-markdown-only",
@@ -317,10 +339,12 @@ function filterMarkdownAttributes(
 
 <template>
   <article
-    class="flex gap-4 px-4 py-3 hover:bg-muted/30 transition-colors duration-150 rounded-lg text-left"
+    ref="articleRef"
+    tabindex="-1"
+    class="flex scroll-mt-4 gap-2 px-1 py-2 text-left transition-colors duration-150 hover:bg-muted/30 focus:outline-none focus:ring-2 focus:ring-ring/25 sm:scroll-mt-6 sm:gap-4 sm:rounded-lg sm:px-4 sm:py-3"
     style="content-visibility: auto; contain-intrinsic-size: 0 120px"
   >
-    <div class="shrink-0">
+    <div class="hidden shrink-0 sm:block">
       <div
         v-if="message.role === 'user'"
         class="flex size-9 items-center justify-center rounded-lg bg-secondary text-secondary-foreground font-semibold text-sm"
@@ -336,13 +360,13 @@ function filterMarkdownAttributes(
     </div>
 
     <div class="flex-1 min-w-0 space-y-1.5">
-      <div class="flex items-baseline gap-2">
-        <span class="text-sm font-semibold text-foreground">
+      <div class="flex min-w-0 items-baseline gap-2">
+        <span class="shrink-0 text-xs font-semibold text-foreground sm:text-sm">
           {{ roleLabel(message.role) }}
         </span>
         <span
           v-if="message.createdAt"
-          class="text-[11px] text-muted-foreground font-normal font-sans"
+          class="min-w-0 truncate text-[10px] font-normal text-muted-foreground sm:text-[11px]"
         >
           {{ formatTime(message.createdAt) }}
         </span>
@@ -379,7 +403,7 @@ function filterMarkdownAttributes(
 
             <div
               v-else
-              class="min-w-0 text-sm text-foreground/90 leading-relaxed font-sans wrap-break-word"
+              class="min-w-0 text-sm leading-relaxed text-foreground/90 wrap-break-word"
             >
               <Comark
                 :markdown="block.text"
@@ -387,7 +411,7 @@ function filterMarkdownAttributes(
                 :plugins="markdownPlugins"
                 :components="markdownComponents"
                 streaming
-                class="max-w-full [&>*:first-child]:mt-0 [&>*:last-child]:mb-0 [&_.math.block]:my-2 [&_.math.block]:max-w-full [&_.math.block]:overflow-x-auto [&_a]:wrap-break-word [&_code]:wrap-break-word [&_li]:my-0.5 [&_ol]:my-2 [&_ol]:pl-5 [&_p]:my-2 [&_pre]:my-2 [&_pre]:max-w-full [&_pre]:overflow-x-auto [&_pre]:whitespace-pre-wrap [&_pre]:wrap-break-word [&_ul]:my-2 [&_ul]:pl-5"
+                class="agentaz-markdown max-w-full [&>*:first-child]:mt-0 [&>*:last-child]:mb-0 [&_.math.block]:my-2 [&_.math.block]:max-w-full [&_.math.block]:overflow-x-auto [&_a]:wrap-break-word [&_code]:wrap-break-word [&_li]:my-0.5 [&_ol]:my-2 [&_ol]:pl-5 [&_p]:my-2 [&_pre]:my-2 [&_pre]:max-w-full [&_pre]:overflow-x-auto [&_pre]:whitespace-pre-wrap [&_pre]:wrap-break-word [&_ul]:my-2 [&_ul]:pl-5"
               />
             </div>
           </div>
@@ -395,11 +419,11 @@ function filterMarkdownAttributes(
           <!-- Thinking Block -->
           <div
             v-else-if="block.type === 'thinking' && block.text"
-            class="my-1.5 rounded-lg border border-border bg-muted/20 overflow-hidden"
+            class="my-1.5 overflow-hidden rounded-lg border border-border bg-muted/20"
           >
             <button
               type="button"
-              class="flex w-full items-center gap-2 px-3 py-2 text-xs font-semibold text-muted-foreground hover:bg-muted/30 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring/35"
+              class="flex w-full items-center gap-2 px-2.5 py-2 text-xs font-semibold text-muted-foreground hover:bg-muted/30 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring/35 sm:px-3"
               @click="toggleBlock(getBlockKey(block, index))"
             >
               <UIcon name="i-lucide-brain" class="size-4 shrink-0" />
@@ -435,11 +459,11 @@ function filterMarkdownAttributes(
           <!-- Tool Block -->
           <div
             v-else-if="block.type === 'tool'"
-            class="my-1.5 rounded-lg border border-border bg-muted/10 overflow-hidden"
+            class="my-1.5 overflow-hidden rounded-lg border border-border bg-muted/10"
           >
             <button
               type="button"
-              class="flex w-full items-center gap-2 px-3 py-2 text-xs font-semibold hover:bg-muted/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring/35"
+              class="flex w-full items-center gap-2 px-2.5 py-2 text-xs font-semibold hover:bg-muted/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring/35 sm:px-3"
               @click="toggleBlock(toolCardKey(block))"
             >
               <UIcon
@@ -523,12 +547,22 @@ function filterMarkdownAttributes(
             </div>
           </div>
         </div>
+
+        <div
+          v-if="props.showWorkingIndicator"
+          role="status"
+          aria-live="polite"
+          class="flex items-center gap-2 pt-1 text-sm text-muted-foreground"
+        >
+          <UIcon name="i-lucide-loader-circle" class="size-4 animate-spin" />
+          <span>working...</span>
+        </div>
       </div>
     </div>
   </article>
   <div
     v-if="message.role === 'user' && message.rewindEntryId"
-    class="-mt-3 flex justify-end gap-1 px-4 pb-1"
+    class="-mt-2 flex justify-end gap-1 px-1 pb-1 sm:-mt-3 sm:px-4"
   >
     <UButton
       type="button"

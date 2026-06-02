@@ -132,7 +132,7 @@ const emit = defineEmits<{
       color="neutral"
       variant="outline"
       size="sm"
-      class="flex items-center gap-2"
+      class="flex items-center gap-1 px-2 sm:gap-2 sm:px-3"
     >
       <span class="relative flex h-2 w-2">
         <span
@@ -152,7 +152,10 @@ const emit = defineEmits<{
       </span>
 
       <span class="text-xs font-medium">{{ statusLabel }}</span>
-      <UIcon name="i-lucide-chevron-down" class="size-4 shrink-0 opacity-60" />
+      <UIcon
+        name="i-lucide-chevron-down"
+        class="size-3.5 shrink-0 opacity-60 sm:size-4"
+      />
     </UButton>
   </UPopover>
 </template>
