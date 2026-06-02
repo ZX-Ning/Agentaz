@@ -4,7 +4,13 @@ This document records the investigation into large delays when creating or openi
 
 ## Summary
 
-Opening an already persisted session for viewing should be fast. New session creation used to be slow because each session creation called the Pi SDK's full `createAgentSession()` path, which reloads SDK resources and TypeScript extensions. The current backend should initialize Pi SDK services/resources once per configured `cwd` and reuse those services across loaded sessions.
+Opening an already persisted session for viewing should be fast. New session creation used to be slow because each session creation called the Pi SDK's full `createAgentSession()` path, which reloads SDK resources and TypeScript extensions.
+
+**2026-06-02: The process-wide SDK services reuse optimization has been removed.** Sharing a single `AgentSessionServices`/resource loader/extension runtime across multiple loaded sessions was found to cause stale extension context errors when one session was disposed while another session's extensions (especially `@gotgenes/pi-permission-system` pollers) were still active. Each loaded `PiSessionController` now owns its own services instance. AuthStorage and ModelRegistry remain shared at the workspace level because they are not extension runtimes.
+
+This means session creation/opening may again pay the extension loading cost per loaded session. Future optimization must preserve per-session extension runtime isolation or require SDK/upstream changes to support safe multi-session service sharing.
+
+See `docs/backend.md` and `docs/implementation/pi-extension-runtime-isolation.md` for the isolation design and stale context error investigation.
 
 Current expected behavior:
 
@@ -77,21 +83,13 @@ Measured per-extension reload costs:
 
 The likely cause is repeated TypeScript extension loading through `jiti`, especially for `pi-hashline-readmap`.
 
-## Backend Fix
+## Backend Fix (Historical — Replaced by Per-Session Isolation)
 
-The SDK exposes the right split:
+Agentaz previously kept a process-wide `PiSessionWorkspace` with a cached services promise for the configured `cwd`. Session controllers used those services instead of calling full `createAgentSession()` for every loaded session. This gave the performance numbers shown below.
 
-- `createAgentSessionServices({ cwd, authStorage, modelRegistry })`
-- `createAgentSessionFromServices({ services, sessionManager })`
+**This approach has been replaced.** The shared services included a shared resource loader and extension runtime. When one session was disposed, the SDK invalidated the runtime/context, causing stale context errors in other loaded sessions. Each controller now gets its own isolated services. See `docs/implementation/pi-extension-runtime-isolation.md`.
 
-Measured SDK costs with this split:
-
-- `createAgentSessionServices`: about `988ms`.
-- `createAgentSessionFromServices` for new sessions after services are ready: about `0.3ms` to `3ms`.
-
-Agentaz now keeps a process-wide `PiSessionWorkspace` with a cached services promise for the configured `cwd`. Session controllers use those services instead of calling full `createAgentSession()` for every loaded session.
-
-The workspace also starts service initialization in the background when it is constructed. The first user request can still wait for this work if it arrives before prewarm finishes, but subsequent session creation should not reload SDK extensions.
+The historical measurements below remain useful for understanding SDK costs and evaluating future multi-session performance optimization approaches.
 
 ## Debugging Guidance
 

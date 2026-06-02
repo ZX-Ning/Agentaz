@@ -195,12 +195,16 @@ It projects one browser-facing assistant `UiMessage` per agent turn, including
 consecutive Pi SDK assistant messages and tool result blocks, so live streaming
 and HTTP history reload use the same grouping.
 
-The workspace creates Pi SDK services once for the configured `cwd` and reuses those services across
-loaded sessions. This avoids reloading SDK extensions, skills, prompts, themes, and context files on
-every new session.
+The workspace shares only process-wide backing objects that are not extension runtimes
+(`AuthStorage`, `ModelRegistry`, working directory). Each loaded `PiSessionController` owns its own
+Pi SDK `AgentSessionServices` instance with a controller-local resource loader and extension runtime.
+This per-controller isolation prevents stale extension context errors when one loaded session is
+disposed while another session's extensions are still active (e.g. permission-system pollers).
 
-For the performance investigation and measured SDK costs behind this choice, see
-`docs/implementation/session-performance.md`.
+Service creation is still warmed at the workspace level for required Pi package configuration,
+but full SDK extension loading happens per controller. See
+`docs/implementation/session-performance.md` for the performance tradeoff and investigation
+history.
 
 Keep Pi SDK details out of the frontend and route handlers.
 

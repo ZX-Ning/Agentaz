@@ -89,6 +89,14 @@ export class PiSessionController {
   /** The result of createAgentSessionFromServices — holds the live Pi session. */
   private sessionResult?: CreateAgentSessionResult;
   /**
+   * Controller-local Pi SDK AgentSessionServices cache.
+   *
+   * Each controller owns its own services instance (resource loader, extension
+   * runtime). Cached per-controller so concurrent calls to ensureInitialized
+   * on the same controller share one initialization.
+   */
+  private servicesPromise?: Promise<AgentSessionServices>;
+  /**
    * The SessionManager backing this controller.
    * Created fresh for new sessions; opened from a file path for existing sessions.
    */
@@ -99,6 +107,10 @@ export class PiSessionController {
   private unsubscribe?: () => void;
   /** Browser-backed extension UI context (prompts, widgets, notifications). */
   private uiContext?: WebExtensionUIContext;
+  /** Whether this controller is currently being disposed. */
+  private disposing = false;
+  /** Whether this controller has finished disposal and must not be reused. */
+  private disposed = false;
   /** Deferred model/thinking changes waiting for the session to become idle. */
   private pendingSettings: PendingSettings = {};
 
@@ -135,7 +147,7 @@ export class PiSessionController {
     private readonly agentDir: string,
     private readonly authStorage: ReturnType<typeof AuthStorage.create>,
     private readonly modelRegistry: ReturnType<typeof ModelRegistry.create>,
-    private readonly getServices: () => Promise<AgentSessionServices>,
+    private readonly createServices: () => Promise<AgentSessionServices>,
     private readonly emit: EmitEvent,
     private readonly approvalTimeoutMs: number,
     private readonly onSessionMetadataChanged: () => void | Promise<void>,
@@ -155,7 +167,7 @@ export class PiSessionController {
     agentDir: string;
     authStorage: ReturnType<typeof AuthStorage.create>;
     modelRegistry: ReturnType<typeof ModelRegistry.create>;
-    getServices: () => Promise<AgentSessionServices>;
+    createServices: () => Promise<AgentSessionServices>;
     emit: EmitEvent;
     approvalTimeoutMs: number;
     onSessionMetadataChanged: () => void | Promise<void>;
@@ -165,7 +177,7 @@ export class PiSessionController {
       options.agentDir,
       options.authStorage,
       options.modelRegistry,
-      options.getServices,
+      options.createServices,
       options.emit,
       options.approvalTimeoutMs,
       options.onSessionMetadataChanged,
@@ -191,7 +203,7 @@ export class PiSessionController {
     agentDir: string;
     authStorage: ReturnType<typeof AuthStorage.create>;
     modelRegistry: ReturnType<typeof ModelRegistry.create>;
-    getServices: () => Promise<AgentSessionServices>;
+    createServices: () => Promise<AgentSessionServices>;
     emit: EmitEvent;
     approvalTimeoutMs: number;
     onSessionMetadataChanged: () => void | Promise<void>;
@@ -202,7 +214,7 @@ export class PiSessionController {
       options.agentDir,
       options.authStorage,
       options.modelRegistry,
-      options.getServices,
+      options.createServices,
       options.emit,
       options.approvalTimeoutMs,
       options.onSessionMetadataChanged,
@@ -217,6 +229,22 @@ export class PiSessionController {
     );
 
     return controller;
+  }
+
+  /**
+   * Returns (and lazily creates) this controller's own AgentSessionServices.
+   *
+   * The promise is cached per-controller so concurrent calls to
+   * ensureInitialized share one service initialization. On failure,
+   * the cached promise is reset so the next call can retry.
+   */
+  private getServices(): Promise<AgentSessionServices> {
+    if (this.servicesPromise) return this.servicesPromise;
+    this.servicesPromise = this.createServices().catch((error) => {
+      this.servicesPromise = undefined;
+      throw error;
+    });
+    return this.servicesPromise;
   }
 
   /** Returns the live Pi SDK session owned by this controller. */
@@ -481,13 +509,61 @@ export class PiSessionController {
   }
 
   /**
-   * Releases subscriptions, cancels pending prompts, and disposes the
-   * underlying SDK session. After disposal, the controller should not be used.
+   * Releases subscriptions, cancels pending prompts, emits extension
+   * session_shutdown, and disposes the underlying SDK session.
+   *
+   * Extension shutdown is emitted before SDK disposal so permission-system
+   * (and any other extension with a polling interval) can stop its timers
+   * before the extension context becomes stale.
+   *
+   * dispose() is idempotent: a second call after cleanup is a no-op.
+   * After disposal, the controller should not be used.
    */
   async dispose() {
-    this.uiContext?.cancelAll();
-    this.unsubscribe?.();
-    this.requireSession(false)?.dispose();
+    if (this.disposed || this.disposing) return;
+    this.disposing = true;
+
+    // Snapshot the SDK session directly. requireSession(false) rejects
+    // disposing controllers, but dispose itself still needs to tear down
+    // the current session if one exists.
+    const session = this.session;
+
+    try {
+      // Phase 1: Cancel browser-backed UI prompts and unsubscribe from
+      // session events so no further event processing occurs.
+      this.uiContext?.cancelAll();
+      this.unsubscribe?.();
+      this.unsubscribe = undefined;
+
+      // Phase 2: Emit extension session_shutdown before SDK disposal.
+      // This lets extensions (especially @gotgenes/pi-permission-system)
+      // clean up their polling intervals before the extension context
+      // becomes stale.
+      if (session) {
+        try {
+          await session.extensionRunner.emit({
+            type: "session_shutdown",
+            reason: "quit",
+          });
+        } catch (error) {
+          console.error(
+            "[agentaz-server] extension session_shutdown error",
+            error,
+          );
+        }
+      }
+
+      // Phase 3: Dispose the SDK session. This invalidates the extension
+      // runner and releases SDK resources.
+      session?.dispose();
+    } finally {
+      this.sessionResult = undefined;
+      this.uiContext = undefined;
+      this.unsubscribe = undefined;
+      this.servicesPromise = undefined;
+      this.disposed = true;
+      this.disposing = false;
+    }
   }
 
   /**
@@ -624,16 +700,22 @@ export class PiSessionController {
   /**
    * Full session initialization: creates the Pi SDK session, binds extensions,
    * and subscribes to session events for streaming transcript projection.
+   *
+   * If any step after session creation fails (bindExtensions, subscribe), the
+   * partially initialized session is cleaned up: session_shutdown is emitted
+   * so extensions stop their timers, the session is disposed, and controller
+   * references are cleared so the controller can retry initialization later.
    */
   private async initializeSession() {
     // Ensure the permission-system config exists in the agent directory.
     // This is idempotent — if the config already exists, it's a no-op.
     await ensurePermissionConfig(this.agentDir);
 
-    // Create the Pi SDK session from shared services and this session's
-    // SessionManager. This wires up the model, tools, permissions, etc.
+    // Create the Pi SDK session from this controller's own services and
+    // its SessionManager. Each controller gets isolated extension runtime.
+    const services = await this.getServices();
     this.sessionResult = await createAgentSessionFromServices({
-      services: await this.getServices(),
+      services,
       sessionManager: this.requireSessionManager(),
     });
 
@@ -648,27 +730,52 @@ export class PiSessionController {
       () => this.sendStatus(),
     );
 
-    // Bind extensions with the UI context and an error handler.
-    // The uiContext is cast to any because the Pi SDK's ExtensionUIContext
-    // interface isn't fully imported at the type level.
-    await session.bindExtensions({
-      uiContext: this.uiContext as any,
-      onError: (error) => {
-        console.error("[agentaz-server] extension error", error);
-        this.emit({
-          type: "error",
-          code: "extension_error",
-          message: error instanceof Error ? error.message : String(error),
-          recoverable: true,
-        });
-      },
-    });
+    try {
+      // Bind extensions with the UI context and an error handler.
+      // The uiContext is cast to any because the Pi SDK's ExtensionUIContext
+      // interface isn't fully imported at the type level.
+      await session.bindExtensions({
+        uiContext: this.uiContext as any,
+        onError: (error) => {
+          console.error("[agentaz-server] extension error", error);
+          this.emit({
+            type: "error",
+            code: "extension_error",
+            message: error instanceof Error ? error.message : String(error),
+            recoverable: true,
+          });
+        },
+      });
 
-    // Subscribe to all session events for transcript streaming.
-    // The unsubscribe function is stored for cleanup on dispose.
-    this.unsubscribe = session.subscribe((event) =>
-      this.onSessionEvent(event as any),
-    );
+      // Subscribe to all session events for transcript streaming.
+      // The unsubscribe function is stored for cleanup on dispose.
+      this.unsubscribe = session.subscribe((event) =>
+        this.onSessionEvent(event as any),
+      );
+    } catch (error) {
+      // If bindExtensions or subscribe fails after extensions were partially
+      // initialized, emit session_shutdown so any started extension timers
+      // (e.g. permission-system ForwardingManager) are stopped, then dispose
+      // the partial session and clear controller references.
+      try {
+        await session.extensionRunner.emit({
+          type: "session_shutdown",
+          reason: "quit",
+        });
+      } catch (shutdownError) {
+        console.error(
+          "[agentaz-server] extension session_shutdown error during init cleanup",
+          shutdownError,
+        );
+      }
+
+      session.dispose();
+      this.sessionResult = undefined;
+      this.uiContext = undefined;
+      this.unsubscribe = undefined;
+      this.servicesPromise = undefined;
+      throw error;
+    }
   }
 
   /**
@@ -1232,6 +1339,7 @@ export class PiSessionController {
   ): NonNullable<PiSessionController["session"]>;
   private requireSession(required: false): PiSessionController["session"];
   private requireSession(required = true) {
+    this.assertUsable();
     const session = this.session;
     if (!session && required) throw new Error("Pi session is not initialized");
     return session;
@@ -1239,9 +1347,17 @@ export class PiSessionController {
 
   /** Returns the SessionManager or throws if not set. */
   private requireSessionManager() {
+    this.assertUsable();
     if (!this.sessionManager)
       throw new Error("Pi session manager is not initialized");
     return this.sessionManager;
+  }
+
+  /** Throws when callers try to use a controller that is being disposed or has been disposed. */
+  private assertUsable() {
+    if (this.disposed || this.disposing) {
+      throw new Error("Pi session controller has been disposed");
+    }
   }
 }
 

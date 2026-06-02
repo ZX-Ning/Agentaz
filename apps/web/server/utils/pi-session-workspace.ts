@@ -4,7 +4,6 @@ import {
   getAgentDir,
   ModelRegistry,
   SessionManager,
-  type AgentSessionServices,
 } from "@earendil-works/pi-coding-agent";
 import { access, rename } from "node:fs/promises";
 import { join, resolve } from "node:path";
@@ -81,14 +80,16 @@ export class PiSessionWorkspace {
     join(this.agentDir, "models.json"),
   );
   /**
-   * Lazily-initialized Pi SDK shared services (auth storage, model registry,
-   * and other infrastructure shared across all loaded sessions).
+   * Lazily-initialized promise that ensures required Pi packages are
+   * configured in the agent's settings.json. This is shared across all
+   * loaded sessions (package setup is idempotent), but each controller
+   * gets its own Pi SDK AgentSessionServices/resource loader/extension
+   * runtime to avoid stale extension context errors.
    *
-   * Created on first access; prewarmed in the constructor to avoid blocking
-   * the first session creation on package installation. Required Pi packages
-   * are auto-configured in the agent's settings.json on creation.
+   * Prewarmed in the constructor to avoid blocking the first session
+   * creation on package installation.
    */
-  private servicesPromise?: Promise<AgentSessionServices>;
+  private requiredPackagesPromise?: Promise<void>;
   /** The loaded session working set indexed by sessionId. */
   private sessions = new Map<string, PiSessionController>();
   /** Snapshot of persisted session metadata from the working directory. */
@@ -104,10 +105,11 @@ export class PiSessionWorkspace {
      */
     private readonly getProtectedSessionIds: () => Iterable<string> = () => [],
   ) {
-    // Prewarm Pi SDK services in the background so the first session
-    // creation doesn't block on package installation.
-    void this.getServices().catch((error) => {
-      console.error("failed to prewarm Pi SDK services", error);
+    // Prewarm required Pi packages in the background so the first session
+    // creation doesn't block on package installation. Extension services
+    // are created per-controller — not shared.
+    void this.ensureRequiredPackages().catch((error) => {
+      console.error("failed to prewarm required Pi packages", error);
     });
   }
 
@@ -126,41 +128,43 @@ export class PiSessionWorkspace {
   }
 
   /**
-   * Returns (and lazily creates) Pi SDK services shared by all loaded sessions.
+   * Ensures required Pi agent packages are configured in settings.json.
    *
-   * The promise is cached so only one initialization runs, even if multiple
-   * sessions are being opened concurrently. On failure, the cached promise is
-   * reset so the next caller can retry.
-   *
-   * Creation includes auth storage, model registry setup, and auto-
-   * configuration of required Pi packages in settings.json.
+   * The promise is cached so only one setup runs, even if multiple
+   * sessions are being opened concurrently. On failure, the cached promise
+   * is reset so the next caller can retry.
    */
-  private getServices() {
-    this.servicesPromise ??= this.createServices().catch((error) => {
-      // Reset on failure so the next caller can retry.
-      this.servicesPromise = undefined;
-      throw error;
-    });
-    return this.servicesPromise;
+  private ensureRequiredPackages() {
+    this.requiredPackagesPromise ??= (async () => {
+      try {
+        const result = await ensureRequiredPiPackages(this.agentDir);
+        if (result.added.length > 0) {
+          console.log(
+            "[agentaz-server] added required Pi packages to Pi agent settings",
+            result,
+          );
+        }
+      } catch (error) {
+        // Reset on failure so the next caller can retry.
+        this.requiredPackagesPromise = undefined;
+        throw error;
+      }
+    })();
+    return this.requiredPackagesPromise;
   }
 
   /**
-   * Creates SDK services after ensuring required Pi agent packages are configured.
-   * This includes the permission-system and todo extensions needed by Agentaz.
+   * Creates a fresh Pi SDK AgentSessionServices instance for one controller.
+   *
+   * Shares only process-wide backing objects (AuthStorage, ModelRegistry)
+   * that are not extension runtimes. The returned services include a
+   * controller-local resource loader and extension runtime, so disposing
+   * one loaded session does not invalidate another controller's extensions.
+   *
+   * Required Pi packages are ensured before creating services.
    */
-  private async createServices() {
-    // Auto-configure required packages (permission-system, todo)
-    // in the agent's settings.json. This is idempotent — if the packages
-    // are already listed, this is a no-op.
-    const result = await ensureRequiredPiPackages(this.agentDir);
-    if (result.added.length > 0) {
-      console.log(
-        "[agentaz-server] added required Pi packages to Pi agent settings",
-        result,
-      );
-    }
-
-    // Create the shared service container: auth, model registry, etc.
+  private async createSessionServices() {
+    await this.ensureRequiredPackages();
     return createAgentSessionServices({
       cwd: this.options.cwd,
       agentDir: this.agentDir,
@@ -218,7 +222,7 @@ export class PiSessionWorkspace {
       agentDir: this.agentDir,
       authStorage: this.authStorage,
       modelRegistry: this.modelRegistry,
-      getServices: () => this.getServices(),
+      createServices: () => this.createSessionServices(),
       emit: (event) => this.emitServerEvent(event),
       approvalTimeoutMs: this.options.approvalTimeoutMs,
       onSessionMetadataChanged: () => this.refreshPersistedSessionCache(),
@@ -257,7 +261,7 @@ export class PiSessionWorkspace {
       agentDir: this.agentDir,
       authStorage: this.authStorage,
       modelRegistry: this.modelRegistry,
-      getServices: () => this.getServices(),
+      createServices: () => this.createSessionServices(),
       emit: (event) => this.emitServerEvent(event),
       approvalTimeoutMs: this.options.approvalTimeoutMs,
       onSessionMetadataChanged: () => this.refreshPersistedSessionCache(),
@@ -325,8 +329,9 @@ export class PiSessionWorkspace {
     }
 
     if (loaded) {
+      const loadedSessionId = loaded.sessionId;
+      this.sessions.delete(loadedSessionId);
       await loaded.dispose();
-      this.sessions.delete(loaded.sessionId);
     }
 
     const deletedSessionFile = await this.nextSoftDeletedSessionFile(
@@ -448,8 +453,8 @@ export class PiSessionWorkspace {
     sessionManager.branch(normalizedEntryId);
     sessionManager.appendSessionInfo(currentName);
 
-    await controller.dispose();
     this.sessions.delete(sessionId);
+    await controller.dispose();
 
     const reopenedController = await this.openLoadedSession(sessionFile);
     await this.refreshPersistedSessionCache();
@@ -680,8 +685,8 @@ export class PiSessionWorkspace {
       // Skip protected or busy sessions.
       if (protectedSessionIds.has(sessionId) || controller.isBusy()) continue;
 
-      await controller.dispose();
       this.sessions.delete(sessionId);
+      await controller.dispose();
       this.eventBus.publish({
         type: "session_removed",
         sessionId,
