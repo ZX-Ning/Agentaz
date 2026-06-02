@@ -4,7 +4,7 @@ Guidance for AI coding agents working in this repository.
 
 ## Project Summary
 
-Agentaz is a local-first Nuxt app for a Pi SDK-powered coding agent with a browser UI. The project has moved beyond the original MVP phase; docs should distinguish current implementation constraints from future product decisions.
+Agentaz is a local-first Nuxt app for a general purpose / coding agent with a browser UI build on top of pi-sdk. The project has moved beyond the original MVP phase; docs should distinguish current implementation constraints from future product decisions.
 
 Core architecture:
 
