@@ -1,9 +1,64 @@
 <script setup lang="ts">
 import type { SessionListItem } from "../types/sessions";
+import { createAgentazActions } from "../composables/agentaz-actions";
+import { createAgentazApi } from "../composables/agentaz-api";
+import { createAgentazEvents } from "../composables/agentaz-events";
+import { createAgentazModels } from "../composables/agentaz-models";
+import { createAgentazMutations } from "../composables/agentaz-mutations";
+import {
+  createAgentazRouteApply,
+  createAgentazRouteSync,
+} from "../composables/agentaz-routing";
+import { createAgentazSessions } from "../composables/agentaz-sessions";
+import { useAgentazState } from "../composables/agentaz-state";
 
 const emit = defineEmits<{
   (event: "logout"): void;
 }>();
+
+const route = useRoute();
+const agentaz = useAgentazState();
+const agentazMutations = createAgentazMutations(agentaz);
+const agentazApi = createAgentazApi(agentaz, {
+  syncPendingUiRequestsFromLoadedSessions:
+    agentazMutations.syncPendingUiRequestsFromLoadedSessions,
+});
+const { syncBrowserRouteToSession } = createAgentazRouteSync(agentaz);
+const agentazSessions = createAgentazSessions(
+  agentaz,
+  agentazApi,
+  agentazMutations,
+  {
+    syncBrowserRouteToSession,
+  },
+);
+const agentazModels = createAgentazModels(agentaz, agentazApi);
+const agentazEvents = createAgentazEvents(
+  agentaz,
+  agentazApi,
+  agentazMutations,
+  {
+    refreshSessionDetails: agentazSessions.refreshSessionDetails,
+    refreshHistory: agentazSessions.refreshHistory,
+    refreshModelState: agentazSessions.refreshModelState,
+    syncBrowserRouteToSession,
+  },
+);
+const agentazRouteApply = createAgentazRouteApply(agentaz, {
+  syncBrowserRouteToSession,
+  refreshSessionDetails: agentazSessions.refreshSessionDetails,
+  refreshActiveStateDetails: agentazSessions.refreshActiveStateDetails,
+  refreshDraftModelState: agentazSessions.refreshDraftModelState,
+  createDraftSession: agentazSessions.createDraftSession,
+  focusSession: agentazSessions.focusSession,
+  openPersistedSession: agentazSessions.openPersistedSession,
+});
+const agentazActions = createAgentazActions(
+  agentaz,
+  agentazApi,
+  agentazMutations,
+  agentazSessions,
+);
 
 const {
   status,
@@ -31,19 +86,21 @@ const {
   pendingModelChange,
   pendingThinkingChange,
   completedTurnFocusRequest,
+} = agentaz;
+
+const {
   handleSessionClick,
   createSessionAndClose,
   // loadDummySession,
   clearActiveQueue,
   respondToUiRequest,
-  forkFromMessage,
-  revertToMessage,
-  handleModelSelect,
-  handleThinkingSelect,
-  submitComposer,
   renameSessionAndClose,
   deleteSessionAndClose,
-} = useAgentazAppController();
+} = agentazActions;
+
+const { forkFromMessage, revertToMessage, submitComposer } = agentazSessions;
+
+const { handleModelSelect, handleThinkingSelect } = agentazModels;
 
 const isSidebarOpen = ref(false);
 const isAutoStickToBottomEnabled = ref(false);
@@ -256,8 +313,26 @@ async function scheduleTranscriptBottomStick() {
 //   closeSidebarOnMobile();
 // }
 
+watch(
+  () => route.path,
+  () => {
+    if (
+      !agentaz.hasAppliedInitialRoute.value ||
+      agentaz.isSyncingBrowserRoute.value
+    )
+      return;
+    void agentazRouteApply.applyBrowserRoute();
+  },
+);
+
 onMounted(() => {
   isSidebarOpen.value = window.matchMedia("(min-width: 1024px)").matches;
+  agentazEvents
+    .connectEventSource()
+    .then((event) => agentazRouteApply.applyInitialRoute(event.state))
+    .catch(() => {
+      status.value = "error";
+    });
 });
 
 watch(completedTurnFocusRequest, async (request) => {
@@ -292,6 +367,9 @@ watch(isAutoStickToBottomEnabled, (enabled) => {
 });
 
 onBeforeUnmount(() => {
+  agentaz.isUnmounting.value = true;
+  agentaz.eventSource.value?.close();
+
   if (scrollToBottomFrame !== null) {
     window.cancelAnimationFrame(scrollToBottomFrame);
     scrollToBottomFrame = null;
