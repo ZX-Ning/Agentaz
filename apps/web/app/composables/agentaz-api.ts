@@ -5,7 +5,11 @@ import type {
   ThinkingLevel,
   UiLoadedSession,
 } from "../../types/protocol";
-import { isDraftSessionId, closestThinkingLevel } from "../utils/app.util";
+import {
+  apiBase,
+  isDraftSessionId,
+  closestThinkingLevel,
+} from "../utils/app.util";
 import type { AgentazContext } from "./agentaz-state";
 
 /**
@@ -35,7 +39,7 @@ export function createAgentazApi(
       const headers = new Headers(options?.headers as HeadersInit | undefined);
       if (ctx.clientId.value)
         headers.set("X-Agentaz-Client-Id", ctx.clientId.value);
-      return await $fetch<T>(url, { ...options, headers });
+      return await $fetch<T>(`${apiBase()}${url}`, { ...options, headers });
     } catch (error) {
       const data = (error as any)?.data?.data ?? (error as any)?.data;
       const statusCode =

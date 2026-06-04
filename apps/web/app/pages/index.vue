@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { apiBase } from "../utils/app.util";
+
 definePageMeta({
   alias: ["/session/:sessionId"],
 });
@@ -28,7 +30,7 @@ function loginRouteForCurrentLocation() {
  */
 async function logout() {
   try {
-    await $fetch("/api/auth/logout", { method: "POST" });
+    await $fetch(`${apiBase()}/api/auth/logout`, { method: "POST" });
     await refreshUserSession();
     await router.replace("/login");
   } catch (error) {

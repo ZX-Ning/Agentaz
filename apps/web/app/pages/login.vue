@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { AuthLoginRequest, AuthLoginResponse } from "../../types/protocol";
+import { apiBase } from "../utils/app.util";
 
 definePageMeta({
   layout: false,
@@ -47,7 +48,7 @@ async function login() {
   isLoggingIn.value = true;
   loginError.value = null;
   try {
-    await $fetch<AuthLoginResponse>("/api/auth/login", {
+    await $fetch<AuthLoginResponse>(`${apiBase()}/api/auth/login`, {
       method: "POST",
       body,
     });

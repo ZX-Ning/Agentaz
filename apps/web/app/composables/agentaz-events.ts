@@ -1,5 +1,5 @@
 import type { ServerEvent, ServerHello } from "../../types/protocol";
-import { isDraftSessionId } from "../utils/app.util";
+import { apiBase, isDraftSessionId } from "../utils/app.util";
 import {
   appendMessageBlockDelta,
   confirmOptimisticUserMessage,
@@ -232,7 +232,7 @@ export function createAgentazEvents(
   }
 
   function connectEventSource() {
-    const es = new EventSource("/api/agent/events");
+    const es = new EventSource(`${apiBase()}/api/agent/events`);
     ctx.eventSource.value = es;
 
     return new Promise<ServerHello>((resolve, reject) => {

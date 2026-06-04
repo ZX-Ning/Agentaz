@@ -59,6 +59,19 @@ export function modelKey(model: UiModel) {
   return JSON.stringify([model.provider, model.id]);
 }
 
+/**
+ * Runtime-aware base path for API calls.
+ *
+ * Reads from Nuxt's runtimeConfig.app.baseURL, which is automatically
+ * overridden by the NUXT_APP_BASE_URL environment variable at runtime.
+ * Returns "" when baseURL is "/" so existing "/api/..." concatenation
+ * produces clean absolute paths for the default root deployment.
+ */
+export function apiBase(): string {
+  const base = useRuntimeConfig().app.baseURL as string;
+  return base === "/" ? "" : base.replace(/\/$/, "");
+}
+
 export function sessionUrl(sessionId: string, suffix = "") {
   return `/api/agent/sessions/${encodeURIComponent(sessionId)}${suffix}`;
 }
