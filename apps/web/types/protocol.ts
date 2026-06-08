@@ -187,6 +187,10 @@ export type UiRuntimeLoadedSession = Omit<UiSessionSummary, "sessionId"> & {
   pendingUiRequests: PendingUiRequest[];
   /** Text projections of extension-owned widgets. */
   extensionWidgets: UiExtensionWidget[];
+  /** Current context window usage (tokens, window size, percent). Nullable — unavailable for uninitialized sessions. */
+  contextUsage?: UiContextUsage;
+  /** Cumulative session stats (messages, tokens, cost). Nullable — unavailable for uninitialized sessions. */
+  usageStats?: UiSessionUsageStats;
 };
 
 /**
@@ -257,12 +261,41 @@ export type AgentCapabilities = {
   sessionFork: true;
   /** Whether loaded sessions can be reverted to an earlier entry. */
   sessionRevert: true;
+  /** Whether loaded sessions can compact their active context while idle. */
+  contextCompact: true;
   /** Whether image attachments in prompts are supported. */
   images: false;
   /** Whether a file tree browser is implemented. */
   fileTree: false;
   /** Whether a side-by-side diff viewer is implemented. */
   diffViewer: false;
+};
+
+/** Current context window usage from Pi SDK (tokens in window, percentage). */
+export type UiContextUsage = {
+  /** Estimated context tokens, or null when unknown (e.g. after compaction). */
+  tokens: number | null;
+  /** Model context window size in tokens. */
+  contextWindow: number;
+  /** Context usage as percentage of context window, or null if tokens unknown. */
+  percent: number | null;
+};
+
+/** Cumulative session usage stats from Pi SDK across all turns. */
+export type UiSessionUsageStats = {
+  userMessages: number;
+  assistantMessages: number;
+  toolCalls: number;
+  toolResults: number;
+  totalMessages: number;
+  tokens: {
+    input: number;
+    output: number;
+    cacheRead: number;
+    cacheWrite: number;
+    total: number;
+  };
+  cost: number;
 };
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -431,6 +464,10 @@ export type ServerEvent =
       isStreaming: boolean;
       pendingMessageCount: number;
       pendingApprovalCount?: number;
+      /** Current context window usage, refreshed on status updates. */
+      contextUsage?: UiContextUsage;
+      /** Cumulative session stats, refreshed on status updates. */
+      usageStats?: UiSessionUsageStats;
     }
   | ServerErrorEvent;
 
@@ -569,6 +606,35 @@ export type SessionForkRequest = {
 export type SessionRevertRequest = {
   /** Current-branch entry id that becomes the restored conversation leaf. */
   entryId: string;
+};
+
+/**
+ * HTTP request used to manually compact a loaded session's active context.
+ * Sent to POST /api/agent/sessions/:sessionId/compact.
+ */
+export type ContextCompactRequest = {
+  /** Optional extra focus/instructions for the generated compaction summary. */
+  customInstructions?: string;
+};
+
+/**
+ * HTTP response returned after context compaction completes.
+ * The session history revision lets callers decide whether to refresh history.
+ */
+export type ContextCompactResponse = {
+  ok: true;
+  /** Echo of the route param. */
+  sessionId: string;
+  /** Generated summary inserted into the Pi session compaction entry. */
+  summary: string;
+  /** First current-branch entry retained after compaction. */
+  firstKeptEntryId: string;
+  /** Estimated context tokens before compaction. */
+  tokensBefore: number;
+  /** Extension-specific compaction metadata, if provided by Pi extensions. */
+  details?: unknown;
+  /** Monotonic normalized transcript/history revision after compaction. */
+  revision: number;
 };
 
 /**

@@ -1,5 +1,6 @@
 import {
   createAgentSessionFromServices,
+  type CompactionResult,
   SessionManager,
   type AgentSessionServices,
   type AuthStorage,
@@ -13,13 +14,18 @@ import type {
   SessionHistoryResponse,
   ThinkingLevel,
   UiBlock,
+  UiContextUsage,
   UiMessage,
   UiModel,
   UiRuntimeLoadedSession,
   UiSessionSummary,
+  UiSessionUsageStats,
 } from "../../types/protocol";
 import { WebExtensionUIContext } from "./extension-ui-context";
-import { UnknownModelError } from "./domain-errors";
+import {
+  ContextCompactUnavailableError,
+  UnknownModelError,
+} from "./domain-errors";
 import { ensurePermissionConfig } from "./permission-config";
 
 /** Emits a normalized server event to the runtime event bus. */
@@ -111,6 +117,8 @@ export class PiSessionController {
   private disposing = false;
   /** Whether this controller has finished disposal and must not be reused. */
   private disposed = false;
+  /** Whether manual context compaction is currently mutating this session. */
+  private compacting = false;
   /** Deferred model/thinking changes waiting for the session to become idle. */
   private pendingSettings: PendingSettings = {};
 
@@ -272,6 +280,7 @@ export class PiSessionController {
   isBusy() {
     return (
       Boolean(this.initPromise) ||
+      this.compacting ||
       this.isWorkflowBusy() ||
       (this.uiContext?.pendingCount ?? 0) > 0
     );
@@ -310,6 +319,8 @@ export class PiSessionController {
       pendingApprovalCount: this.uiContext?.pendingCount ?? 0,
       pendingUiRequests: this.uiContext?.pendingRequests ?? [],
       extensionWidgets: this.uiContext?.extensionWidgets ?? [],
+      contextUsage: this.contextUsage(),
+      usageStats: this.usageStats(),
     };
   }
 
@@ -397,6 +408,37 @@ export class PiSessionController {
     });
     this.sendStatus();
     console.log("[agentaz-server] cleared queue", cleared);
+  }
+
+  /**
+   * Manually compacts the active session context through the Pi SDK.
+   *
+   * Workspace code rejects busy sessions before calling this method, so the
+   * SDK's internal abort step should be a no-op for browser-triggered compact.
+   */
+  async compact(customInstructions?: string) {
+    this.compacting = true;
+    try {
+      await this.ensureInitialized();
+      const result = await this.requireSession().compact(customInstructions);
+      this.invalidateHistoryCache();
+      return {
+        ...result,
+        revision: this.transcriptRevision,
+      } satisfies CompactionResult & { revision: number };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (message === "Nothing to compact (session too small)") {
+        throw new ContextCompactUnavailableError(message);
+      }
+      if (message === "Already compacted") {
+        throw new ContextCompactUnavailableError(message);
+      }
+      throw error;
+    } finally {
+      this.compacting = false;
+      this.sendStatus();
+    }
   }
 
   /**
@@ -1305,7 +1347,34 @@ export class PiSessionController {
       isStreaming: session.isStreaming,
       pendingMessageCount: session.pendingMessageCount,
       pendingApprovalCount: this.uiContext?.pendingCount ?? 0,
+      contextUsage: this.contextUsage(),
+      usageStats: this.usageStats(),
     });
+  }
+
+  /** Best-effort context window usage from the live Pi SDK session. */
+  private contextUsage() {
+    try {
+      return normalizeContextUsage(this.session?.getContextUsage());
+    } catch (error) {
+      console.warn("[agentaz-server] failed to read context usage", error);
+      return undefined;
+    }
+  }
+
+  /** Best-effort cumulative usage stats for the current branch. */
+  private usageStats() {
+    try {
+      return summarizeUsageStatsFromEntries(
+        this.requireSessionManager().getBranch(),
+      );
+    } catch (error) {
+      console.warn(
+        "[agentaz-server] failed to read session usage stats",
+        error,
+      );
+      return undefined;
+    }
   }
 
   /**
@@ -1793,4 +1862,83 @@ export function toTimestamp(value: unknown): number | undefined {
 export function summarizeToolResult(result: unknown) {
   const text = flattenText(result);
   return text.length > 500 ? `${text.slice(0, 500)}...` : text;
+}
+
+/** Normalizes Pi SDK ContextUsage to protocol UiContextUsage. */
+export function normalizeContextUsage(
+  raw:
+    | { tokens: number | null; contextWindow: number; percent: number | null }
+    | undefined,
+): UiContextUsage | undefined {
+  if (!raw) return undefined;
+  return {
+    tokens: raw.tokens,
+    contextWindow: raw.contextWindow,
+    percent: raw.percent,
+  };
+}
+
+/** Summarizes cumulative usage stats from the current persisted branch. */
+export function summarizeUsageStatsFromEntries(
+  entries: any[],
+): UiSessionUsageStats {
+  let userMessages = 0;
+  let assistantMessages = 0;
+  let toolCalls = 0;
+  let toolResults = 0;
+  let input = 0;
+  let output = 0;
+  let cacheRead = 0;
+  let cacheWrite = 0;
+  let cost = 0;
+
+  for (const entry of entries) {
+    if (entry?.type !== "message") continue;
+
+    const message = entry.message;
+    if (message?.role === "user") {
+      userMessages += 1;
+    } else if (message?.role === "assistant") {
+      assistantMessages += 1;
+      toolCalls += countToolCalls(message.content);
+
+      const usage = message.usage;
+      input += numberOrZero(usage?.input);
+      output += numberOrZero(usage?.output);
+      cacheRead += numberOrZero(usage?.cacheRead);
+      cacheWrite += numberOrZero(usage?.cacheWrite);
+      cost += numberOrZero(usage?.cost?.total);
+    } else if (message?.role === "toolResult" || message?.role === "tool") {
+      toolResults += 1;
+    }
+  }
+
+  return {
+    userMessages,
+    assistantMessages,
+    toolCalls,
+    toolResults,
+    totalMessages: userMessages + assistantMessages + toolResults,
+    tokens: {
+      input,
+      output,
+      cacheRead,
+      cacheWrite,
+      total: input + output + cacheRead + cacheWrite,
+    },
+    cost,
+  };
+}
+
+/** Counts tool-call content parts inside an assistant message. */
+function countToolCalls(content: unknown) {
+  if (!Array.isArray(content)) return 0;
+  return content.filter(
+    (part: any) => part?.type === "toolCall" || part?.type === "tool_call",
+  ).length;
+}
+
+/** Returns finite numbers only; malformed historical usage counts as zero. */
+function numberOrZero(value: unknown) {
+  return typeof value === "number" && Number.isFinite(value) ? value : 0;
 }

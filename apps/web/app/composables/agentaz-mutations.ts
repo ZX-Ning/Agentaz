@@ -33,6 +33,8 @@ export function createAgentazMutations(ctx: AgentazContext) {
         extensionWidgets: patch.extensionWidgets ?? [],
         controlOwnerClientId: patch.controlOwnerClientId,
         controlledByCurrentClient: patch.controlledByCurrentClient,
+        contextUsage: patch.contextUsage,
+        usageStats: patch.usageStats,
       });
       return;
     }

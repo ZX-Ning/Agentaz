@@ -53,6 +53,13 @@ export class SessionBusyError extends AgentazDomainError {
   }
 }
 
+/** The session does not currently have enough eligible context to compact. */
+export class ContextCompactUnavailableError extends AgentazDomainError {
+  constructor(message: string) {
+    super(message, 409, "context_compact_unavailable");
+  }
+}
+
 /** The requested operation requires a persisted JSONL session file. */
 export class SessionNotPersistedError extends AgentazDomainError {
   constructor() {

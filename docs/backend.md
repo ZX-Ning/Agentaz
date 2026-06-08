@@ -120,6 +120,7 @@ PUT    /api/agent/sessions/:sessionId/thinking
 POST   /api/agent/sessions/:sessionId/messages
 POST   /api/agent/sessions/:sessionId/fork
 POST   /api/agent/sessions/:sessionId/revert
+POST   /api/agent/sessions/:sessionId/compact
 POST   /api/agent/sessions/:sessionId/abort
 POST   /api/agent/sessions/:sessionId/queue/clear
 POST   /api/agent/sessions/:sessionId/ui-requests/:requestId/response
@@ -187,6 +188,7 @@ or pre-SSE callers.
 - return global model picker defaults without creating a Pi session
 - normalize Pi messages/events into `ServerEvent`
 - accept prompt/steer/follow-up over HTTP and stream output over SSE
+- compact an idle loaded session's active context over HTTP
 - abort and clear queue
 - return/set model and thinking state over HTTP
 - bind extension UI context
@@ -209,6 +211,14 @@ but full SDK extension loading happens per controller. See
 history.
 
 Keep Pi SDK details out of the frontend and route handlers.
+
+Manual context compact uses `POST /api/agent/sessions/:sessionId/compact`.
+The browser should pass the active loaded session id explicitly. The operation
+is synchronous and intentionally idle-only: if the session is initializing,
+streaming, has queued messages, has pending browser UI prompts, or is already
+compacting, the backend returns `409 session_busy` instead of aborting current
+work. A session that is too small to compact, or already compacted at the
+current leaf, returns `409 context_compact_unavailable`.
 
 ## Protocol
 
@@ -253,6 +263,15 @@ frontend can discard local placeholders and re-read authoritative history.
 `status` and `state_snapshot` must not be used as implicit transcript-refresh
 signals; they are for runtime state, control, pending UI, and reconnect
 recovery.
+
+### Usage Data
+
+The `status` SSE event and loaded-session state (`UiRuntimeLoadedSession`) include optional Pi SDK usage fields:
+
+- `contextUsage` (`UiContextUsage | undefined`): current context window usage from `session.getContextUsage()`. Includes `tokens` (nullable), `contextWindow`, and `percent` (nullable). Nullable when the session has not yet sent an LLM request (e.g. right after compaction or before the first prompt).
+- `usageStats` (`UiSessionUsageStats | undefined`): cumulative stats for the current persisted branch. Includes message/tool counts, token breakdown (`input`, `output`, `cacheRead`, `cacheWrite`, `total`), and `cost`. Calculated from session entries so totals do not reset after context compact. Nullable only if usage projection fails.
+
+These fields are refreshed on every `sendStatus()` call (after turns, compaction, model changes, queue updates, and reconnect recovery). Do not estimate tokens in Agentaz — use Pi SDK as the single source of truth.
 
 `clientMessageId` belongs to prompt submissions only. `follow_up` currently
 queues text inside Pi's pending queue and does not create a confirmed browser

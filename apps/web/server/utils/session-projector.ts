@@ -25,6 +25,7 @@ const CAPABILITIES: AgentCapabilities = {
   thinkingSelect: true,
   sessionFork: true,
   sessionRevert: true,
+  contextCompact: true,
   /** Image attachments reserved for future multimodal support. */
   images: false,
   /** File tree browser not implemented in the web MVP. */

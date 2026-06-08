@@ -8,6 +8,7 @@ import {
 import { access, rename } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import type {
+  ContextCompactResponse,
   MessageSubmitRequest,
   MessageSubmitResponse,
   ModelStateResponse,
@@ -355,6 +356,42 @@ export class PiSessionWorkspace {
   /** Returns normalized history for one loaded session. */
   getSessionHistory(sessionId: string): SessionHistoryResponse {
     return this.requireSession(sessionId).getHistory();
+  }
+
+  /**
+   * Manually compacts one idle loaded session's active context.
+   *
+   * Browser-triggered compact is intentionally idle-only. The Pi SDK compact()
+   * method can abort active work internally, but the web API rejects busy
+   * sessions so users do not lose an in-flight response by surprise.
+   */
+  async compactSession(
+    sessionId: string,
+    options: { customInstructions?: string },
+  ): Promise<ContextCompactResponse> {
+    const controller = this.mutableSession(sessionId);
+    if (controller.isBusy()) {
+      throw new SessionBusyError();
+    }
+
+    const compactTask = controller.compact(options.customInstructions);
+    this.emitStateChanged();
+    try {
+      const result = await compactTask;
+      await this.refreshPersistedSessionCache();
+      this.emitStateChanged();
+      return {
+        ok: true,
+        sessionId,
+        summary: result.summary,
+        firstKeptEntryId: result.firstKeptEntryId,
+        tokensBefore: result.tokensBefore,
+        details: result.details,
+        revision: result.revision,
+      };
+    } finally {
+      this.emitStateChanged();
+    }
   }
 
   /**

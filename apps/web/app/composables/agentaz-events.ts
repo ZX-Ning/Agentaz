@@ -175,12 +175,19 @@ export function createAgentazEvents(
           event.isStreaming ||
           event.pendingMessageCount > 0 ||
           (event.pendingApprovalCount ?? 0) > 0;
-        upsertLoadedSession(event.sessionId, {
+        const patch = {
           isWorking,
           isStreaming: event.isStreaming,
           pendingMessageCount: event.pendingMessageCount,
           pendingApprovalCount: event.pendingApprovalCount ?? 0,
-        });
+          ...(event.contextUsage !== undefined
+            ? { contextUsage: event.contextUsage }
+            : {}),
+          ...(event.usageStats !== undefined
+            ? { usageStats: event.usageStats }
+            : {}),
+        };
+        upsertLoadedSession(event.sessionId, patch);
         if ((event.pendingApprovalCount ?? 0) === 0) {
           ctx.pendingUiRequestsBySessionId.value[event.sessionId] = [];
         }
