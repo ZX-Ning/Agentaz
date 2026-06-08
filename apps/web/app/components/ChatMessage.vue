@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import math, { Math as ComarkMath } from "@comark/nuxt/plugins/math";
 import security from "@comark/nuxt/plugins/security";
-import { computed, ref } from "vue";
+import { computed, onBeforeUnmount, ref } from "vue";
 import type { UiBlock, UiMessage } from "../../types/protocol";
 
 type MarkdownNode =
@@ -34,8 +34,10 @@ const emit = defineEmits<{
   (event: "fork" | "revert", message: UiMessage): void;
 }>();
 
+const toast = useToast();
 const articleRef = ref<HTMLElement | null>(null);
 const collapsedStates = ref<Record<string, boolean>>({});
+const hasCopiedMarkdown = ref(false);
 const markdownOptions = { html: false };
 const markdownComponents = { math: ComarkMath };
 const markdownPlugins = [
@@ -121,6 +123,18 @@ const renderedBlocks = computed<RenderBlock[]>(() => {
     return [block];
   });
 });
+const copyableMarkdown = computed(() =>
+  props.message.blocks
+    .filter((block): block is Extract<UiBlock, { type: "text" }> => {
+      return block.type === "text" && Boolean(block.text.trim());
+    })
+    .map((block) => block.text.trim())
+    .join("\n\n"),
+);
+const canCopyMarkdown = computed(
+  () => props.message.role === "assistant" && Boolean(copyableMarkdown.value),
+);
+let copyFeedbackTimer: number | null = null;
 
 function getBlockKey(block: UiBlock, index: number): string {
   return block.id || `${props.message.id}-${index}`;
@@ -258,6 +272,26 @@ function roleLabel(role: UiMessage["role"]) {
   return role;
 }
 
+async function copyMarkdown() {
+  if (!copyableMarkdown.value) return;
+
+  try {
+    await navigator.clipboard.writeText(copyableMarkdown.value);
+    hasCopiedMarkdown.value = true;
+    if (copyFeedbackTimer !== null) window.clearTimeout(copyFeedbackTimer);
+    copyFeedbackTimer = window.setTimeout(() => {
+      hasCopiedMarkdown.value = false;
+      copyFeedbackTimer = null;
+    }, 1500);
+  } catch {
+    toast.add({
+      title: "Copy failed",
+      description: "Clipboard access was blocked by the browser.",
+      color: "error",
+    });
+  }
+}
+
 /**
  * Moves keyboard focus and scroll position to the start of this message.
  *
@@ -277,6 +311,10 @@ function focusStart() {
 }
 
 defineExpose({ focusStart });
+
+onBeforeUnmount(() => {
+  if (copyFeedbackTimer !== null) window.clearTimeout(copyFeedbackTimer);
+});
 
 function plainMarkdownOnly() {
   return {
@@ -360,7 +398,7 @@ function filterMarkdownAttributes(
     </div>
 
     <div class="flex-1 min-w-0 space-y-1.5">
-      <div class="flex min-w-0 items-baseline gap-2">
+      <div class="flex min-w-0 items-center gap-2">
         <span class="shrink-0 text-xs font-semibold text-foreground sm:text-sm">
           {{ roleLabel(message.role) }}
         </span>
@@ -370,6 +408,20 @@ function filterMarkdownAttributes(
         >
           {{ formatTime(message.createdAt) }}
         </span>
+        <UTooltip v-if="canCopyMarkdown" text="Copy markdown">
+          <UButton
+            type="button"
+            color="neutral"
+            variant="ghost"
+            size="xs"
+            :icon="hasCopiedMarkdown ? 'i-lucide-check' : 'i-lucide-copy'"
+            :aria-label="
+              hasCopiedMarkdown ? 'Copied markdown' : 'Copy markdown'
+            "
+            class="ml-auto shrink-0"
+            @click="copyMarkdown"
+          />
+        </UTooltip>
       </div>
 
       <div class="space-y-1">

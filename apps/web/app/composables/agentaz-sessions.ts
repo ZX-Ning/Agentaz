@@ -365,6 +365,7 @@ export function createAgentazSessions(
       await agentFetch(sessionUrl(sessionId, "/abort"), { method: "POST" });
       return;
     }
+    if (ctx.isAwaitingActivePromptResponse.value) return;
     await sendPrompt();
   }
 

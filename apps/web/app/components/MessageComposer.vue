@@ -16,6 +16,7 @@ type ThinkingOption = {
 const props = defineProps<{
   promptText: string;
   isStreaming: boolean;
+  isSubmitting: boolean;
   isConnected: boolean;
   isDraftSession: boolean;
   modelOptions: ModelOption[];
@@ -73,6 +74,9 @@ const hiddenModelCount = computed(() =>
     filteredModelOptions.value.length - visibleModelOptions.value.length,
   ),
 );
+const shouldBlockSubmit = computed(
+  () => props.isSubmitting && !props.isStreaming,
+);
 
 function onPromptInput(event: Event) {
   emit("update:promptText", (event.target as HTMLTextAreaElement).value);
@@ -81,8 +85,14 @@ function onPromptInput(event: Event) {
 function onComposerKeydown(event: KeyboardEvent) {
   if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
     event.preventDefault();
+    if (shouldBlockSubmit.value) return;
     emit("submit");
   }
+}
+
+function submitComposer() {
+  if (shouldBlockSubmit.value) return;
+  emit("submit");
 }
 
 function onTopResizeStart(event: MouseEvent) {
@@ -135,7 +145,7 @@ onBeforeUnmount(() => {
 <template>
   <form
     class="mx-auto flex w-full max-w-3xl flex-col overflow-hidden rounded-lg border border-input bg-card/95 text-card-foreground shadow-lg shadow-foreground/10 backdrop-blur dark:shadow-foreground/10 sm:shadow-xl"
-    @submit.prevent="emit('submit')"
+    @submit.prevent="submitComposer"
   >
     <div
       class="hidden h-2 w-full cursor-ns-resize border-b border-border/60 hover:bg-accent/40 sm:block"
@@ -145,10 +155,11 @@ onBeforeUnmount(() => {
     <textarea
       ref="textareaRef"
       :value="props.promptText"
+      :disabled="props.isSubmitting"
       rows="1"
       :style="{ height: composerHeight ? `${composerHeight}px` : undefined }"
-      class="max-h-32 min-h-10 resize-y bg-transparent px-3 py-2 text-sm leading-6 text-foreground outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring/35 sm:max-h-56 sm:min-h-12 sm:px-4 sm:py-3"
-      placeholder="Message Pi…"
+      class="max-h-32 min-h-10 resize-y bg-transparent px-3 py-2 text-sm leading-6 text-foreground outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-70 focus-visible:ring-2 focus-visible:ring-ring/35 sm:max-h-56 sm:min-h-12 sm:px-4 sm:py-3"
+      placeholder="Message Agentaz"
       @input="onPromptInput"
       @keydown="onComposerKeydown"
       @mouseup="syncHeightFromTextarea"
@@ -235,7 +246,11 @@ onBeforeUnmount(() => {
             color="neutral"
             variant="ghost"
             trailing-icon="i-lucide-chevron-down"
-            :disabled="props.modelOptions.length === 0 || !props.isConnected"
+            :disabled="
+              props.modelOptions.length === 0 ||
+              !props.isConnected ||
+              props.isSubmitting
+            "
             class="w-full min-w-0 justify-start bg-transparent px-2 py-1 text-xs font-normal text-foreground hover:bg-accent hover:text-accent-foreground disabled:opacity-60"
             :ui="{ label: 'min-w-0 truncate whitespace-nowrap font-normal' }"
           >
@@ -249,7 +264,9 @@ onBeforeUnmount(() => {
           value-key="value"
           label-key="label"
           :disabled="
-            props.visibleThinkingOptions.length === 0 || !props.isConnected
+            props.visibleThinkingOptions.length === 0 ||
+            !props.isConnected ||
+            props.isSubmitting
           "
           color="neutral"
           variant="ghost"
@@ -274,9 +291,13 @@ onBeforeUnmount(() => {
       <UButton
         type="submit"
         :icon="props.isStreaming ? 'i-lucide-square' : 'i-lucide-send'"
+        :loading="props.isSubmitting && !props.isStreaming"
         size="sm"
         :aria-label="props.isStreaming ? 'Stop streaming' : 'Send message'"
-        :disabled="!props.isStreaming && !props.promptText.trim()"
+        :disabled="
+          (props.isSubmitting && !props.isStreaming) ||
+          (!props.isStreaming && !props.promptText.trim())
+        "
         class="shrink-0 bg-primary px-2.5 py-1.5 text-xs font-normal text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
       >
         <span class="hidden sm:inline">{{

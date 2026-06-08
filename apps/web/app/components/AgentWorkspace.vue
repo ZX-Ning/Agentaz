@@ -469,6 +469,7 @@ useHead({
         <MessageComposer
           :prompt-text="promptText"
           :is-streaming="isStreaming"
+          :is-submitting="isAwaitingActivePromptResponse"
           :is-connected="status === 'connected' && canSubmitToActiveSession"
           :is-draft-session="isActiveDraftSession"
           :model-options="modelOptions"
