@@ -167,10 +167,10 @@ export type PendingUiRequest =
  * Runtime state for a Pi session currently loaded in the server process.
  *
  * Extends UiSessionSummary with live runtime fields that change as the
- * agent works. Loaded sessions are shown at the top of the sidebar with
- * status indicators for working, streaming, and pending counts.
+ * agent works. This is server-side runtime state only; it does not include
+ * client-specific focus/control projection fields.
  */
-export type UiLoadedSession = Omit<UiSessionSummary, "sessionId"> & {
+export type UiRuntimeLoadedSession = Omit<UiSessionSummary, "sessionId"> & {
   /** Stable Pi session identifier used for protocol routing. */
   sessionId: string;
   /** The session file path (null for ephemeral sessions). */
@@ -187,6 +187,15 @@ export type UiLoadedSession = Omit<UiSessionSummary, "sessionId"> & {
   pendingUiRequests: PendingUiRequest[];
   /** Text projections of extension-owned widgets. */
   extensionWidgets: UiExtensionWidget[];
+};
+
+/**
+ * Browser-facing loaded session row for one requesting client.
+ *
+ * Adds control ownership fields to UiRuntimeLoadedSession so the frontend can
+ * render whether this browser currently owns the session mutation lease.
+ */
+export type UiLoadedSession = UiRuntimeLoadedSession & {
   /** Client id that currently holds the session control lease (if any). */
   controlOwnerClientId?: string;
   /** Whether the session control lease is held by the requesting client. */

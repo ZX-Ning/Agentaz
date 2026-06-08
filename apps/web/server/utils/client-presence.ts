@@ -9,11 +9,8 @@ export type SessionControlState = {
 };
 
 /**
- * Tracks browser client presence, per-client focus, and session control leases.
- * Tracks browser client presence, per-client focus, and session control leases
- * via an owner + reference-count model (re-entrant acquire/release).
- * This service is intentionally independent from WebSocket peers and Pi SDK controllers. It only
- * stores client ids and session ids so session lifecycle code can stay transport-agnostic.
+ * Process singleton presence tracker owned by AgentRuntime.
+ * Stores client focus + re-entrant session control leases; no Pi/SSE deps.
  */
 export class ClientPresence {
   /** clientId — connected browser clients. */

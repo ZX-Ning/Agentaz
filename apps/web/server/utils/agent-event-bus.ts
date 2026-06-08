@@ -15,10 +15,8 @@ export type AgentRuntimeEvent =
 export type AgentRuntimeEventHandler = (event: AgentRuntimeEvent) => void;
 
 /**
- * Lightweight typed in-process event bus for the local agent runtime.
- *
- * Producers publish domain and protocol events without knowing whether any browser is connected.
- * Realtime transports subscribe and decide how to project or forward those events.
+ * Process singleton event bus owned by AgentRuntime.
+ * Decouples runtime publishers from SSE/state snapshot consumers.
  */
 export class AgentEventBus {
   private handlers = new Set<AgentRuntimeEventHandler>();

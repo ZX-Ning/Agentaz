@@ -13,9 +13,9 @@ import type {
   SessionHistoryResponse,
   ThinkingLevel,
   UiBlock,
-  UiLoadedSession,
   UiMessage,
   UiModel,
+  UiRuntimeLoadedSession,
   UiSessionSummary,
 } from "../../types/protocol";
 import { WebExtensionUIContext } from "./extension-ui-context";
@@ -24,6 +24,16 @@ import { ensurePermissionConfig } from "./permission-config";
 
 /** Emits a normalized server event to the runtime event bus. */
 export type EmitEvent = (event: ServerEvent) => void;
+
+/** Dependencies injected by the workspace that owns a session controller. */
+export interface PiSessionControllerHost {
+  /** Creates the controller-local Pi SDK services instance. */
+  createServices: () => Promise<AgentSessionServices>;
+  /** Emits a normalized server event. */
+  emit: EmitEvent;
+  /** Notifies the workspace that persisted session metadata changed. */
+  onSessionMetadataChanged: () => void | Promise<void>;
+}
 
 /**
  * Model and thinking-level changes requested while a session is still busy.
@@ -70,20 +80,10 @@ export const DEFAULT_THINKING_LEVELS: ThinkingLevel[] = [
 ];
 
 /**
- * Owns one live Pi SDK session and its browser-facing integration.
- *
- * A controller is independent from WebSocket connection lifetime. It keeps
- * streaming, queue, model/thinking state, extension UI prompts, and event
- * subscriptions alive until the registry explicitly closes or disposes the
- * loaded session.
- *
- * Key responsibilities:
- *   - Session initialization: lazy loading of Pi SDK services and session binding.
- *   - Message dispatch: prompt(), steer(), followUp() with queue management.
- *   - Transcript streaming: building UiBlock/UiMessage projections from Pi SDK events.
- *   - Model/thinking: immediate vs deferred setting while session is busy.
- *   - Extension UI: bridging Pi extension prompts to the browser via WebExtensionUIContext.
- *   - History: caching and normalizing the transcript for HTTP responses.
+ * Per-loaded-session controller; not a singleton.
+ * Owns one Pi SDK session, isolated services, transcript projection, queues,
+ * model/thinking state, and extension UI bridge until workspace disposal.
+ * Realtime detach does not stop the session; explicit abort/dispose does.
  */
 export class PiSessionController {
   /** The result of createAgentSessionFromServices — holds the live Pi session. */
@@ -147,10 +147,8 @@ export class PiSessionController {
     private readonly agentDir: string,
     private readonly authStorage: ReturnType<typeof AuthStorage.create>,
     private readonly modelRegistry: ReturnType<typeof ModelRegistry.create>,
-    private readonly createServices: () => Promise<AgentSessionServices>,
-    private readonly emit: EmitEvent,
     private readonly approvalTimeoutMs: number,
-    private readonly onSessionMetadataChanged: () => void | Promise<void>,
+    private readonly host: PiSessionControllerHost,
   ) {}
 
   /**
@@ -167,20 +165,16 @@ export class PiSessionController {
     agentDir: string;
     authStorage: ReturnType<typeof AuthStorage.create>;
     modelRegistry: ReturnType<typeof ModelRegistry.create>;
-    createServices: () => Promise<AgentSessionServices>;
-    emit: EmitEvent;
     approvalTimeoutMs: number;
-    onSessionMetadataChanged: () => void | Promise<void>;
+    host: PiSessionControllerHost;
   }) {
     const controller = new PiSessionController(
       options.cwd,
       options.agentDir,
       options.authStorage,
       options.modelRegistry,
-      options.createServices,
-      options.emit,
       options.approvalTimeoutMs,
-      options.onSessionMetadataChanged,
+      options.host,
     );
 
     // Create a fresh SessionManager — allocates a new session file
@@ -203,10 +197,8 @@ export class PiSessionController {
     agentDir: string;
     authStorage: ReturnType<typeof AuthStorage.create>;
     modelRegistry: ReturnType<typeof ModelRegistry.create>;
-    createServices: () => Promise<AgentSessionServices>;
-    emit: EmitEvent;
     approvalTimeoutMs: number;
-    onSessionMetadataChanged: () => void | Promise<void>;
+    host: PiSessionControllerHost;
     sessionFile: string;
   }) {
     const controller = new PiSessionController(
@@ -214,10 +206,8 @@ export class PiSessionController {
       options.agentDir,
       options.authStorage,
       options.modelRegistry,
-      options.createServices,
-      options.emit,
       options.approvalTimeoutMs,
-      options.onSessionMetadataChanged,
+      options.host,
     );
 
     // Open the existing session file. The third argument (cwd) is used
@@ -240,7 +230,7 @@ export class PiSessionController {
    */
   private getServices(): Promise<AgentSessionServices> {
     if (this.servicesPromise) return this.servicesPromise;
-    this.servicesPromise = this.createServices().catch((error) => {
+    this.servicesPromise = this.host.createServices().catch((error) => {
       this.servicesPromise = undefined;
       throw error;
     });
@@ -296,7 +286,7 @@ export class PiSessionController {
    */
   async rename(name: string) {
     this.requireSessionManager().appendSessionInfo(name);
-    await this.onSessionMetadataChanged();
+    await this.host.onSessionMetadataChanged();
   }
 
   /**
@@ -304,7 +294,7 @@ export class PiSessionController {
    * Includes runtime state (isWorking, isStreaming, pending counts)
    * and extension widget projections.
    */
-  toLoadedSession(): UiLoadedSession {
+  toLoadedSession(): UiRuntimeLoadedSession {
     const session = this.session;
     const sessionId = this.sessionId;
     const sessionFile = this.sessionFile;
@@ -336,7 +326,7 @@ export class PiSessionController {
     this.startPromptTurn(text, turn);
     try {
       await this.requireSession().prompt(text, { images: toPiImages(images) });
-      this.emit({
+      this.host.emit({
         type: "turn_completed",
         sessionId: this.sessionId,
         turnId: turn.turnId,
@@ -344,7 +334,7 @@ export class PiSessionController {
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      this.emit({
+      this.host.emit({
         type: "turn_failed",
         sessionId: this.sessionId,
         turnId: turn.turnId,
@@ -399,7 +389,7 @@ export class PiSessionController {
   async clearQueue() {
     await this.ensureInitialized();
     const cleared = this.requireSession().clearQueue();
-    this.emit({
+    this.host.emit({
       type: "queue_update",
       sessionId: this.sessionId,
       steering: [],
@@ -663,7 +653,7 @@ export class PiSessionController {
     };
     this.transcript.set(messageId, userMessage);
     this.invalidateHistoryCache();
-    this.emit({
+    this.host.emit({
       type: "turn_started",
       sessionId: this.sessionId,
       turnId: turn.turnId,
@@ -722,10 +712,10 @@ export class PiSessionController {
     const session = this.requireSession();
 
     // Create the WebExtensionUIContext that bridges Pi extension prompts
-    // (select, input, confirm) to WebSocket events for the browser.
+    // (select, input, confirm) to realtime browser events.
     this.uiContext = new WebExtensionUIContext(
       session.sessionId,
-      this.emit,
+      this.host.emit,
       this.approvalTimeoutMs,
       () => this.sendStatus(),
     );
@@ -738,7 +728,7 @@ export class PiSessionController {
         uiContext: this.uiContext as any,
         onError: (error) => {
           console.error("[agentaz-server] extension error", error);
-          this.emit({
+          this.host.emit({
             type: "error",
             code: "extension_error",
             message: error instanceof Error ? error.message : String(error),
@@ -852,7 +842,7 @@ export class PiSessionController {
           break;
         case "queue_update":
           // Forward queue contents to the browser for the queue panel.
-          this.emit({
+          this.host.emit({
             type: "queue_update",
             sessionId,
             steering: [...event.steering],
@@ -892,7 +882,7 @@ export class PiSessionController {
   /** Notifies the workspace that session metadata changed (name, first message, etc.). */
   private async notifySessionMetadataChanged() {
     try {
-      await this.onSessionMetadataChanged();
+      await this.host.onSessionMetadataChanged();
     } catch (error) {
       console.error(
         "[agentaz-server] failed to refresh session metadata",
@@ -935,7 +925,7 @@ export class PiSessionController {
 
   /**
    * Appends a delta to an assistant message block and emits a message_block_delta
-   * WebSocket event for realtime streaming display in the browser.
+   * event for realtime streaming display in the browser.
    */
   private appendAssistantBlockDelta(
     sessionId: string,
@@ -953,7 +943,7 @@ export class PiSessionController {
     block.text += delta;
 
     // Emit the delta for realtime streaming display.
-    this.emit({
+    this.host.emit({
       type: "message_block_delta",
       sessionId,
       messageId: message.id,
@@ -1012,7 +1002,7 @@ export class PiSessionController {
     };
 
     this.upsertBlock(message, block);
-    this.emit({
+    this.host.emit({
       type: "message_block_upsert",
       sessionId,
       messageId: message.id,
@@ -1063,7 +1053,7 @@ export class PiSessionController {
         isError: false,
       };
       this.upsertBlock(message, block);
-      this.emit({
+      this.host.emit({
         type: "message_block_upsert",
         sessionId,
         messageId: message.id,
@@ -1074,7 +1064,7 @@ export class PiSessionController {
 
     const delta = fullText.slice(this.toolResultEmittedLength.get(toolCallId)!);
     if (delta.length > 0) {
-      this.emit({
+      this.host.emit({
         type: "message_block_delta",
         sessionId,
         messageId: location.messageId,
@@ -1120,7 +1110,7 @@ export class PiSessionController {
     };
 
     this.upsertBlock(message, resultBlock);
-    this.emit({
+    this.host.emit({
       type: "message_block_upsert",
       sessionId,
       messageId: message.id,
@@ -1156,7 +1146,7 @@ export class PiSessionController {
         createdAt: Date.now(),
       };
       this.transcript.set(messageId, message);
-      this.emit({ type: "message_upsert", sessionId, message });
+      this.host.emit({ type: "message_upsert", sessionId, message });
     }
     return message;
   }
@@ -1223,7 +1213,7 @@ export class PiSessionController {
         : { id: blockId, type: "thinking", text: "", collapsed: true };
 
     this.upsertBlock(message, block);
-    this.emit({
+    this.host.emit({
       type: "message_block_upsert",
       sessionId,
       messageId: message.id,
@@ -1298,7 +1288,7 @@ export class PiSessionController {
   private flushCurrentAssistantMessage(sessionId: string) {
     const message = this.transcript.get(this.currentAssistantMessageId);
     if (message) {
-      this.emit({ type: "message_upsert", sessionId, message });
+      this.host.emit({ type: "message_upsert", sessionId, message });
     }
   }
 
@@ -1306,7 +1296,7 @@ export class PiSessionController {
    * Sends a lightweight session status event for the currently focused session.
    * Includes streaming state, pending message count, and pending approval count.
    */
-  private sendStatus(emit: EmitEvent = this.emit) {
+  private sendStatus(emit: EmitEvent = this.host.emit) {
     const session = this.session;
     if (!session) return;
     emit({

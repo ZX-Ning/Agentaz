@@ -5,6 +5,7 @@ import {
   requestClientId,
 } from "../../../utils/agent-http";
 import { getAgentRuntime } from "../../../utils/agent-runtime";
+import { getAgentState } from "../../../utils/session-projector";
 
 /**
  * POST /api/agent/sessions/delete
@@ -48,7 +49,7 @@ export default defineEventHandler(async (event) => {
     const result = await runtime.workspace.softDeletePersistedSession(
       body.sessionFile ?? "",
     );
-    const state = runtime.projector.getState(clientId);
+    const state = getAgentState(runtime.workspace, runtime.presence, clientId);
 
     return {
       ...state,

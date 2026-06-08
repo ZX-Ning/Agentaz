@@ -5,6 +5,7 @@ import {
   readJsonBody,
 } from "../../../utils/agent-http";
 import { getAgentRuntime } from "../../../utils/agent-runtime";
+import { getAgentState } from "../../../utils/session-projector";
 /**
  * POST /api/agent/sessions
  *
@@ -48,7 +49,7 @@ export default defineEventHandler(async (event) => {
     runtime.presence.focus(clientId, controller.sessionId);
 
     // Return the full state snapshot augmented with the new session identity.
-    const state = runtime.projector.getState(clientId);
+    const state = getAgentState(runtime.workspace, runtime.presence, clientId);
     return {
       ...state,
       sessionId: controller.sessionId,

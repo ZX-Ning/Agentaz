@@ -5,6 +5,7 @@ import {
 } from "../../../../utils/agent-http";
 import { getAgentRuntime } from "../../../../utils/agent-runtime";
 import { SessionNotFoundError } from "../../../../utils/domain-errors";
+import { getAgentState } from "../../../../utils/session-projector";
 /**
  * POST /api/agent/sessions/:sessionId/focus
  *
@@ -24,7 +25,7 @@ import { SessionNotFoundError } from "../../../../utils/domain-errors";
  *
  * Side effects:
  *   - Sets the client's last-active session for reconnection defaults.
- *   - Publishes a state_changed event to trigger WebSocket refresh.
+ *   - Publishes a state_changed event to trigger SSE snapshot refresh.
  *
  * Errors:
  *   - 400: Missing sessionId route param
@@ -47,7 +48,7 @@ export default defineEventHandler(async (event) => {
 
     // Return the updated state snapshot for this client.
     return {
-      ...runtime.projector.getState(clientId),
+      ...getAgentState(runtime.workspace, runtime.presence, clientId),
       sessionId,
     };
   } catch (error) {

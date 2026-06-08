@@ -9,7 +9,7 @@ import type {
   UiExtensionWidget,
 } from "../../types/protocol";
 
-/** Emits a normalized server event to the active WebSocket client. */
+/** Emits a normalized server event to browser realtime subscribers. */
 type SendEvent = (event: ServerEvent) => void;
 
 /** Tracks one outstanding browser-backed extension UI request until it resolves or times out. */
@@ -30,12 +30,9 @@ const DEFAULT_WIDGET_PLACEMENT: UiExtensionWidget["placement"] = "aboveEditor";
 const DEFAULT_WIDGET_WIDTH = 88;
 
 /**
- * Browser-backed implementation of the Pi extension UI surface.
- *
- * Pi extensions expect synchronous-looking UI helpers such as select, input, and confirm. This class
- * translates those helpers into WebSocket request events and resolves the returned promises when the
- * browser sends a matching response. Requests must always resolve, so each pending prompt has a timeout
- * and `cancelAll()` is called when the user disconnects or aborts the agent workflow.
+ * Per-session Pi extension UI bridge; not a singleton.
+ * Converts extension prompts/widgets into browser events and resolves replies.
+ * Pending prompts always resolve: response, timeout, or `cancelAll()`.
  */
 export class WebExtensionUIContext {
   private pending = new Map<string, PendingRequest>();

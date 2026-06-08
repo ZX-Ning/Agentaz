@@ -89,8 +89,8 @@ export function unauthorizedError(message = "Authentication required.") {
 /**
  * Requires a nuxt-auth-utils user session and normalizes failed checks.
  *
- * Middleware and WebSocket upgrade handlers use this wrapper so all protected
- * API surfaces return the same recoverable 401 payload.
+ * Middleware and API/SSE handlers use this wrapper so protected surfaces return
+ * the same recoverable 401 payload.
  */
 export async function requireAgentazAuth(
   event: Parameters<typeof requireUserSession>[0],

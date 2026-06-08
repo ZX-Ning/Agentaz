@@ -4,7 +4,6 @@ import {
   PiSessionWorkspace,
   type PiSessionWorkspaceOptions,
 } from "./pi-session-workspace";
-import { SessionProjector } from "./session-projector";
 import { SseAgentHub } from "./sse-agent-hub";
 
 /**
@@ -26,8 +25,8 @@ export type AgentRuntimeOptions = {
  * Process-wide service graph for the local agent backend.
  *
  * Every service in the graph is a singleton scoped to the Node.js process.
- * There is no per-request or per-connection instantiation — all HTTP routes
- * and WebSocket handlers share the same instances via getAgentRuntime().
+ * No per-request/per-connection instantiation: HTTP routes and SSE handlers
+ * share these instances via getAgentRuntime().
  */
 export type AgentRuntime = {
   /** In-process pub/sub bus for session lifecycle and control events. */
@@ -36,8 +35,6 @@ export type AgentRuntime = {
   presence: ClientPresence;
   /** Owns Pi SDK services and the loaded session working set. */
   workspace: PiSessionWorkspace;
-  /** Builds browser-facing state snapshots from runtime state. */
-  projector: SessionProjector;
   /** Manages browser SSE connections and event forwarding. */
   hub: SseAgentHub;
 };
@@ -98,8 +95,7 @@ export function configureAgentRuntime(options: AgentRuntimeOptions) {
  *   3. PiSessionWorkspace — the Pi SDK integration layer. Receives a callback
  *      that identifies sessions protected from eviction (any session currently
  *      focused by a connected browser client).
- *   4. SessionProjector — bridges workspace + presence into browser snapshots.
- *   5. SseAgentHub — manages SSE stream lifecycle on top of the event bus.
+ *   4. SseAgentHub — manages SSE stream lifecycle on top of the event bus.
  *
  * After construction, the workspace is subscribed to session_removed events
  * from the event bus so ClientPresence stays in sync when sessions leave
@@ -142,10 +138,9 @@ export function initAgentRuntime() {
   });
 
   // Phase 4: Create browser-facing services on top of the core services.
-  const projector = new SessionProjector(workspace, presence);
-  const hub = new SseAgentHub(eventBus, presence, projector);
+  const hub = new SseAgentHub(eventBus, workspace, presence);
 
-  runtime = { eventBus, presence, workspace, projector, hub };
+  runtime = { eventBus, presence, workspace, hub };
 }
 
 /**

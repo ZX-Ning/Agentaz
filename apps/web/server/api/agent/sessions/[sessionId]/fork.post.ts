@@ -10,6 +10,7 @@ import {
   withRequestSessionControl,
 } from "../../../../utils/agent-http";
 import { getAgentRuntime } from "../../../../utils/agent-runtime";
+import { getAgentState } from "../../../../utils/session-projector";
 
 /**
  * POST /api/agent/sessions/:sessionId/fork
@@ -74,7 +75,7 @@ export default defineEventHandler(
       runtime.eventBus.publish({ type: "state_changed" });
 
       return {
-        ...runtime.projector.getState(clientId),
+        ...getAgentState(runtime.workspace, runtime.presence, clientId),
         sessionId: controller.sessionId,
         sessionFile: controller.sessionFile,
       };

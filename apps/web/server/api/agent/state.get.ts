@@ -1,5 +1,9 @@
 import { agentHttpError, requestClientId } from "../../utils/agent-http";
 import { getAgentRuntime } from "../../utils/agent-runtime";
+import {
+  getAgentState,
+  refreshProjectionData,
+} from "../../utils/session-projector";
 
 /**
  * GET /api/agent/state
@@ -30,8 +34,12 @@ export default defineEventHandler(async (event) => {
     const runtime = getAgentRuntime();
     // Refresh persisted session cache so the snapshot includes any
     // sessions saved on disk since the last state refresh.
-    await runtime.projector.refresh();
-    return runtime.projector.getState(requestClientId(event));
+    await refreshProjectionData(runtime.workspace);
+    return getAgentState(
+      runtime.workspace,
+      runtime.presence,
+      requestClientId(event),
+    );
   } catch (error) {
     throw agentHttpError(error);
   }

@@ -3,6 +3,7 @@ import type {
   AgentStateResponse,
   ServerHello,
   UiLoadedSession,
+  UiRuntimeLoadedSession,
 } from "../../types/protocol";
 import { PROTOCOL_VERSION } from "../../types/protocol";
 import type { ClientPresence } from "./client-presence";
@@ -32,81 +33,57 @@ const CAPABILITIES: AgentCapabilities = {
   diffViewer: false,
 };
 
+/** Refreshes persisted data used by browser-facing state snapshots. */
+export async function refreshProjectionData(workspace: PiSessionWorkspace) {
+  await workspace.refreshPersistedSessionCache();
+}
+
 /**
- * Builds browser-facing snapshots from session runtime state and client presence state.
- *
- * Projection is separated from both Pi SDK lifecycle and WebSocket peer management
- * so each client can receive a client-specific view without coupling those services
- * together. This means:
- *   - The workspace doesn't need to know which clients are connected.
- *   - The presence service doesn't need to know about session internals.
- *   - Each client sees its own active session, plus control ownership for all sessions.
+ * Returns the current state snapshot for one browser client.
+ * Client-specific fields: active session + session control ownership flags.
  */
-export class SessionProjector {
-  constructor(
-    private readonly workspace: PiSessionWorkspace,
-    private readonly presence: ClientPresence,
-  ) {}
+export function getAgentState(
+  workspace: PiSessionWorkspace,
+  presence: ClientPresence,
+  clientId: string,
+): AgentStateResponse {
+  return {
+    protocolVersion: PROTOCOL_VERSION,
+    cwd: workspace.cwd,
+    activeSessionId: presence.activeFor(clientId),
+    loadedSessions: getLoadedSessionsForClient(workspace, presence, clientId),
+    persistedSessions: workspace.persistedSessions,
+    capabilities: CAPABILITIES,
+  };
+}
 
-  /**
-   * Refreshes backing data used by state snapshots that is not continuously loaded.
-   *
-   * Currently this only refreshes the persisted session cache — loaded session data
-   * is already live through the workspace's in-memory working set.
-   */
-  async refresh() {
-    await this.workspace.refreshPersistedSessionCache();
-  }
+/** Returns the first SSE payload sent to a newly attached browser client. */
+export function createServerHello(
+  workspace: PiSessionWorkspace,
+  presence: ClientPresence,
+  clientId: string,
+): ServerHello {
+  return {
+    type: "hello",
+    protocolVersion: PROTOCOL_VERSION,
+    cwd: workspace.cwd,
+    clientId,
+    state: getAgentState(workspace, presence, clientId),
+  };
+}
 
-  /**
-   * Returns the current HTTP/WS state snapshot for a specific browser client.
-   *
-   * The snapshot is client-specific because:
-   *   - activeSessionId depends on which session this client has focused.
-   *   - loadedSessions includes controlOwnerClientId and controlledByCurrentClient
-   *     flags that differ per client.
-   */
-  getState(clientId: string): AgentStateResponse {
+/** Projects runtime loaded sessions into one client's browser-facing rows. */
+function getLoadedSessionsForClient(
+  workspace: PiSessionWorkspace,
+  presence: ClientPresence,
+  clientId: string,
+): UiLoadedSession[] {
+  return workspace.loadedSessions().map((session: UiRuntimeLoadedSession) => {
+    const controlOwnerClientId = presence.ownerOf(session.sessionId);
     return {
-      protocolVersion: PROTOCOL_VERSION,
-      cwd: this.workspace.cwd,
-      activeSessionId: this.presence.activeFor(clientId),
-      loadedSessions: this.loadedSessionsFor(clientId),
-      persistedSessions: this.workspace.persistedSessions,
-      capabilities: CAPABILITIES,
+      ...session,
+      controlOwnerClientId,
+      controlledByCurrentClient: controlOwnerClientId === clientId,
     };
-  }
-
-  /**
-   * Returns the WebSocket hello payload for a newly attached client.
-   * This is the very first message sent after a WebSocket connection is established.
-   * It declares protocol version, assigns a client id, and includes the full state
-   * snapshot so the frontend can render immediately.
-   */
-  hello(clientId: string): ServerHello {
-    return {
-      type: "hello",
-      protocolVersion: PROTOCOL_VERSION,
-      cwd: this.workspace.cwd,
-      clientId,
-      state: this.getState(clientId),
-    };
-  }
-
-  /**
-   * Augments each loaded session with control ownership metadata for a specific client.
-   * Two fields are added:
-   *   - controlOwnerClientId: Which client (if any) currently holds the mutation lease.
-   *   - controlledByCurrentClient: Whether this specific client is the control owner.
-   */
-  private loadedSessionsFor(clientId: string): UiLoadedSession[] {
-    return this.workspace.loadedSessions().map((session) => {
-      const controlOwnerClientId = this.presence.ownerOf(session.sessionId);
-      return {
-        ...session,
-        controlOwnerClientId,
-        controlledByCurrentClient: controlOwnerClientId === clientId,
-      };
-    });
-  }
+  });
 }

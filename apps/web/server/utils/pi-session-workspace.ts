@@ -16,8 +16,8 @@ import type {
   SessionEntryInfo,
   SessionHistoryResponse,
   ThinkingLevel,
-  UiLoadedSession,
   UiRequestResponseRequest,
+  UiRuntimeLoadedSession,
   UiSessionSummary,
 } from "../../types/protocol";
 import type { AgentEventBus } from "./agent-event-bus";
@@ -34,6 +34,7 @@ import {
   DEFAULT_THINKING_LEVELS,
   flattenText,
   PiSessionController,
+  type PiSessionControllerHost,
   toUiModel,
   toUiSessionSummary,
 } from "./pi-session-controller";
@@ -50,24 +51,14 @@ export type PiSessionWorkspaceOptions = {
 };
 
 /**
- * Process-wide singleton (owned by AgentRuntime) that holds Pi SDK shared services
- * and the loaded-session working set.
+ * Process singleton Pi session workspace owned by AgentRuntime.
+ * Owns shared Pi backing stores + loaded-session working set.
+ * No browser/SSE deps; emits runtime events for projection/forwarding.
  *
- * There is exactly one PiSessionWorkspace per Node.js process, created during
- * Nitro startup by initAgentRuntime. All HTTP routes and WebSocket handlers
- * share the same instance.
- *
- * The workspace has no knowledge of browser clients or WebSocket peers.
- * It emits runtime events on the event bus when session state changes;
- * separate services (SessionProjector, SseAgentHub) translate those events
- * into browser-facing state snapshots and realtime messages.
- *
- * Session lifecycle:
- *   - Sessions are loaded on demand via createLoadedSession() or openLoadedSession().
- *   - When the working set reaches maxLoadedSessions, idle sessions may be evicted.
- *   - Sessions focused by a browser client are protected from eviction
- *     (identified by the getProtectedSessionIds callback).
- *   - Persisted session metadata is cached separately and refreshed after mutations.
+ * Lifecycle:
+ *   - Load sessions on demand; evict idle sessions at capacity.
+ *   - Browser-focused sessions are protected via getProtectedSessionIds().
+ *   - Persisted metadata is cached and refreshed after mutations.
  */
 export class PiSessionWorkspace {
   /** Pi agent home directory (defaults to ~/.pi or PI_CODING_AGENT_DIR). */
@@ -173,8 +164,17 @@ export class PiSessionWorkspace {
     });
   }
 
+  /** Builds the dependency interface injected into each session controller. */
+  private createControllerHost(): PiSessionControllerHost {
+    return {
+      createServices: () => this.createSessionServices(),
+      emit: (event) => this.emitServerEvent(event),
+      onSessionMetadataChanged: () => this.refreshPersistedSessionCache(),
+    };
+  }
+
   /** Returns a readonly projection of currently loaded sessions for the UI sidebar. */
-  loadedSessions(): UiLoadedSession[] {
+  loadedSessions(): UiRuntimeLoadedSession[] {
     return [...this.sessions.values()].map((controller) =>
       controller.toLoadedSession(),
     );
@@ -222,10 +222,8 @@ export class PiSessionWorkspace {
       agentDir: this.agentDir,
       authStorage: this.authStorage,
       modelRegistry: this.modelRegistry,
-      createServices: () => this.createSessionServices(),
-      emit: (event) => this.emitServerEvent(event),
       approvalTimeoutMs: this.options.approvalTimeoutMs,
-      onSessionMetadataChanged: () => this.refreshPersistedSessionCache(),
+      host: this.createControllerHost(),
     });
 
     this.sessions.set(controller.sessionId, controller);
@@ -261,10 +259,8 @@ export class PiSessionWorkspace {
       agentDir: this.agentDir,
       authStorage: this.authStorage,
       modelRegistry: this.modelRegistry,
-      createServices: () => this.createSessionServices(),
-      emit: (event) => this.emitServerEvent(event),
       approvalTimeoutMs: this.options.approvalTimeoutMs,
-      onSessionMetadataChanged: () => this.refreshPersistedSessionCache(),
+      host: this.createControllerHost(),
       sessionFile: normalizedSessionFile,
     });
 
@@ -766,7 +762,7 @@ export class PiSessionWorkspace {
     this.eventBus.publish({ type: "server_event", event });
   }
 
-  /** Emits a state_changed event to trigger frontend refresh via WebSocket. */
+  /** Emits state_changed so SSE clients refresh their snapshots. */
   private emitStateChanged() {
     this.eventBus.publish({ type: "state_changed" });
   }

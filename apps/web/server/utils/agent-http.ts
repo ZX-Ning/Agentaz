@@ -70,8 +70,7 @@ export function acquireRequestSessionControl(
   // client already owns it.
   runtime.presence.acquireControl(clientId, sessionId);
 
-  // Broadcast the control change so all connected WebSocket clients
-  // see which client now owns the session.
+  // Broadcast control ownership so connected browsers see the new lease owner.
   runtime.eventBus.publish({
     type: "control_changed",
     sessionId,

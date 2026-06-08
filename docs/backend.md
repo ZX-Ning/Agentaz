@@ -171,9 +171,11 @@ The first config wins. Reconfiguration with different values should fail loudly.
 
 - `PiSessionWorkspace`: Pi SDK services and loaded session lifecycle.
 - `ClientPresence`: browser client ids, focus, and control leases.
-- `SessionProjector`: client-specific HTTP/SSE state snapshots.
 - `AgentEventBus`: typed in-process pub/sub between session runtime and realtime transport.
 - `SseAgentHub`: SSE stream lifecycle and event forwarding.
+
+Client-specific HTTP/SSE state snapshots are built by pure helpers in
+`session-projector.ts`, not by an AgentRuntime-owned service.
 
 SSE `hello` assigns the browser tab `clientId`. Client-specific HTTP requests should send that
 identity back through `X-Agentaz-Client-Id`; routes fall back to `LOCAL_CLIENT_ID` only for non-browser

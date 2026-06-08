@@ -66,7 +66,7 @@ Do not run `pnpm build` by default because it is slower. Run build only when req
 
 ### Comments
 
-Be aggressive with comments — when in doubt, write more. Every API route (`apps/web/server/api/**/*.ts`) gets a top-level JSDoc covering HTTP method/path, request and response shapes, route params, headers, side effects, and error codes. Every non-trivial utility method gets a JSDoc documenting purpose, parameters, return value, and behavioral contracts. Long functions get inline section comments describing each logical phase.
+Write comments proactively, especially around API boundaries, non-obvious contracts, lifecycle behavior, and long functions. Keep them technically precise and linguistically concise: prefer short JSDoc, compact inline notes, lists, arrows, and symbols over paragraph-style explanation. Comments should clarify intent, invariants, side effects, error behavior, and phase boundaries without becoming essays.
 
 ## Development Guides
 

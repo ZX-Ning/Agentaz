@@ -11,6 +11,7 @@ import {
 } from "../../../../utils/agent-http";
 import { getAgentRuntime } from "../../../../utils/agent-runtime";
 import { BadRequestError } from "../../../../utils/domain-errors";
+import { getAgentState } from "../../../../utils/session-projector";
 
 /**
  * POST /api/agent/sessions/:sessionId/revert
@@ -73,7 +74,7 @@ export default defineEventHandler(
       runtime.eventBus.publish({ type: "state_changed" });
 
       return {
-        ...runtime.projector.getState(clientId),
+        ...getAgentState(runtime.workspace, runtime.presence, clientId),
         sessionId: controller.sessionId,
         sessionFile: controller.sessionFile,
       };

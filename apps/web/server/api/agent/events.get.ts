@@ -38,19 +38,14 @@ export default defineEventHandler(async (event) => {
 
   const hub = getAgentRuntime().hub;
 
-  // Adapt the h3 EventStream to the SseWriter interface the hub expects.
-  const writer = {
-    push: (data: string) => {
-      eventStream.push({ data });
-    },
-    onClose: (cb: () => void) => {
-      eventStream.onClosed(cb);
-    },
-  };
+  // Route owns h3 EventStream lifecycle; the hub owns runtime client state.
+  eventStream.onClosed(() => hub.close(clientId));
 
-  // Delegate all setup (presence attach, hello, state snapshot, event
-  // bus subscription, heartbeat) to the hub.
-  await hub.open(clientId, writer);
+  // Delegate presence attach, hello, snapshots, event subscription, and
+  // heartbeat to the hub.
+  await hub.open(clientId, (data) => {
+    eventStream.push({ data });
+  });
 
   // Hand control to h3 — headers are now written and the event stream
   // is piped to the HTTP response.

@@ -53,7 +53,7 @@ apps/web/server/api/agent/events.get.ts   SSE streaming endpoint
 apps/web/server/utils/agent-runtime.ts
 apps/web/server/utils/pi-session-workspace.ts
 apps/web/server/utils/client-presence.ts
-apps/web/server/utils/session-projector.ts
+apps/web/server/utils/session-projector.ts        state snapshot projection helpers
 apps/web/server/utils/agent-event-bus.ts
 apps/web/server/utils/sse-agent-hub.ts
 apps/web/server/utils/extension-ui-context.ts
@@ -189,9 +189,9 @@ Nuxt/Nitro Server
   ├─ AgentRuntime
   ├─ PiSessionWorkspace
   ├─ ClientPresence
-  ├─ SessionProjector
   ├─ AgentEventBus
   ├─ SseAgentHub
+  ├─ State projection helpers
   ├─ WebExtensionUIContext
   ├─ Permission config generator
   └─ Protocol/event normalization
