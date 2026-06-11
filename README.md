@@ -1,3 +1,5 @@
 # Agentaz
 
-Agentaz is a web ui focused general purpose / coding agent APP build on top of [pi](https://github.com/earendil-works/pi).
+A web ui focused general purpose AI agent app built on top of [pi](https://github.com/earendil-works/pi).
+
+WIP
