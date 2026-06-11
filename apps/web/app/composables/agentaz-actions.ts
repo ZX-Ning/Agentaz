@@ -1,4 +1,5 @@
 import type {
+  ContextCompactResponse,
   PendingUiRequest,
   UiMessage,
   UiRequestResponseRequest,
@@ -23,6 +24,7 @@ export function createAgentazActions(
   mutations: AgentazMutations,
   sessions: AgentazSessions,
 ) {
+  const toast = useToast();
   const { agentFetch, beginSessionSwitchIntent } = api;
   const { removePendingUiRequest } = mutations;
   const {
@@ -136,6 +138,30 @@ export function createAgentazActions(
       });
   }
 
+  async function compactActiveContext() {
+    const sessionId = ctx.activeSessionId.value;
+    if (
+      !sessionId ||
+      isDraftSessionId(sessionId) ||
+      !ctx.activeLoadedSession.value ||
+      ctx.status.value !== "connected" ||
+      ctx.isActiveSessionWorking.value
+    ) {
+      return;
+    }
+
+    const result = await agentFetch<ContextCompactResponse>(
+      sessionUrl(sessionId, "/compact"),
+      { method: "POST", body: {} },
+    );
+    await sessions.refreshHistory(result.sessionId, true);
+    toast.add({
+      title: "Context compacted",
+      description: `Compacted from ${result.tokensBefore.toLocaleString()} context tokens.`,
+      color: "success",
+    });
+  }
+
   async function respondToUiRequest(
     request: PendingUiRequest,
     value?: string | boolean,
@@ -174,6 +200,7 @@ export function createAgentazActions(
     renameSessionAndClose,
     deleteSessionAndClose,
     clearActiveQueue,
+    compactActiveContext,
     respondToUiRequest,
   };
 }

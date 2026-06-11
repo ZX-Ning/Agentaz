@@ -273,6 +273,11 @@ The `status` SSE event and loaded-session state (`UiRuntimeLoadedSession`) inclu
 
 These fields are refreshed on every `sendStatus()` call (after turns, compaction, model changes, queue updates, and reconnect recovery). Do not estimate tokens in Agentaz — use Pi SDK as the single source of truth.
 
+History projection includes Pi `compaction` entries as durable `system`
+messages in the transcript. The marker is intentionally concise and uses the
+persisted `tokensBefore` value; the full compaction summary remains in the Pi
+session entry and is not rendered in the chat transcript by default.
+
 `clientMessageId` belongs to prompt submissions only. `follow_up` currently
 queues text inside Pi's pending queue and does not create a confirmed browser
 transcript turn; adding visible queued user messages requires a separate

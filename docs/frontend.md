@@ -92,7 +92,7 @@ Do not hardcode broad gray palettes unless it is temporary. Prefer the semantic 
 
 Only small, localized status indicators may use hardcoded Tailwind colors directly (e.g. `bg-amber-500`, `text-emerald-500`). These are limited to:
 
-- Status dots (see `StatusPopover.vue` dots, tool block status dots in `ChatMessage.vue`)
+- Status dots (for example, tool block status dots in `ChatMessage.vue`)
 - Inline error / warning text within otherwise theme-token-styled blocks
 
 For any larger structural element — borders, backgrounds, text blocks, shadows — always use the semantic tokens above.
@@ -194,7 +194,7 @@ Current state includes:
 
 Keep state normalized around `UiMessage` and `UiBlock` rather than raw Pi SDK messages. The backend should translate Pi events into app-level protocol events.
 Treat `loadedSessions` as the server-resident working set. Loaded sessions should be focused with the session-specific focus endpoint; normal persisted sessions should be opened on demand from `persistedSessions`.
-Loaded sessions may include optional context/token usage metadata (`contextUsage` and `usageStats`), refreshed via `status` SSE events and included in `state_snapshot` responses. Callers may read from `activeLoadedSession.value?.contextUsage` and `.usageStats` without adding visible UI for these fields yet.
+Loaded sessions may include optional context/token usage metadata (`contextUsage` and `usageStats`), refreshed via `status` SSE events and included in `state_snapshot` responses. The header context menu renders these values for the active loaded session. Manual context compact is a browser-triggered HTTP action through `POST /api/agent/sessions/:sessionId/compact`; SSE/snapshots remain the source of truth for refreshed usage after compact. Persisted Pi compaction entries are projected by the backend history endpoint as concise `system` messages, so the frontend should not add local-only compact markers.
 The initial empty chat and the New session button use a frontend-only draft session. The draft fetches model options through `GET /api/agent/models`, which does not create a Pi session. It is not sent to the backend until the user submits the first prompt; at that point the frontend creates a real session, applies the selected model/thinking settings, moves the optimistic user message to the returned session id, and submits the prompt.
 Real sessions are reflected in the browser URL as `/session/:sessionId`. Draft sessions do not get a session route and stay at `/`; after the first prompt materializes a draft, the frontend replaces the URL with the returned real session id. Direct visits to `/session/:sessionId` first focus an already-loaded session, then fall back to the persisted session list by matching `sessionId` and opening the existing `sessionFile`.
 Unauthenticated direct visits to any app route redirect to `/login?redirect=<original path>`. Successful login returns to that redirect target when it is a safe same-origin path.

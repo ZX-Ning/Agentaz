@@ -614,11 +614,13 @@ export class PiSessionController {
     const entryIdByMessageIndex = new Map<number, string>();
     const rewindEntryIdByMessageId = new Map<string, string>();
     const rewindEntryIdByMessageIndex = new Map<number, string>();
-    const messageEntries = branchEntries.filter(
-      (entry: any) => entry.type === "message",
+    const transcriptEntries = branchEntries.filter(
+      (entry: any) => entry.type === "message" || entry.type === "compaction",
     );
 
-    const messages = messageEntries.map((entry: any, index: number) => {
+    const historyItems = transcriptEntries.map((entry: any, index: number) => {
+      if (entry.type === "compaction") return entry;
+
       const message = entry.message;
       const branchIndex = branchEntries.findIndex(
         (branchEntry: any) => branchEntry.id === entry.id,
@@ -636,7 +638,7 @@ export class PiSessionController {
     this.cachedHistory = {
       sessionId: this.sessionId,
       revision: this.transcriptRevision,
-      messages: normalizeMessages(messages as any[], {
+      messages: normalizeMessages(historyItems as any[], {
         entryIdByMessageId,
         entryIdByMessageIndex,
         rewindEntryIdByMessageId,
@@ -843,6 +845,7 @@ export class PiSessionController {
    *   - tool_execution_update / tool_update: Tool call in progress (status=running).
    *   - tool_execution_end / tool_end: Tool call completed or errored.
    *   - queue_update: Steer/follow-up queue changed; apply pending settings.
+   *   - compaction_end: Pi wrote a compaction entry; refresh usage/history.
    *   - agent_end: Agent turn completed; flush the current assistant message.
    *   - thinking_level_changed: Update the frontend status.
    *   - session_info_changed: Notify the workspace to refresh persisted metadata.
@@ -894,6 +897,10 @@ export class PiSessionController {
           // Apply any deferred model/thinking changes now that the
           // session may have become idle (queue drained).
           void this.applyPendingSettingsIfIdle();
+          break;
+        case "compaction_end":
+          this.sendStatus();
+          this.invalidateHistoryCache();
           break;
         case "agent_end":
           this.sendStatus();
@@ -1448,6 +1455,12 @@ export function normalizeMessages(
   let lastAssistant: UiMessage | undefined;
 
   messages.forEach((message, index) => {
+    if (message?.type === "compaction") {
+      normalized.push(normalizeCompactionEntry(message, index));
+      lastAssistant = undefined;
+      return;
+    }
+
     // Tool result messages are attached to the preceding assistant message.
     // If there is no preceding assistant message, create a synthetic one.
     if (isToolResultMessage(message)) {
@@ -1499,6 +1512,28 @@ export function normalizeMessages(
   });
 
   return normalized;
+}
+
+/** Converts a Pi compaction entry into a durable transcript marker. */
+function normalizeCompactionEntry(entry: any, index: number): UiMessage {
+  const messageId = `compaction-${entry.id ?? index}`;
+  const tokensBefore =
+    typeof entry.tokensBefore === "number"
+      ? entry.tokensBefore.toLocaleString()
+      : "unknown";
+  return {
+    id: messageId,
+    entryId: entry.id,
+    role: "system",
+    blocks: [
+      {
+        id: `${messageId}:text`,
+        type: "text",
+        text: `Context compacted. Previous context: ${tokensBefore} tokens.`,
+      },
+    ],
+    createdAt: toTimestamp(entry.timestamp),
+  };
 }
 
 /** Checks if a message is a tool result (role = "toolResult" or "tool"). */

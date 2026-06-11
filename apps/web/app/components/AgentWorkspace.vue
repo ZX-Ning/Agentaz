@@ -86,6 +86,7 @@ const {
   pendingModelChange,
   pendingThinkingChange,
   completedTurnFocusRequest,
+  isActiveSessionWorking,
 } = agentaz;
 
 const {
@@ -93,6 +94,7 @@ const {
   createSessionAndClose,
   // loadDummySession,
   clearActiveQueue,
+  compactActiveContext,
   respondToUiRequest,
   renameSessionAndClose,
   deleteSessionAndClose,
@@ -104,6 +106,7 @@ const { handleModelSelect, handleThinkingSelect } = agentazModels;
 
 const isSidebarOpen = ref(false);
 const isAutoStickToBottomEnabled = ref(false);
+const isCompactingContext = ref(false);
 const transcriptScrollRef = ref<HTMLElement | null>(null);
 const revertTargetMessage = ref<null | {
   id: string;
@@ -176,6 +179,16 @@ async function handleSidebarSessionRename(payload: {
 async function handleSidebarSessionDelete(session: SessionListItem) {
   await deleteSessionAndClose(session);
   closeSidebarOnMobile();
+}
+
+async function handleCompactContext() {
+  if (isCompactingContext.value) return;
+  isCompactingContext.value = true;
+  try {
+    await compactActiveContext();
+  } finally {
+    isCompactingContext.value = false;
+  }
 }
 
 async function handleForkMessage(message: {
@@ -362,6 +375,14 @@ watch(
   { flush: "post" },
 );
 
+watch(
+  isCompactingContext,
+  () => {
+    void scheduleTranscriptBottomStick();
+  },
+  { flush: "post" },
+);
+
 watch(isAutoStickToBottomEnabled, (enabled) => {
   if (enabled) void scheduleTranscriptBottomStick();
 });
@@ -411,9 +432,12 @@ useHead({
         :pending-message-count="pendingMessageCount"
         :pending-approval-count="pendingApprovalCount"
         :models-count="models.length"
+        :is-active-session-working="isActiveSessionWorking"
+        :is-compacting-context="isCompactingContext"
         @update:is-sidebar-open="isSidebarOpen = $event"
         @update:auto-stick-to-bottom="isAutoStickToBottomEnabled = $event"
         @clear-queue="clearActiveQueue"
+        @compact-context="handleCompactContext"
         @logout="emit('logout')"
       />
 
@@ -449,6 +473,16 @@ useHead({
             @fork="handleForkMessage"
             @revert="openRevertConfirmation"
           />
+
+          <div
+            v-if="isCompactingContext"
+            role="status"
+            aria-live="polite"
+            class="flex items-center gap-2 px-1 pt-1 text-sm text-muted-foreground sm:px-4"
+          >
+            <UIcon name="i-lucide-loader-circle" class="size-4 animate-spin" />
+            <span>compacting...</span>
+          </div>
         </div>
       </div>
 

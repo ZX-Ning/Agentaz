@@ -130,32 +130,11 @@ const emit = defineEmits<{
     <UButton
       type="button"
       color="neutral"
-      variant="outline"
+      variant="ghost"
+      icon="i-lucide-activity"
       size="sm"
-      class="flex items-center gap-1 px-2 sm:gap-2 sm:px-3"
-    >
-      <span class="relative flex h-2 w-2">
-        <span
-          v-if="status === 'connected' && isStreaming"
-          class="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75"
-          :class="status === 'connected' ? 'bg-emerald-400' : 'bg-amber-400'"
-        />
-        <span
-          class="relative inline-flex rounded-full h-2 w-2"
-          :class="{
-            'bg-emerald-500': status === 'connected',
-            'bg-amber-500': status === 'connecting',
-            'bg-rose-500': status === 'error',
-            'bg-slate-500': status === 'disconnected',
-          }"
-        />
-      </span>
-
-      <span class="text-xs font-medium">{{ statusLabel }}</span>
-      <UIcon
-        name="i-lucide-chevron-down"
-        class="size-3.5 shrink-0 opacity-60 sm:size-4"
-      />
-    </UButton>
+      aria-label="Open system status"
+      class="hidden text-foreground hover:bg-accent hover:text-accent-foreground sm:inline-flex"
+    />
   </UPopover>
 </template>
