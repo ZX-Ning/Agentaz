@@ -23,7 +23,7 @@ export default defineNuxtConfig({
       maxAge: 60 * 60 * 24,
       password:
         process.env.NUXT_SESSION_PASSWORD ??
-        "missing-nuxt-session-password-runtime-will-fail",
+        "missing-nuxt-session-password-runtime-will-generate",
       /**
        * h3's DEFAULT_COOKIE hardcodes secure: true, which prevents session
        * cookies from being sent over HTTP on non-localhost addresses (RFC 6265

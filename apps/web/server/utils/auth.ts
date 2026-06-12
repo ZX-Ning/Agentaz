@@ -1,4 +1,4 @@
-import { createHash, timingSafeEqual } from "node:crypto";
+import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { createError } from "h3";
 
 /** Environment variable containing base64(SHA3-256(admin password)). */
@@ -9,6 +9,12 @@ const SESSION_PASSWORD_ENV = "NUXT_SESSION_PASSWORD";
 
 /** Minimum length required by nuxt-auth-utils for the session password. */
 const MIN_SESSION_PASSWORD_LENGTH = 32;
+
+interface SessionRuntimeConfig {
+  session?: {
+    password?: string;
+  };
+}
 
 /**
  * Returns the configured admin password hash or throws a startup/request error.
@@ -25,16 +31,28 @@ export function requireAdminPasswordHash() {
 }
 
 /**
- * Validates auth-related environment variables during Nitro startup.
+ * Validates and completes auth-related config during Nitro startup.
  *
- * This fails closed before the Pi runtime is exposed. nuxt-auth-utils can create
- * a development session password automatically, but Agentaz requires an explicit
- * NUXT_SESSION_PASSWORD so deployments do not accidentally rely on generated
- * local state.
+ * Missing NUXT_SESSION_PASSWORD is allowed for local-first convenience. In that
+ * case the server creates one process-local cookie secret; existing sessions are
+ * invalidated when the process restarts.
  */
-export function assertAuthConfig() {
+export function assertAuthConfig(config?: SessionRuntimeConfig) {
   requireAdminPasswordHash();
-  const sessionPassword = process.env[SESSION_PASSWORD_ENV];
+  const configuredSessionPassword = process.env[SESSION_PASSWORD_ENV] || "";
+  const sessionPassword =
+    configuredSessionPassword || randomBytes(32).toString("base64url");
+
+  if (!configuredSessionPassword) {
+    process.env[SESSION_PASSWORD_ENV] = sessionPassword;
+    if (config?.session) {
+      config.session.password = sessionPassword;
+    }
+    console.warn(
+      `${SESSION_PASSWORD_ENV} is not set; generated a process-local session cookie secret. Existing browser sessions will be invalid after restart.`,
+    );
+  }
+
   if (!sessionPassword) {
     throw new Error(`${SESSION_PASSWORD_ENV} must be provided.`);
   }

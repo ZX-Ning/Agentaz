@@ -10,7 +10,9 @@ import { assertAuthConfig } from "../utils/auth";
  * Responsibilities:
  *   1. Configure the process-wide agent runtime with cwd, approval timeout,
  *      and max loaded sessions from runtime config (nuxt.config / env vars).
- *   2. Warn if the server is bound to a non-localhost address without
+ *   2. Complete auth config, including a process-local session secret when
+ *      NUXT_SESSION_PASSWORD is omitted.
+ *   3. Warn if the server is bound to a non-localhost address without
  *      authentication (local-first security constraint).
  *
  * This plugin runs synchronously during Nitro initialization, before any
@@ -22,8 +24,9 @@ export default defineNitroPlugin((nitroApp) => {
   const config = useRuntimeConfig();
   const host = process.env.NITRO_HOST || process.env.HOST;
 
-  // Fail closed unless the single-user admin auth secrets are configured.
-  assertAuthConfig();
+  // Fail closed unless the admin password hash is configured. The cookie
+  // encryption secret may be generated for this process when omitted.
+  assertAuthConfig(config);
 
   // Resolve runtime configuration from environment variables, falling back
   // to build-time defaults in nuxt.config.ts runtimeConfig.piWeb.

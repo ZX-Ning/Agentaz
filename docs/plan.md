@@ -21,8 +21,11 @@ The app is not a multi-user SaaS or team platform. It has moved beyond the origi
 ### Authentication
 
 - Authentication is single-user and admin-panel style, not account based.
-- `NUXT_SESSION_PASSWORD` is required and must be at least 32 characters. It is
-  used only by `nuxt-auth-utils` to encrypt/sign the session cookie.
+- `NUXT_SESSION_PASSWORD` is optional but recommended for stable sessions across
+  restarts. When provided, it must be at least 32 characters. When omitted, the
+  server generates a process-local secret at startup, so existing browser
+  sessions are invalid after restart. It is used only by `nuxt-auth-utils` to
+  encrypt/sign the session cookie.
 - `AGENTAZ_ADMIN_PASSWORD_HASH` is required and must contain
   `base64(SHA3-256(password-string))`.
 - The login endpoint hashes the exact UTF-8 password string entered in the

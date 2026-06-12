@@ -72,8 +72,11 @@ Important constraints:
 - The web UI does not currently switch cwd.
 - `AGENTAZ_ADMIN_PASSWORD_HASH` is required and must be
   `base64(SHA3-256(password-string))`.
-- `NUXT_SESSION_PASSWORD` is required separately and must be at least 32
-  characters. Do not derive it from the admin password hash.
+- `NUXT_SESSION_PASSWORD` is optional but recommended for stable sessions across
+  restarts. When provided, it must be at least 32 characters. When omitted, the
+  startup plugin generates a process-local secret and writes it into runtime
+  config before auth routes are used. Do not derive it from the admin password
+  hash.
 - Non-localhost bind still warns because the app exposes a powerful single-user
   coding agent surface.
 
@@ -367,8 +370,10 @@ The smoke test assumes the dev server is already running. It checks:
 - authenticated health endpoint
 - authenticated REST state/history/models/session lifecycle endpoints
 
-The running server must be started with matching `AGENTAZ_ADMIN_PASSWORD_HASH`
-and `NUXT_SESSION_PASSWORD` values.
+The running server must be started with an `AGENTAZ_ADMIN_PASSWORD_HASH` value
+matching `PI_WEB_SMOKE_ADMIN_PASSWORD`. If `NUXT_SESSION_PASSWORD` is omitted,
+the server generates a process-local session secret and smoke-test login still
+works for that process.
 
 ## Verification
 
