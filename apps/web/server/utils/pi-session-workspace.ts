@@ -84,6 +84,8 @@ export class PiSessionWorkspace {
   private requiredPackagesPromise?: Promise<void>;
   /** The loaded session working set indexed by sessionId. */
   private sessions = new Map<string, PiSessionController>();
+  /** Last known history revision for sessions that may be reopened later. */
+  private historyRevisionBySessionId = new Map<string, number>();
   /** Snapshot of persisted session metadata from the working directory. */
   private persistedSessionCache: UiSessionSummary[] = [];
 
@@ -227,6 +229,7 @@ export class PiSessionWorkspace {
       host: this.createControllerHost(),
     });
 
+    this.seedHistoryRevision(controller);
     this.sessions.set(controller.sessionId, controller);
     this.emitStateChanged();
     return controller;
@@ -265,6 +268,7 @@ export class PiSessionWorkspace {
       sessionFile: normalizedSessionFile,
     });
 
+    this.seedHistoryRevision(controller);
     this.sessions.set(controller.sessionId, controller);
     this.emitStateChanged();
     return controller;
@@ -331,6 +335,7 @@ export class PiSessionWorkspace {
 
     if (loadedSessionId && loaded) {
       this.sessions.delete(loadedSessionId);
+      this.historyRevisionBySessionId.delete(loadedSessionId);
       await loaded.dispose();
     }
 
@@ -486,6 +491,7 @@ export class PiSessionWorkspace {
 
     const sessionManager = controller.getSessionManager();
     const currentName = sessionManager.getSessionName() ?? "";
+    this.rememberHistoryRevision(controller, controller.historyRevision() + 1);
     sessionManager.branch(normalizedEntryId);
     sessionManager.appendSessionInfo(currentName);
 
@@ -650,6 +656,9 @@ export class PiSessionWorkspace {
   async disposeAll() {
     const controllers = [...this.sessions.values()];
     this.sessions.clear();
+    controllers.forEach((controller) =>
+      this.rememberHistoryRevision(controller),
+    );
     await Promise.all(controllers.map((controller) => controller.dispose()));
     this.emitStateChanged();
   }
@@ -722,6 +731,7 @@ export class PiSessionWorkspace {
       if (protectedSessionIds.has(sessionId) || controller.isBusy()) continue;
 
       this.sessions.delete(sessionId);
+      this.rememberHistoryRevision(controller);
       await controller.dispose();
       this.eventBus.publish({
         type: "session_removed",
@@ -745,6 +755,23 @@ export class PiSessionWorkspace {
       throw new SessionNotFoundError();
     }
     return controller;
+  }
+
+  /** Restores the last known revision for a controller reopened by session id. */
+  private seedHistoryRevision(controller: PiSessionController) {
+    const revision = this.historyRevisionBySessionId.get(controller.sessionId);
+    if (revision !== undefined) controller.seedHistoryRevision(revision);
+  }
+
+  /** Saves a controller revision before disposal/reload can reset it. */
+  private rememberHistoryRevision(
+    controller: PiSessionController,
+    revision = controller.historyRevision(),
+  ) {
+    const current = this.historyRevisionBySessionId.get(controller.sessionId);
+    if (current === undefined || revision > current) {
+      this.historyRevisionBySessionId.set(controller.sessionId, revision);
+    }
   }
 
   /** Throws unless the loaded controller can be safely forked or reverted. */

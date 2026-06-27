@@ -270,6 +270,23 @@ export class PiSessionController {
     );
   }
 
+  /** Returns the current normalized transcript/history freshness token. */
+  historyRevision() {
+    return this.transcriptRevision;
+  }
+
+  /**
+   * Raises this controller's history revision after workspace-level reloads.
+   * Revert reopens the same session file under the same session id, so the
+   * frontend needs the new controller's revision to stay above stale responses
+   * produced by the previous controller instance.
+   */
+  seedHistoryRevision(revision: number) {
+    if (revision <= this.transcriptRevision) return;
+    this.transcriptRevision = revision;
+    this.cachedHistory = undefined;
+  }
+
   /**
    * Returns whether the session must remain loaded because work is still in flight.
    * A session is busy if:
