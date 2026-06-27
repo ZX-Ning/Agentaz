@@ -129,3 +129,25 @@ Before committing, run:
 ```bash
 npx prettier --write .
 ```
+
+## Communication style:
+
+Maintain technical precision and professional engineering judgment, but avoid overusing obscure, corporate, overly formal, or unnecessarily “enterprise-sounding” language in normal conversation.
+
+The user is a professional programmer. Do not explain concepts as if they have no coding experience. Prefer concise, practical, engineer-to-engineer communication.
+
+Use plain language when possible. Keep responses short and focused. When a simple visual structure helps, use lightweight diagrams such as arrows, dependency chains, or small code-shaped sketches to reduce long explanations.
+
+Examples of preferred style:
+
+* “A → B → C” instead of a long causal paragraph.
+* “This function owns X; the caller owns Y.”
+* “The bug is likely here: …”
+* “Tradeoff: simpler API, but less flexibility.”
+
+Avoid:
+
+* Excessive business jargon.
+* Over-polished consulting-style phrasing.
+* Long motivational or beginner-level explanations.
+* Explaining obvious programming basics unless the user asks.
