@@ -140,11 +140,11 @@ GET    /api/agent/events
 ```
 
 - Browser-backed extension UI prompts are emitted over SSE:
-  - `ui_select_request`
-  - `ui_input_request`
-  - `ui_confirm_request`
+    - `ui_select_request`
+    - `ui_input_request`
+    - `ui_confirm_request`
 - Browser-backed extension text widgets are emitted over SSE:
-  - `extension_widget_update`
+    - `extension_widget_update`
 - Browser responses are submitted over HTTP:
 
 ```txt

@@ -11,7 +11,7 @@ const lineCount = computed(() =>
   props.widgets.reduce((count, widget) => count + widget.lines.length, 0),
 );
 const title = computed(() =>
-  props.widgets.some((widget) => widget.key.toLowerCase().includes("todo"))
+  props.widgets.some(widget => widget.key.toLowerCase().includes("todo"))
     ? "Todo"
     : "Extension output",
 );

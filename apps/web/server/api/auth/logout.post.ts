@@ -14,7 +14,7 @@
  * Errors:
  *   - 401: No valid auth session is present
  */
-export default defineEventHandler(async (event) => {
-  await clearUserSession(event);
-  return { ok: true };
+export default defineEventHandler(async event => {
+    await clearUserSession(event);
+    return { ok: true };
 });

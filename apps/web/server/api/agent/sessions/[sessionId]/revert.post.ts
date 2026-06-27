@@ -1,13 +1,13 @@
 import type {
-  SessionOperationResponse,
-  SessionRevertRequest,
+    SessionOperationResponse,
+    SessionRevertRequest,
 } from "../../../../../types/protocol";
 import {
-  agentHttpError,
-  readJsonBody,
-  requestClientId,
-  requireRouteParam,
-  withRequestSessionControl,
+    agentHttpError,
+    readJsonBody,
+    requestClientId,
+    requireRouteParam,
+    withRequestSessionControl,
 } from "../../../../utils/agent-http";
 import { getAgentRuntime } from "../../../../utils/agent-runtime";
 import { BadRequestError } from "../../../../utils/domain-errors";
@@ -52,34 +52,37 @@ import { getAgentState } from "../../../../utils/session-projector";
  *   - 500: Unexpected runtime error
  */
 export default defineEventHandler(
-  async (event): Promise<SessionOperationResponse> => {
-    try {
-      const sessionId = requireRouteParam(event, "sessionId");
-      const body = await readJsonBody<SessionRevertRequest>(event);
-      const clientId = requestClientId(event);
+    async (event): Promise<SessionOperationResponse> => {
+        try {
+            const sessionId = requireRouteParam(event, "sessionId");
+            const body = await readJsonBody<SessionRevertRequest>(event);
+            const clientId = requestClientId(event);
 
-      if (!body.entryId) {
-        throw new BadRequestError("Session entry id is required.");
-      }
+            if (!body.entryId) {
+                throw new BadRequestError("Session entry id is required.");
+            }
 
-      const controller = await withRequestSessionControl(
-        event,
-        sessionId,
-        (lease) =>
-          lease.runtime.workspace.revertSession(sessionId, body.entryId!),
-      );
+            const controller = await withRequestSessionControl(
+                event,
+                sessionId,
+                lease =>
+                    lease.runtime.workspace.revertSession(
+                        sessionId,
+                        body.entryId!,
+                    ),
+            );
 
-      const runtime = getAgentRuntime();
-      runtime.presence.focus(clientId, controller.sessionId);
-      runtime.eventBus.publish({ type: "state_changed" });
+            const runtime = getAgentRuntime();
+            runtime.presence.focus(clientId, controller.sessionId);
+            runtime.eventBus.publish({ type: "state_changed" });
 
-      return {
-        ...getAgentState(runtime.workspace, runtime.presence, clientId),
-        sessionId: controller.sessionId,
-        sessionFile: controller.sessionFile,
-      };
-    } catch (error) {
-      throw agentHttpError(error);
-    }
-  },
+            return {
+                ...getAgentState(runtime.workspace, runtime.presence, clientId),
+                sessionId: controller.sessionId,
+                sessionFile: controller.sessionFile,
+            };
+        } catch (error) {
+            throw agentHttpError(error);
+        }
+    },
 );

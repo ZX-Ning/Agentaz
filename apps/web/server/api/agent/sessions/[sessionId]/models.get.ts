@@ -1,7 +1,7 @@
 import {
-  agentHttpError,
-  getConfiguredAgentRegistry,
-  requireRouteParam,
+    agentHttpError,
+    getConfiguredAgentRegistry,
+    requireRouteParam,
 } from "../../../../utils/agent-http";
 /**
  * GET /api/agent/sessions/:sessionId/models
@@ -28,12 +28,12 @@ import {
  *   - 404: Session not loaded
  *   - 500: Unexpected registry error
  */
-export default defineEventHandler((event) => {
-  try {
-    return getConfiguredAgentRegistry().getSessionModelState(
-      requireRouteParam(event, "sessionId"),
-    );
-  } catch (error) {
-    throw agentHttpError(error);
-  }
+export default defineEventHandler(event => {
+    try {
+        return getConfiguredAgentRegistry().getSessionModelState(
+            requireRouteParam(event, "sessionId"),
+        );
+    } catch (error) {
+        throw agentHttpError(error);
+    }
 });

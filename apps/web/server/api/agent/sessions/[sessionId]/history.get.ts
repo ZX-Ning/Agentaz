@@ -1,7 +1,7 @@
 import {
-  agentHttpError,
-  getConfiguredAgentRegistry,
-  requireRouteParam,
+    agentHttpError,
+    getConfiguredAgentRegistry,
+    requireRouteParam,
 } from "../../../../utils/agent-http";
 /**
  * GET /api/agent/sessions/:sessionId/history
@@ -25,12 +25,12 @@ import {
  *   - 404: Session not loaded
  *   - 500: Unexpected runtime error
  */
-export default defineEventHandler((event) => {
-  try {
-    return getConfiguredAgentRegistry().getSessionHistory(
-      requireRouteParam(event, "sessionId"),
-    );
-  } catch (error) {
-    throw agentHttpError(error);
-  }
+export default defineEventHandler(event => {
+    try {
+        return getConfiguredAgentRegistry().getSessionHistory(
+            requireRouteParam(event, "sessionId"),
+        );
+    } catch (error) {
+        throw agentHttpError(error);
+    }
 });

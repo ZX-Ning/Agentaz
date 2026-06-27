@@ -1,7 +1,7 @@
 import {
-  agentHttpError,
-  requireRouteParam,
-  withRequestSessionControl,
+    agentHttpError,
+    requireRouteParam,
+    withRequestSessionControl,
 } from "../../../../../utils/agent-http";
 /**
  * POST /api/agent/sessions/:sessionId/queue/clear
@@ -28,16 +28,16 @@ import {
  *   - 409: Session is controlled by another browser client
  *   - 500: Unexpected runtime error
  */
-export default defineEventHandler(async (event) => {
-  try {
-    const sessionId = requireRouteParam(event, "sessionId");
+export default defineEventHandler(async event => {
+    try {
+        const sessionId = requireRouteParam(event, "sessionId");
 
-    // Acquire and release control within a try/finally wrapper.
-    await withRequestSessionControl(event, sessionId, (lease) =>
-      lease.runtime.workspace.clearSessionQueue(sessionId),
-    );
-    return { ok: true, sessionId };
-  } catch (error) {
-    throw agentHttpError(error);
-  }
+        // Acquire and release control within a try/finally wrapper.
+        await withRequestSessionControl(event, sessionId, lease =>
+            lease.runtime.workspace.clearSessionQueue(sessionId),
+        );
+        return { ok: true, sessionId };
+    } catch (error) {
+        throw agentHttpError(error);
+    }
 });

@@ -31,23 +31,23 @@ import { getAgentRuntime } from "../../utils/agent-runtime";
  *   - Disconnect is detected via EventStream.onClosed and the hub
  *     cleans up presence state.
  */
-export default defineEventHandler(async (event) => {
-  const eventStream = createEventStream(event);
+export default defineEventHandler(async event => {
+    const eventStream = createEventStream(event);
 
-  const clientId = crypto.randomUUID();
+    const clientId = crypto.randomUUID();
 
-  const hub = getAgentRuntime().hub;
+    const hub = getAgentRuntime().hub;
 
-  // Route owns h3 EventStream lifecycle; the hub owns runtime client state.
-  eventStream.onClosed(() => hub.close(clientId));
+    // Route owns h3 EventStream lifecycle; the hub owns runtime client state.
+    eventStream.onClosed(() => hub.close(clientId));
 
-  // Delegate presence attach, hello, snapshots, event subscription, and
-  // heartbeat to the hub.
-  await hub.open(clientId, (data) => {
-    eventStream.push({ data });
-  });
+    // Delegate presence attach, hello, snapshots, event subscription, and
+    // heartbeat to the hub.
+    await hub.open(clientId, data => {
+        eventStream.push({ data });
+    });
 
-  // Hand control to h3 — headers are now written and the event stream
-  // is piped to the HTTP response.
-  return eventStream.send();
+    // Hand control to h3 — headers are now written and the event stream
+    // is piped to the HTTP response.
+    return eventStream.send();
 });

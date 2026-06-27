@@ -1,12 +1,12 @@
 import type {
-  MessageSubmitRequest,
-  MessageSubmitResponse,
+    MessageSubmitRequest,
+    MessageSubmitResponse,
 } from "../../../../../types/protocol";
 import {
-  acquireRequestSessionControl,
-  agentHttpError,
-  readJsonBody,
-  requireRouteParam,
+    acquireRequestSessionControl,
+    agentHttpError,
+    readJsonBody,
+    requireRouteParam,
 } from "../../../../utils/agent-http";
 import { BadRequestError } from "../../../../utils/domain-errors";
 /**
@@ -51,67 +51,73 @@ import { BadRequestError } from "../../../../utils/domain-errors";
  *   - 500: Unexpected runtime error
  */
 export default defineEventHandler(
-  async (event): Promise<MessageSubmitResponse> => {
-    try {
-      const sessionId = requireRouteParam(event, "sessionId");
-      const body = await readJsonBody<MessageSubmitRequest>(event);
+    async (event): Promise<MessageSubmitResponse> => {
+        try {
+            const sessionId = requireRouteParam(event, "sessionId");
+            const body = await readJsonBody<MessageSubmitRequest>(event);
 
-      // Validate required message fields before acquiring control.
-      if (!body.text || !body.mode)
-        throw new BadRequestError("Message mode and text are required.");
-      if (
-        body.mode !== "prompt" &&
-        body.mode !== "steer" &&
-        body.mode !== "follow_up"
-      ) {
-        throw new BadRequestError("Unsupported message mode.");
-      }
-      const clientMessageId =
-        "clientMessageId" in body ? body.clientMessageId : undefined;
-      if (body.mode === "prompt" && !clientMessageId) {
-        throw new BadRequestError(
-          "clientMessageId is required for prompt messages.",
-        );
-      }
+            // Validate required message fields before acquiring control.
+            if (!body.text || !body.mode)
+                throw new BadRequestError(
+                    "Message mode and text are required.",
+                );
+            if (
+                body.mode !== "prompt" &&
+                body.mode !== "steer" &&
+                body.mode !== "follow_up"
+            ) {
+                throw new BadRequestError("Unsupported message mode.");
+            }
+            const clientMessageId =
+                "clientMessageId" in body ? body.clientMessageId : undefined;
+            if (body.mode === "prompt" && !clientMessageId) {
+                throw new BadRequestError(
+                    "clientMessageId is required for prompt messages.",
+                );
+            }
 
-      // Acquire request-scoped control — blocks other clients from mutating
-      // this session while we submit the message.
-      const lease = acquireRequestSessionControl(event, sessionId);
-      try {
-        if (body.mode === "steer") {
-          return lease.runtime.workspace.submitMessage(
-            sessionId,
-            { mode: "steer", text: body.text, images: body.images },
-            // Release control when the message task settles (completes or errors).
-            lease.release,
-          );
+            // Acquire request-scoped control — blocks other clients from mutating
+            // this session while we submit the message.
+            const lease = acquireRequestSessionControl(event, sessionId);
+            try {
+                if (body.mode === "steer") {
+                    return lease.runtime.workspace.submitMessage(
+                        sessionId,
+                        { mode: "steer", text: body.text, images: body.images },
+                        // Release control when the message task settles (completes or errors).
+                        lease.release,
+                    );
+                }
+                if (body.mode === "follow_up") {
+                    return lease.runtime.workspace.submitMessage(
+                        sessionId,
+                        {
+                            mode: "follow_up",
+                            text: body.text,
+                            images: body.images,
+                        },
+                        // Release control when the message task settles (completes or errors).
+                        lease.release,
+                    );
+                }
+                return lease.runtime.workspace.submitMessage(
+                    sessionId,
+                    {
+                        mode: "prompt",
+                        clientMessageId: clientMessageId!,
+                        text: body.text,
+                        images: body.images,
+                    },
+                    // Release control when the message task settles (completes or errors).
+                    lease.release,
+                );
+            } catch (error) {
+                // If submission itself fails, release control immediately.
+                lease.release();
+                throw error;
+            }
+        } catch (error) {
+            throw agentHttpError(error);
         }
-        if (body.mode === "follow_up") {
-          return lease.runtime.workspace.submitMessage(
-            sessionId,
-            { mode: "follow_up", text: body.text, images: body.images },
-            // Release control when the message task settles (completes or errors).
-            lease.release,
-          );
-        }
-        return lease.runtime.workspace.submitMessage(
-          sessionId,
-          {
-            mode: "prompt",
-            clientMessageId: clientMessageId!,
-            text: body.text,
-            images: body.images,
-          },
-          // Release control when the message task settles (completes or errors).
-          lease.release,
-        );
-      } catch (error) {
-        // If submission itself fails, release control immediately.
-        lease.release();
-        throw error;
-      }
-    } catch (error) {
-      throw agentHttpError(error);
-    }
-  },
+    },
 );

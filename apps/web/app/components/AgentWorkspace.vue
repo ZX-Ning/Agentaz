@@ -136,7 +136,7 @@ const workingIndicatorMessageId = computed(() => {
   const messages = activeMessages.value;
   const assistantMessage = [...messages]
     .reverse()
-    .find((message) => message.role === "assistant");
+    .find(message => message.role === "assistant");
   return assistantMessage?.id ?? messages.at(-1)?.id ?? null;
 });
 const canSubmitToActiveSession = computed(() => Boolean(activeSessionId.value));
@@ -242,8 +242,8 @@ function messageText(message: {
 }) {
   return (
     message.blocks
-      ?.filter((block) => block.type === "text" && block.text)
-      .map((block) => block.text)
+      ?.filter(block => block.type === "text" && block.text)
+      .map(block => block.text)
       .join("\n\n") ?? ""
   ).trim();
 }
@@ -288,7 +288,7 @@ function setMessageComponent(messageId: string, component: unknown) {
 function focusLastAssistantMessageStart() {
   const assistantMessage = [...activeMessages.value]
     .reverse()
-    .find((message) => message.role === "assistant");
+    .find(message => message.role === "assistant");
   if (!assistantMessage) return;
   messageComponentById.get(assistantMessage.id)?.focusStart();
 }
@@ -342,13 +342,13 @@ onMounted(() => {
   isSidebarOpen.value = window.matchMedia("(min-width: 1024px)").matches;
   agentazEvents
     .connectEventSource()
-    .then((event) => agentazRouteApply.applyInitialRoute(event.state))
+    .then(event => agentazRouteApply.applyInitialRoute(event.state))
     .catch(() => {
       status.value = "error";
     });
 });
 
-watch(completedTurnFocusRequest, async (request) => {
+watch(completedTurnFocusRequest, async request => {
   if (!request || request.sessionId !== activeSessionId.value) return;
   if (isAutoStickToBottomEnabled.value) {
     await scheduleTranscriptBottomStick();
@@ -383,7 +383,7 @@ watch(
   { flush: "post" },
 );
 
-watch(isAutoStickToBottomEnabled, (enabled) => {
+watch(isAutoStickToBottomEnabled, enabled => {
   if (enabled) void scheduleTranscriptBottomStick();
 });
 
@@ -464,7 +464,7 @@ useHead({
           <ChatMessage
             v-for="message in activeMessages"
             :key="message.id"
-            :ref="(component) => setMessageComponent(message.id, component)"
+            :ref="component => setMessageComponent(message.id, component)"
             :message="message"
             :show-working-indicator="message.id === workingIndicatorMessageId"
             :can-fork-revert="canForkRevertActiveSession"

@@ -11,9 +11,9 @@ const SESSION_PASSWORD_ENV = "NUXT_SESSION_PASSWORD";
 const MIN_SESSION_PASSWORD_LENGTH = 32;
 
 interface SessionRuntimeConfig {
-  session?: {
-    password?: string;
-  };
+    session?: {
+        password?: string;
+    };
 }
 
 /**
@@ -23,11 +23,11 @@ interface SessionRuntimeConfig {
  * verifies the user-entered password, while the latter encrypts the auth cookie.
  */
 export function requireAdminPasswordHash() {
-  const hash = process.env[ADMIN_PASSWORD_HASH_ENV]?.trim();
-  if (!hash) {
-    throw new Error(`${ADMIN_PASSWORD_HASH_ENV} must be provided.`);
-  }
-  return hash;
+    const hash = process.env[ADMIN_PASSWORD_HASH_ENV]?.trim();
+    if (!hash) {
+        throw new Error(`${ADMIN_PASSWORD_HASH_ENV} must be provided.`);
+    }
+    return hash;
 }
 
 /**
@@ -38,29 +38,29 @@ export function requireAdminPasswordHash() {
  * invalidated when the process restarts.
  */
 export function assertAuthConfig(config?: SessionRuntimeConfig) {
-  requireAdminPasswordHash();
-  const configuredSessionPassword = process.env[SESSION_PASSWORD_ENV] || "";
-  const sessionPassword =
-    configuredSessionPassword || randomBytes(32).toString("base64url");
+    requireAdminPasswordHash();
+    const configuredSessionPassword = process.env[SESSION_PASSWORD_ENV] || "";
+    const sessionPassword =
+        configuredSessionPassword || randomBytes(32).toString("base64url");
 
-  if (!configuredSessionPassword) {
-    process.env[SESSION_PASSWORD_ENV] = sessionPassword;
-    if (config?.session) {
-      config.session.password = sessionPassword;
+    if (!configuredSessionPassword) {
+        process.env[SESSION_PASSWORD_ENV] = sessionPassword;
+        if (config?.session) {
+            config.session.password = sessionPassword;
+        }
+        console.warn(
+            `${SESSION_PASSWORD_ENV} is not set; generated a process-local session cookie secret. Existing browser sessions will be invalid after restart.`,
+        );
     }
-    console.warn(
-      `${SESSION_PASSWORD_ENV} is not set; generated a process-local session cookie secret. Existing browser sessions will be invalid after restart.`,
-    );
-  }
 
-  if (!sessionPassword) {
-    throw new Error(`${SESSION_PASSWORD_ENV} must be provided.`);
-  }
-  if (sessionPassword.length < MIN_SESSION_PASSWORD_LENGTH) {
-    throw new Error(
-      `${SESSION_PASSWORD_ENV} must be at least ${MIN_SESSION_PASSWORD_LENGTH} characters.`,
-    );
-  }
+    if (!sessionPassword) {
+        throw new Error(`${SESSION_PASSWORD_ENV} must be provided.`);
+    }
+    if (sessionPassword.length < MIN_SESSION_PASSWORD_LENGTH) {
+        throw new Error(
+            `${SESSION_PASSWORD_ENV} must be at least ${MIN_SESSION_PASSWORD_LENGTH} characters.`,
+        );
+    }
 }
 
 /**
@@ -70,7 +70,7 @@ export function assertAuthConfig(config?: SessionRuntimeConfig) {
  * storing the plaintext admin password in process environment variables.
  */
 export function hashAdminPassword(password: string) {
-  return createHash("sha3-256").update(password, "utf8").digest("base64");
+    return createHash("sha3-256").update(password, "utf8").digest("base64");
 }
 
 /**
@@ -81,9 +81,11 @@ export function hashAdminPassword(password: string) {
  * present; this function handles equality only.
  */
 export function verifyAdminPassword(password: string) {
-  const expected = Buffer.from(requireAdminPasswordHash(), "base64");
-  const actual = Buffer.from(hashAdminPassword(password), "base64");
-  return expected.length === actual.length && timingSafeEqual(expected, actual);
+    const expected = Buffer.from(requireAdminPasswordHash(), "base64");
+    const actual = Buffer.from(hashAdminPassword(password), "base64");
+    return (
+        expected.length === actual.length && timingSafeEqual(expected, actual)
+    );
 }
 
 /**
@@ -93,15 +95,15 @@ export function verifyAdminPassword(password: string) {
  * handling can display a consistent message.
  */
 export function unauthorizedError(message = "Authentication required.") {
-  return createError({
-    statusCode: 401,
-    statusMessage: message,
-    data: {
-      code: "unauthorized",
-      message,
-      recoverable: true,
-    },
-  });
+    return createError({
+        statusCode: 401,
+        statusMessage: message,
+        data: {
+            code: "unauthorized",
+            message,
+            recoverable: true,
+        },
+    });
 }
 
 /**
@@ -111,11 +113,11 @@ export function unauthorizedError(message = "Authentication required.") {
  * the same recoverable 401 payload.
  */
 export async function requireAgentazAuth(
-  event: Parameters<typeof requireUserSession>[0],
+    event: Parameters<typeof requireUserSession>[0],
 ) {
-  try {
-    return await requireUserSession(event);
-  } catch {
-    throw unauthorizedError();
-  }
+    try {
+        return await requireUserSession(event);
+    } catch {
+        throw unauthorizedError();
+    }
 }

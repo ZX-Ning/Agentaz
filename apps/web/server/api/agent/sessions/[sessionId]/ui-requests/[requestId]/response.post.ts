@@ -1,10 +1,10 @@
 import type { UiRequestResponseRequest } from "../../../../../../../types/protocol";
 import {
-  agentHttpError,
-  parseUiRequestResponse,
-  readJsonBody,
-  requireRouteParam,
-  withRequestSessionControl,
+    agentHttpError,
+    parseUiRequestResponse,
+    readJsonBody,
+    requireRouteParam,
+    withRequestSessionControl,
 } from "../../../../../../utils/agent-http";
 /**
  * POST /api/agent/sessions/:sessionId/ui-requests/:requestId/response
@@ -41,20 +41,24 @@ import {
  *   - 409: Session is controlled by another browser client
  *   - 500: Unexpected runtime error
  */
-export default defineEventHandler(async (event) => {
-  try {
-    const sessionId = requireRouteParam(event, "sessionId");
-    const requestId = requireRouteParam(event, "requestId");
-    const body = parseUiRequestResponse(
-      await readJsonBody<UiRequestResponseRequest>(event),
-    );
+export default defineEventHandler(async event => {
+    try {
+        const sessionId = requireRouteParam(event, "sessionId");
+        const requestId = requireRouteParam(event, "requestId");
+        const body = parseUiRequestResponse(
+            await readJsonBody<UiRequestResponseRequest>(event),
+        );
 
-    // Dispatch to correct resolver based on the validated response kind.
-    await withRequestSessionControl(event, sessionId, async (lease) =>
-      lease.runtime.workspace.resolveUiRequest(sessionId, requestId, body),
-    );
-    return { ok: true, sessionId, requestId };
-  } catch (error) {
-    throw agentHttpError(error);
-  }
+        // Dispatch to correct resolver based on the validated response kind.
+        await withRequestSessionControl(event, sessionId, async lease =>
+            lease.runtime.workspace.resolveUiRequest(
+                sessionId,
+                requestId,
+                body,
+            ),
+        );
+        return { ok: true, sessionId, requestId };
+    } catch (error) {
+        throw agentHttpError(error);
+    }
 });

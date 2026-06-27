@@ -205,8 +205,8 @@ so calling:
 
 ```ts
 await session.extensionRunner.emit({
-  type: "session_shutdown",
-  reason: "quit",
+    type: "session_shutdown",
+    reason: "quit",
 });
 ```
 

@@ -1,9 +1,9 @@
 import type { ThinkingSetRequest } from "../../../../../types/protocol";
 import {
-  agentHttpError,
-  readJsonBody,
-  requireRouteParam,
-  withRequestSessionControl,
+    agentHttpError,
+    readJsonBody,
+    requireRouteParam,
+    withRequestSessionControl,
 } from "../../../../utils/agent-http";
 import { BadRequestError } from "../../../../utils/domain-errors";
 /**
@@ -29,15 +29,19 @@ import { BadRequestError } from "../../../../utils/domain-errors";
  *   - 409: Session is controlled by another browser client
  *   - 500: Unexpected runtime error
  */
-export default defineEventHandler(async (event) => {
-  try {
-    const sessionId = requireRouteParam(event, "sessionId");
-    const body = await readJsonBody<ThinkingSetRequest>(event);
-    if (!body.level) throw new BadRequestError("Thinking level is required.");
-    return await withRequestSessionControl(event, sessionId, (lease) =>
-      lease.runtime.workspace.setSessionThinkingLevel(sessionId, body.level!),
-    );
-  } catch (error) {
-    throw agentHttpError(error);
-  }
+export default defineEventHandler(async event => {
+    try {
+        const sessionId = requireRouteParam(event, "sessionId");
+        const body = await readJsonBody<ThinkingSetRequest>(event);
+        if (!body.level)
+            throw new BadRequestError("Thinking level is required.");
+        return await withRequestSessionControl(event, sessionId, lease =>
+            lease.runtime.workspace.setSessionThinkingLevel(
+                sessionId,
+                body.level!,
+            ),
+        );
+    } catch (error) {
+        throw agentHttpError(error);
+    }
 });

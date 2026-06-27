@@ -1,13 +1,13 @@
 {
-  "name": "agentaz",
-  "private": true,
-  "packageManager": "pnpm@11.5.0",
-  "scripts": {
-    "dev": "pnpm --filter web dev",
-    "build": "pnpm --filter web build",
-    "lint": "pnpm --filter web lint",
-    "typecheck": "pnpm --filter web typecheck",
-    "test:api": "node scripts/smoke-backend.mjs",
-    "smoke:backend": "node scripts/smoke-backend.mjs"
-  }
+    "name": "agentaz",
+    "private": true,
+    "packageManager": "pnpm@11.5.0",
+    "scripts": {
+        "dev": "pnpm --filter web dev",
+        "build": "pnpm --filter web build",
+        "lint": "pnpm --filter web lint",
+        "typecheck": "pnpm --filter web typecheck",
+        "test:api": "node scripts/smoke-backend.mjs",
+        "smoke:backend": "node scripts/smoke-backend.mjs"
+    }
 }

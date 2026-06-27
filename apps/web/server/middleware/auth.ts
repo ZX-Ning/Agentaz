@@ -6,9 +6,9 @@ import { requireAgentazAuth } from "../utils/auth";
  * stays correct regardless of an optional `app.baseURL` prefix.
  */
 function isPublicApiPath(path: string): boolean {
-  return (
-    path.endsWith("/api/auth/login") || path.endsWith("/api/_auth/session")
-  );
+    return (
+        path.endsWith("/api/auth/login") || path.endsWith("/api/_auth/session")
+    );
 }
 
 /**
@@ -22,10 +22,10 @@ function isPublicApiPath(path: string): boolean {
  * Uses `includes("/api/")` instead of `startsWith` so the check remains
  * correct when `app.baseURL` has a non-root prefix (e.g. /agentaz).
  */
-export default defineEventHandler(async (event) => {
-  const path = event.path.split("?")[0] ?? "/";
-  if (!path.includes("/api/")) return;
-  if (isPublicApiPath(path)) return;
+export default defineEventHandler(async event => {
+    const path = event.path.split("?")[0] ?? "/";
+    if (!path.includes("/api/")) return;
+    if (isPublicApiPath(path)) return;
 
-  await requireAgentazAuth(event);
+    await requireAgentazAuth(event);
 });

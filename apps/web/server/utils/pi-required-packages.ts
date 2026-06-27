@@ -11,8 +11,8 @@ import { dirname, join } from "node:path";
  *   - @gotgenes/pi-permission-system: Permission gating for tool access.
  */
 const REQUIRED_PI_PACKAGE_SOURCES = [
-  "npm:@juicesharp/rpiv-todo",
-  "npm:@gotgenes/pi-permission-system",
+    "npm:@juicesharp/rpiv-todo",
+    "npm:@gotgenes/pi-permission-system",
 ] as const;
 
 /**
@@ -20,8 +20,8 @@ const REQUIRED_PI_PACKAGE_SOURCES = [
  * We only care about the packages field — other properties are preserved as-is.
  */
 type PiSettings = {
-  packages?: Array<string | { source?: string; [key: string]: unknown }>;
-  [key: string]: unknown;
+    packages?: Array<string | { source?: string; [key: string]: unknown }>;
+    [key: string]: unknown;
 };
 
 /**
@@ -42,41 +42,41 @@ type PiSettings = {
  * original format when appending new string entries.
  */
 export async function ensureRequiredPiPackages(agentDir: string) {
-  const settingsPath = join(agentDir, "settings.json");
+    const settingsPath = join(agentDir, "settings.json");
 
-  // Read existing settings (or get empty object if file doesn't exist).
-  const settings = await readPiSettings(settingsPath);
+    // Read existing settings (or get empty object if file doesn't exist).
+    const settings = await readPiSettings(settingsPath);
 
-  // Normalize existing package entries to extract their source identifiers.
-  const packages = settings.packages ?? [];
-  const configured = new Set(
-    packages
-      .map((entry) => (typeof entry === "string" ? entry : entry.source))
-      .filter((source): source is string => Boolean(source)),
-  );
+    // Normalize existing package entries to extract their source identifiers.
+    const packages = settings.packages ?? [];
+    const configured = new Set(
+        packages
+            .map(entry => (typeof entry === "string" ? entry : entry.source))
+            .filter((source): source is string => Boolean(source)),
+    );
 
-  // Determine which required packages are missing.
-  const missing = REQUIRED_PI_PACKAGE_SOURCES.filter(
-    (source) => !configured.has(source),
-  );
+    // Determine which required packages are missing.
+    const missing = REQUIRED_PI_PACKAGE_SOURCES.filter(
+        source => !configured.has(source),
+    );
 
-  // All packages already configured — no write needed.
-  if (missing.length === 0) {
-    return { settingsPath, added: [] as string[] };
-  }
+    // All packages already configured — no write needed.
+    if (missing.length === 0) {
+        return { settingsPath, added: [] as string[] };
+    }
 
-  // Merge missing packages into the existing packages array, preserving
-  // the original entries and appending only the new sources.
-  const nextSettings: PiSettings = {
-    ...settings,
-    packages: [...packages, ...missing],
-  };
+    // Merge missing packages into the existing packages array, preserving
+    // the original entries and appending only the new sources.
+    const nextSettings: PiSettings = {
+        ...settings,
+        packages: [...packages, ...missing],
+    };
 
-  // Ensure the agent directory exists before writing.
-  await mkdir(dirname(settingsPath), { recursive: true });
-  await writeFile(settingsPath, `${JSON.stringify(nextSettings, null, 2)}\n`);
+    // Ensure the agent directory exists before writing.
+    await mkdir(dirname(settingsPath), { recursive: true });
+    await writeFile(settingsPath, `${JSON.stringify(nextSettings, null, 2)}\n`);
 
-  return { settingsPath, added: [...missing] };
+    return { settingsPath, added: [...missing] };
 }
 
 /**
@@ -87,26 +87,31 @@ export async function ensureRequiredPiPackages(agentDir: string) {
  * Re-throws all other errors.
  */
 async function readPiSettings(settingsPath: string): Promise<PiSettings> {
-  try {
-    const settings = JSON.parse(
-      await readFile(settingsPath, "utf8"),
-    ) as PiSettings;
+    try {
+        const settings = JSON.parse(
+            await readFile(settingsPath, "utf8"),
+        ) as PiSettings;
 
-    // Validate the packages field to catch corrupted settings files early.
-    if (settings.packages !== undefined && !Array.isArray(settings.packages)) {
-      throw new Error(`Invalid Pi settings packages field at ${settingsPath}`);
+        // Validate the packages field to catch corrupted settings files early.
+        if (
+            settings.packages !== undefined &&
+            !Array.isArray(settings.packages)
+        ) {
+            throw new Error(
+                `Invalid Pi settings packages field at ${settingsPath}`,
+            );
+        }
+        return settings;
+    } catch (error) {
+        // ENOENT is expected on first run — the file will be created.
+        if (
+            error &&
+            typeof error === "object" &&
+            "code" in error &&
+            error.code === "ENOENT"
+        ) {
+            return {};
+        }
+        throw error;
     }
-    return settings;
-  } catch (error) {
-    // ENOENT is expected on first run — the file will be created.
-    if (
-      error &&
-      typeof error === "object" &&
-      "code" in error &&
-      error.code === "ENOENT"
-    ) {
-      return {};
-    }
-    throw error;
-  }
 }

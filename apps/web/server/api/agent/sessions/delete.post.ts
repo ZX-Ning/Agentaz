@@ -1,8 +1,8 @@
 import type { SessionDeleteRequest } from "../../../../types/protocol";
 import {
-  agentHttpError,
-  readJsonBody,
-  requestClientId,
+    agentHttpError,
+    readJsonBody,
+    requestClientId,
 } from "../../../utils/agent-http";
 import { getAgentRuntime } from "../../../utils/agent-runtime";
 import { getAgentState } from "../../../utils/session-projector";
@@ -40,22 +40,26 @@ import { getAgentState } from "../../../utils/session-projector";
  *     for browser UI approval)
  *   - 500: Unexpected runtime error
  */
-export default defineEventHandler(async (event) => {
-  try {
-    const body = await readJsonBody<SessionDeleteRequest>(event);
-    const runtime = getAgentRuntime();
-    const clientId = requestClientId(event);
+export default defineEventHandler(async event => {
+    try {
+        const body = await readJsonBody<SessionDeleteRequest>(event);
+        const runtime = getAgentRuntime();
+        const clientId = requestClientId(event);
 
-    const result = await runtime.workspace.softDeletePersistedSession(
-      body.sessionFile ?? "",
-    );
-    const state = getAgentState(runtime.workspace, runtime.presence, clientId);
+        const result = await runtime.workspace.softDeletePersistedSession(
+            body.sessionFile ?? "",
+        );
+        const state = getAgentState(
+            runtime.workspace,
+            runtime.presence,
+            clientId,
+        );
 
-    return {
-      ...state,
-      ...result,
-    };
-  } catch (error) {
-    throw agentHttpError(error);
-  }
+        return {
+            ...state,
+            ...result,
+        };
+    } catch (error) {
+        throw agentHttpError(error);
+    }
 });

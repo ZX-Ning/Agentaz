@@ -46,7 +46,7 @@ const maxVisibleModels = 50;
 
 const selectedModelLabel = computed(() => {
   const selectedLabel = props.modelOptions.find(
-    (option) => option.value === props.selectedModelKey,
+    option => option.value === props.selectedModelKey,
   )?.label;
   if (selectedLabel) return selectedLabel;
   if (props.isDraftSession) return "Default model";
@@ -57,7 +57,7 @@ const filteredModelOptions = computed(() => {
   const query = modelSearch.value.trim().toLowerCase();
   if (!query) return props.modelOptions;
 
-  return props.modelOptions.filter((option) => {
+  return props.modelOptions.filter(option => {
     return (
       option.label.toLowerCase().includes(query) ||
       option.description.toLowerCase().includes(query)
@@ -157,7 +157,9 @@ onBeforeUnmount(() => {
       :value="props.promptText"
       :disabled="props.isSubmitting"
       rows="1"
-      :style="{ height: composerHeight ? `${composerHeight}px` : undefined }"
+      :style="{
+        height: composerHeight ? `${composerHeight}px` : undefined,
+      }"
       class="max-h-32 min-h-10 resize-y bg-transparent px-3 py-2 text-sm leading-6 text-foreground outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-70 focus-visible:ring-2 focus-visible:ring-ring/35 sm:max-h-56 sm:min-h-12 sm:px-4 sm:py-3"
       placeholder="Message Agentaz"
       @input="onPromptInput"
@@ -252,7 +254,9 @@ onBeforeUnmount(() => {
               props.isSubmitting
             "
             class="w-full min-w-0 justify-start bg-transparent px-2 py-1 text-xs font-normal text-foreground hover:bg-accent hover:text-accent-foreground disabled:opacity-60"
-            :ui="{ label: 'min-w-0 truncate whitespace-nowrap font-normal' }"
+            :ui="{
+              label: 'min-w-0 truncate whitespace-nowrap font-normal',
+            }"
           >
             {{ selectedModelLabel }}
           </UButton>

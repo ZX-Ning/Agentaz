@@ -340,7 +340,7 @@ Backend should emit unified protocol errors:
 
 ```ts
 {
-  type: ("error", code, message, recoverable);
+    type: ("error", code, message, recoverable);
 }
 ```
 

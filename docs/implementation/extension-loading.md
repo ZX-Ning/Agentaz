@@ -34,10 +34,10 @@ with:
 
 ```json
 {
-  "packages": [
-    "npm:@juicesharp/rpiv-todo",
-    "npm:@gotgenes/pi-permission-system"
-  ]
+    "packages": [
+        "npm:@juicesharp/rpiv-todo",
+        "npm:@gotgenes/pi-permission-system"
+    ]
 }
 ```
 
@@ -154,10 +154,10 @@ Likely requirements:
 
 ```json
 {
-  "dependencies": {
-    "@juicesharp/rpiv-todo": "...",
-    "@gotgenes/pi-permission-system": "..."
-  }
+    "dependencies": {
+        "@juicesharp/rpiv-todo": "...",
+        "@gotgenes/pi-permission-system": "..."
+    }
 }
 ```
 

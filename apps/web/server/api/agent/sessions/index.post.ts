@@ -1,8 +1,8 @@
 import type { SessionCreateRequest } from "../../../../types/protocol";
 import {
-  agentHttpError,
-  requestClientId,
-  readJsonBody,
+    agentHttpError,
+    requestClientId,
+    readJsonBody,
 } from "../../../utils/agent-http";
 import { getAgentRuntime } from "../../../utils/agent-runtime";
 import { getAgentState } from "../../../utils/session-projector";
@@ -34,28 +34,32 @@ import { getAgentState } from "../../../utils/session-projector";
  *   - 409: Loaded session limit reached and no idle session can be evicted
  *   - 500: Unexpected runtime error
  */
-export default defineEventHandler(async (event) => {
-  try {
-    const body = await readJsonBody<SessionCreateRequest>(event);
-    const runtime = getAgentRuntime();
-    const clientId = requestClientId(event);
+export default defineEventHandler(async event => {
+    try {
+        const body = await readJsonBody<SessionCreateRequest>(event);
+        const runtime = getAgentRuntime();
+        const clientId = requestClientId(event);
 
-    // Open an existing session file or create a brand-new session.
-    const controller = body.sessionFile
-      ? await runtime.workspace.openLoadedSession(body.sessionFile)
-      : await runtime.workspace.createLoadedSession();
+        // Open an existing session file or create a brand-new session.
+        const controller = body.sessionFile
+            ? await runtime.workspace.openLoadedSession(body.sessionFile)
+            : await runtime.workspace.createLoadedSession();
 
-    // Automatically focus the requesting client on the new session.
-    runtime.presence.focus(clientId, controller.sessionId);
+        // Automatically focus the requesting client on the new session.
+        runtime.presence.focus(clientId, controller.sessionId);
 
-    // Return the full state snapshot augmented with the new session identity.
-    const state = getAgentState(runtime.workspace, runtime.presence, clientId);
-    return {
-      ...state,
-      sessionId: controller.sessionId,
-      sessionFile: controller.sessionFile,
-    };
-  } catch (error) {
-    throw agentHttpError(error);
-  }
+        // Return the full state snapshot augmented with the new session identity.
+        const state = getAgentState(
+            runtime.workspace,
+            runtime.presence,
+            clientId,
+        );
+        return {
+            ...state,
+            sessionId: controller.sessionId,
+            sessionFile: controller.sessionFile,
+        };
+    } catch (error) {
+        throw agentHttpError(error);
+    }
 });

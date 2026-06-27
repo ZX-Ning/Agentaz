@@ -1,12 +1,12 @@
 import type {
-  ContextCompactRequest,
-  ContextCompactResponse,
+    ContextCompactRequest,
+    ContextCompactResponse,
 } from "../../../../../types/protocol";
 import {
-  agentHttpError,
-  readJsonBody,
-  requireRouteParam,
-  withRequestSessionControl,
+    agentHttpError,
+    readJsonBody,
+    requireRouteParam,
+    withRequestSessionControl,
 } from "../../../../utils/agent-http";
 import { BadRequestError } from "../../../../utils/domain-errors";
 
@@ -36,28 +36,29 @@ import { BadRequestError } from "../../../../utils/domain-errors";
  *   - 500: Unexpected runtime error
  */
 export default defineEventHandler(
-  async (event): Promise<ContextCompactResponse> => {
-    try {
-      const sessionId = requireRouteParam(event, "sessionId");
-      const body = await readJsonBody<ContextCompactRequest>(event);
+    async (event): Promise<ContextCompactResponse> => {
+        try {
+            const sessionId = requireRouteParam(event, "sessionId");
+            const body = await readJsonBody<ContextCompactRequest>(event);
 
-      if (
-        body.customInstructions !== undefined &&
-        typeof body.customInstructions !== "string"
-      ) {
-        throw new BadRequestError(
-          "customInstructions must be a string when provided.",
-        );
-      }
+            if (
+                body.customInstructions !== undefined &&
+                typeof body.customInstructions !== "string"
+            ) {
+                throw new BadRequestError(
+                    "customInstructions must be a string when provided.",
+                );
+            }
 
-      const customInstructions = body.customInstructions?.trim() || undefined;
-      return await withRequestSessionControl(event, sessionId, (lease) =>
-        lease.runtime.workspace.compactSession(sessionId, {
-          customInstructions,
-        }),
-      );
-    } catch (error) {
-      throw agentHttpError(error);
-    }
-  },
+            const customInstructions =
+                body.customInstructions?.trim() || undefined;
+            return await withRequestSessionControl(event, sessionId, lease =>
+                lease.runtime.workspace.compactSession(sessionId, {
+                    customInstructions,
+                }),
+            );
+        } catch (error) {
+            throw agentHttpError(error);
+        }
+    },
 );

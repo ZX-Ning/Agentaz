@@ -1,6 +1,6 @@
 import {
-  agentHttpError,
-  getConfiguredAgentRegistry,
+    agentHttpError,
+    getConfiguredAgentRegistry,
 } from "../../utils/agent-http";
 /**
  * GET /api/agent/models
@@ -20,9 +20,9 @@ import {
  *   - 500: Unexpected registry error
  */
 export default defineEventHandler(() => {
-  try {
-    return getConfiguredAgentRegistry().getDefaultModelState();
-  } catch (error) {
-    throw agentHttpError(error);
-  }
+    try {
+        return getConfiguredAgentRegistry().getDefaultModelState();
+    } catch (error) {
+        throw agentHttpError(error);
+    }
 });

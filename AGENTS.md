@@ -140,14 +140,14 @@ Use plain language when possible. Keep responses short and focused. When a simpl
 
 Examples of preferred style:
 
-* “A → B → C” instead of a long causal paragraph.
-* “This function owns X; the caller owns Y.”
-* “The bug is likely here: …”
-* “Tradeoff: simpler API, but less flexibility.”
+- “A → B → C” instead of a long causal paragraph.
+- “This function owns X; the caller owns Y.”
+- “The bug is likely here: …”
+- “Tradeoff: simpler API, but less flexibility.”
 
 Avoid:
 
-* Excessive business jargon.
-* Over-polished consulting-style phrasing.
-* Long motivational or beginner-level explanations.
-* Explaining obvious programming basics unless the user asks.
+- Excessive business jargon.
+- Over-polished consulting-style phrasing.
+- Long motivational or beginner-level explanations.
+- Explaining obvious programming basics unless the user asks.

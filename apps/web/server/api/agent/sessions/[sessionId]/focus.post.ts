@@ -1,7 +1,7 @@
 import {
-  agentHttpError,
-  requestClientId,
-  requireRouteParam,
+    agentHttpError,
+    requestClientId,
+    requireRouteParam,
 } from "../../../../utils/agent-http";
 import { getAgentRuntime } from "../../../../utils/agent-runtime";
 import { SessionNotFoundError } from "../../../../utils/domain-errors";
@@ -32,26 +32,26 @@ import { getAgentState } from "../../../../utils/session-projector";
  *   - 404: Session not loaded
  *   - 500: Unexpected runtime error
  */
-export default defineEventHandler(async (event) => {
-  try {
-    const runtime = getAgentRuntime();
-    const sessionId = requireRouteParam(event, "sessionId");
+export default defineEventHandler(async event => {
+    try {
+        const runtime = getAgentRuntime();
+        const sessionId = requireRouteParam(event, "sessionId");
 
-    // Validate the session exists before mutating presence state.
-    if (!runtime.workspace.hasSession(sessionId)) {
-      throw new SessionNotFoundError();
+        // Validate the session exists before mutating presence state.
+        if (!runtime.workspace.hasSession(sessionId)) {
+            throw new SessionNotFoundError();
+        }
+
+        const clientId = requestClientId(event);
+        runtime.presence.focus(clientId, sessionId);
+        runtime.eventBus.publish({ type: "state_changed" });
+
+        // Return the updated state snapshot for this client.
+        return {
+            ...getAgentState(runtime.workspace, runtime.presence, clientId),
+            sessionId,
+        };
+    } catch (error) {
+        throw agentHttpError(error);
     }
-
-    const clientId = requestClientId(event);
-    runtime.presence.focus(clientId, sessionId);
-    runtime.eventBus.publish({ type: "state_changed" });
-
-    // Return the updated state snapshot for this client.
-    return {
-      ...getAgentState(runtime.workspace, runtime.presence, clientId),
-      sessionId,
-    };
-  } catch (error) {
-    throw agentHttpError(error);
-  }
 });

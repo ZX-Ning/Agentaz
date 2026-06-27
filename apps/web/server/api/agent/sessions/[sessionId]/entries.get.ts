@@ -1,8 +1,8 @@
 import type { SessionEntriesResponse } from "../../../../../types/protocol";
 import {
-  agentHttpError,
-  getConfiguredAgentRegistry,
-  requireRouteParam,
+    agentHttpError,
+    getConfiguredAgentRegistry,
+    requireRouteParam,
 } from "../../../../utils/agent-http";
 
 /**
@@ -34,11 +34,11 @@ import {
  *   - 500: Unexpected runtime error
  */
 export default defineEventHandler((event): SessionEntriesResponse => {
-  try {
-    return getConfiguredAgentRegistry().getSessionEntries(
-      requireRouteParam(event, "sessionId"),
-    );
-  } catch (error) {
-    throw agentHttpError(error);
-  }
+    try {
+        return getConfiguredAgentRegistry().getSessionEntries(
+            requireRouteParam(event, "sessionId"),
+        );
+    } catch (error) {
+        throw agentHttpError(error);
+    }
 });

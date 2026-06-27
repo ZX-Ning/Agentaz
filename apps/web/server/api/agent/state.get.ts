@@ -1,8 +1,8 @@
 import { agentHttpError, requestClientId } from "../../utils/agent-http";
 import { getAgentRuntime } from "../../utils/agent-runtime";
 import {
-  getAgentState,
-  refreshProjectionData,
+    getAgentState,
+    refreshProjectionData,
 } from "../../utils/session-projector";
 
 /**
@@ -29,18 +29,18 @@ import {
  * Errors:
  *   - 500: Unexpected runtime error
  */
-export default defineEventHandler(async (event) => {
-  try {
-    const runtime = getAgentRuntime();
-    // Refresh persisted session cache so the snapshot includes any
-    // sessions saved on disk since the last state refresh.
-    await refreshProjectionData(runtime.workspace);
-    return getAgentState(
-      runtime.workspace,
-      runtime.presence,
-      requestClientId(event),
-    );
-  } catch (error) {
-    throw agentHttpError(error);
-  }
+export default defineEventHandler(async event => {
+    try {
+        const runtime = getAgentRuntime();
+        // Refresh persisted session cache so the snapshot includes any
+        // sessions saved on disk since the last state refresh.
+        await refreshProjectionData(runtime.workspace);
+        return getAgentState(
+            runtime.workspace,
+            runtime.presence,
+            requestClientId(event),
+        );
+    } catch (error) {
+        throw agentHttpError(error);
+    }
 });

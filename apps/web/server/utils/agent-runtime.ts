@@ -1,8 +1,8 @@
 import { AgentEventBus } from "./agent-event-bus";
 import { ClientPresence, LOCAL_CLIENT_ID } from "./client-presence";
 import {
-  PiSessionWorkspace,
-  type PiSessionWorkspaceOptions,
+    PiSessionWorkspace,
+    type PiSessionWorkspaceOptions,
 } from "./pi-session-workspace";
 import { SseAgentHub } from "./sse-agent-hub";
 
@@ -13,12 +13,12 @@ import { SseAgentHub } from "./sse-agent-hub";
  * and cannot be changed after initialization.
  */
 export type AgentRuntimeOptions = {
-  /** Working directory for all Pi sessions. */
-  cwd: string;
-  /** Timeout in milliseconds for browser-backed extension UI approval prompts. */
-  approvalTimeoutMs: number;
-  /** Maximum number of Pi sessions that can be loaded simultaneously. */
-  maxLoadedSessions?: number;
+    /** Working directory for all Pi sessions. */
+    cwd: string;
+    /** Timeout in milliseconds for browser-backed extension UI approval prompts. */
+    approvalTimeoutMs: number;
+    /** Maximum number of Pi sessions that can be loaded simultaneously. */
+    maxLoadedSessions?: number;
 };
 
 /**
@@ -29,14 +29,14 @@ export type AgentRuntimeOptions = {
  * share these instances via getAgentRuntime().
  */
 export type AgentRuntime = {
-  /** In-process pub/sub bus for session lifecycle and control events. */
-  eventBus: AgentEventBus;
-  /** Tracks browser client focus and session mutation control leases. */
-  presence: ClientPresence;
-  /** Owns Pi SDK services and the loaded session working set. */
-  workspace: PiSessionWorkspace;
-  /** Manages browser SSE connections and event forwarding. */
-  hub: SseAgentHub;
+    /** In-process pub/sub bus for session lifecycle and control events. */
+    eventBus: AgentEventBus;
+    /** Tracks browser client focus and session mutation control leases. */
+    presence: ClientPresence;
+    /** Owns Pi SDK services and the loaded session working set. */
+    workspace: PiSessionWorkspace;
+    /** Manages browser SSE connections and event forwarding. */
+    hub: SseAgentHub;
 };
 
 /** Process-wide runtime singleton, initialized during Nitro startup. */
@@ -59,29 +59,29 @@ let runtimeOptions: PiSessionWorkspaceOptions | undefined;
  * @throws Error if called again with different options after the first call
  */
 export function configureAgentRuntime(options: AgentRuntimeOptions) {
-  const normalized = {
-    ...options,
-    maxLoadedSessions: options.maxLoadedSessions ?? 5,
-  };
+    const normalized = {
+        ...options,
+        maxLoadedSessions: options.maxLoadedSessions ?? 5,
+    };
 
-  // First call: store options for later lazy initialization.
-  if (!runtimeOptions) {
-    runtimeOptions = normalized;
-    return;
-  }
+    // First call: store options for later lazy initialization.
+    if (!runtimeOptions) {
+        runtimeOptions = normalized;
+        return;
+    }
 
-  // Subsequent calls with different options are a programming error.
-  // The runtime singleton has already been wired or could be mid-use;
-  // changing options would be unsafe.
-  if (
-    runtimeOptions.cwd !== normalized.cwd ||
-    runtimeOptions.approvalTimeoutMs !== normalized.approvalTimeoutMs ||
-    runtimeOptions.maxLoadedSessions !== normalized.maxLoadedSessions
-  ) {
-    throw new Error(
-      "AgentRuntime configuration cannot be changed after it has been set.",
-    );
-  }
+    // Subsequent calls with different options are a programming error.
+    // The runtime singleton has already been wired or could be mid-use;
+    // changing options would be unsafe.
+    if (
+        runtimeOptions.cwd !== normalized.cwd ||
+        runtimeOptions.approvalTimeoutMs !== normalized.approvalTimeoutMs ||
+        runtimeOptions.maxLoadedSessions !== normalized.maxLoadedSessions
+    ) {
+        throw new Error(
+            "AgentRuntime configuration cannot be changed after it has been set.",
+        );
+    }
 }
 
 /**
@@ -105,42 +105,42 @@ export function configureAgentRuntime(options: AgentRuntimeOptions) {
  * @throws Error if the runtime has already been initialized
  */
 export function initAgentRuntime() {
-  if (!runtimeOptions) {
-    throw new Error("AgentRuntime configuration has not been set.");
-  }
-  if (runtime) {
-    throw new Error("AgentRuntime has already been initialized.");
-  }
-
-  // Phase 1: Create transport-independent services.
-  const eventBus = new AgentEventBus();
-  const presence = new ClientPresence();
-
-  // Phase 2: Create the Pi SDK workspace. The getProtectedSessionIds
-  // callback prevents eviction of sessions that a connected browser
-  // client is currently focused on or controlling.
-  const workspace = new PiSessionWorkspace(runtimeOptions, eventBus, () => {
-    const protectedSessionIds = new Set<string>();
-    for (const clientId of [LOCAL_CLIENT_ID, ...presence.clients()]) {
-      const activeSessionId = presence.activeFor(clientId);
-      if (activeSessionId) protectedSessionIds.add(activeSessionId);
+    if (!runtimeOptions) {
+        throw new Error("AgentRuntime configuration has not been set.");
     }
-    return protectedSessionIds;
-  });
+    if (runtime) {
+        throw new Error("AgentRuntime has already been initialized.");
+    }
 
-  // Phase 3: Wire session_removed events → presence cleanup.
-  // When the workspace evicts a session, remove it from presence tracking
-  // so other services don't reference a stale session id.
-  eventBus.subscribe((event) => {
-    if (event.type !== "session_removed") return;
-    presence.removeSession(event.sessionId, event.fallbackSessionId);
-    eventBus.publish({ type: "state_changed" });
-  });
+    // Phase 1: Create transport-independent services.
+    const eventBus = new AgentEventBus();
+    const presence = new ClientPresence();
 
-  // Phase 4: Create browser-facing services on top of the core services.
-  const hub = new SseAgentHub(eventBus, workspace, presence);
+    // Phase 2: Create the Pi SDK workspace. The getProtectedSessionIds
+    // callback prevents eviction of sessions that a connected browser
+    // client is currently focused on or controlling.
+    const workspace = new PiSessionWorkspace(runtimeOptions, eventBus, () => {
+        const protectedSessionIds = new Set<string>();
+        for (const clientId of [LOCAL_CLIENT_ID, ...presence.clients()]) {
+            const activeSessionId = presence.activeFor(clientId);
+            if (activeSessionId) protectedSessionIds.add(activeSessionId);
+        }
+        return protectedSessionIds;
+    });
 
-  runtime = { eventBus, presence, workspace, hub };
+    // Phase 3: Wire session_removed events → presence cleanup.
+    // When the workspace evicts a session, remove it from presence tracking
+    // so other services don't reference a stale session id.
+    eventBus.subscribe(event => {
+        if (event.type !== "session_removed") return;
+        presence.removeSession(event.sessionId, event.fallbackSessionId);
+        eventBus.publish({ type: "state_changed" });
+    });
+
+    // Phase 4: Create browser-facing services on top of the core services.
+    const hub = new SseAgentHub(eventBus, workspace, presence);
+
+    runtime = { eventBus, presence, workspace, hub };
 }
 
 /**
@@ -152,12 +152,12 @@ export function initAgentRuntime() {
  * @throws Error if initAgentRuntime has not been called first
  */
 export function getAgentRuntime() {
-  if (!runtime) {
-    throw new Error(
-      "AgentRuntime has not been initialized. Call initAgentRuntime() first.",
-    );
-  }
-  return runtime;
+    if (!runtime) {
+        throw new Error(
+            "AgentRuntime has not been initialized. Call initAgentRuntime() first.",
+        );
+    }
+    return runtime;
 }
 
 /**
@@ -168,9 +168,9 @@ export function getAgentRuntime() {
  * just to dispose an app that never accepted an agent request.
  */
 export async function disposeAgentRuntime() {
-  if (!runtime) return;
+    if (!runtime) return;
 
-  const currentRuntime = runtime;
-  runtime = undefined;
-  await currentRuntime.workspace.disposeAll();
+    const currentRuntime = runtime;
+    runtime = undefined;
+    await currentRuntime.workspace.disposeAll();
 }

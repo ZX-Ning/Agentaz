@@ -1,13 +1,13 @@
 import type {
-  SessionForkRequest,
-  SessionOperationResponse,
+    SessionForkRequest,
+    SessionOperationResponse,
 } from "../../../../../types/protocol";
 import {
-  agentHttpError,
-  readJsonBody,
-  requestClientId,
-  requireRouteParam,
-  withRequestSessionControl,
+    agentHttpError,
+    readJsonBody,
+    requestClientId,
+    requireRouteParam,
+    withRequestSessionControl,
 } from "../../../../utils/agent-http";
 import { getAgentRuntime } from "../../../../utils/agent-runtime";
 import { getAgentState } from "../../../../utils/session-projector";
@@ -54,33 +54,33 @@ import { getAgentState } from "../../../../utils/session-projector";
  *   - 500: Unexpected runtime error
  */
 export default defineEventHandler(
-  async (event): Promise<SessionOperationResponse> => {
-    try {
-      const sessionId = requireRouteParam(event, "sessionId");
-      const body = await readJsonBody<SessionForkRequest>(event);
-      const clientId = requestClientId(event);
+    async (event): Promise<SessionOperationResponse> => {
+        try {
+            const sessionId = requireRouteParam(event, "sessionId");
+            const body = await readJsonBody<SessionForkRequest>(event);
+            const clientId = requestClientId(event);
 
-      const controller = await withRequestSessionControl(
-        event,
-        sessionId,
-        (lease) =>
-          lease.runtime.workspace.forkSession(sessionId, {
-            entryId: body.entryId,
-            name: body.name,
-          }),
-      );
+            const controller = await withRequestSessionControl(
+                event,
+                sessionId,
+                lease =>
+                    lease.runtime.workspace.forkSession(sessionId, {
+                        entryId: body.entryId,
+                        name: body.name,
+                    }),
+            );
 
-      const runtime = getAgentRuntime();
-      runtime.presence.focus(clientId, controller.sessionId);
-      runtime.eventBus.publish({ type: "state_changed" });
+            const runtime = getAgentRuntime();
+            runtime.presence.focus(clientId, controller.sessionId);
+            runtime.eventBus.publish({ type: "state_changed" });
 
-      return {
-        ...getAgentState(runtime.workspace, runtime.presence, clientId),
-        sessionId: controller.sessionId,
-        sessionFile: controller.sessionFile,
-      };
-    } catch (error) {
-      throw agentHttpError(error);
-    }
-  },
+            return {
+                ...getAgentState(runtime.workspace, runtime.presence, clientId),
+                sessionId: controller.sessionId,
+                sessionFile: controller.sessionFile,
+            };
+        } catch (error) {
+            throw agentHttpError(error);
+        }
+    },
 );

@@ -1,6 +1,6 @@
 import type {
-  AuthLoginRequest,
-  AuthLoginResponse,
+    AuthLoginRequest,
+    AuthLoginResponse,
 } from "../../../types/protocol";
 import { createError } from "h3";
 import { readJsonBody } from "../../utils/agent-http";
@@ -30,30 +30,30 @@ import { unauthorizedError, verifyAdminPassword } from "../../utils/auth";
  *   - 500: Auth environment is not configured correctly
  */
 export default defineEventHandler(async (event): Promise<AuthLoginResponse> => {
-  const body = await readJsonBody<AuthLoginRequest>(event);
-  if (!body.password) {
-    throw createError({
-      statusCode: 400,
-      statusMessage: "Password is required.",
-      data: {
-        code: "bad_request",
-        message: "Password is required.",
-        recoverable: true,
-      },
-    });
-  }
+    const body = await readJsonBody<AuthLoginRequest>(event);
+    if (!body.password) {
+        throw createError({
+            statusCode: 400,
+            statusMessage: "Password is required.",
+            data: {
+                code: "bad_request",
+                message: "Password is required.",
+                recoverable: true,
+            },
+        });
+    }
 
-  if (!verifyAdminPassword(body.password)) {
-    throw unauthorizedError("Invalid password.");
-  }
+    if (!verifyAdminPassword(body.password)) {
+        throw unauthorizedError("Invalid password.");
+    }
 
-  const loggedInAt = Date.now();
-  const user = { id: "admin" as const };
-  await setUserSession(event, { user, loggedInAt });
+    const loggedInAt = Date.now();
+    const user = { id: "admin" as const };
+    await setUserSession(event, { user, loggedInAt });
 
-  return {
-    ok: true,
-    user,
-    loggedInAt,
-  };
+    return {
+        ok: true,
+        user,
+        loggedInAt,
+    };
 });

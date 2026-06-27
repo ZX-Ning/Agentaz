@@ -13,6 +13,6 @@
  * it responds as long as the Nitro HTTP server is alive.
  */
 export default defineEventHandler(() => ({
-  ok: true,
-  service: "pi-web-agent",
+    ok: true,
+    service: "pi-web-agent",
 }));

@@ -63,12 +63,12 @@ const target = "AGENTAZ_OBS_<timestamp>";
 window.__visibilityProbe = { target, samples: [], transitions: [] };
 let last = null;
 const sample = () => {
-  const visible = document.body.innerText.includes(target);
-  window.__visibilityProbe.samples.push({ t: Date.now(), visible });
-  if (last !== visible) {
-    window.__visibilityProbe.transitions.push({ t: Date.now(), visible });
-    last = visible;
-  }
+    const visible = document.body.innerText.includes(target);
+    window.__visibilityProbe.samples.push({ t: Date.now(), visible });
+    if (last !== visible) {
+        window.__visibilityProbe.transitions.push({ t: Date.now(), visible });
+        last = visible;
+    }
 };
 sample();
 window.__visibilityProbe.interval = setInterval(sample, 25);
@@ -99,32 +99,32 @@ window.__agentazProbe = { events: [], fetches: [] };
 
 const OriginalEventSource = window.EventSource;
 window.EventSource = class extends OriginalEventSource {
-  constructor(url, init) {
-    super(url, init);
-    this.addEventListener("message", (ev) => {
-      const parsed = JSON.parse(ev.data);
-      window.__agentazProbe.events.push({
-        t: Date.now(),
-        type: parsed.type,
-        sessionId: parsed.sessionId,
-        turnId: parsed.turnId,
-        revision: parsed.transcriptRevision,
-      });
-    });
-  }
+    constructor(url, init) {
+        super(url, init);
+        this.addEventListener("message", ev => {
+            const parsed = JSON.parse(ev.data);
+            window.__agentazProbe.events.push({
+                t: Date.now(),
+                type: parsed.type,
+                sessionId: parsed.sessionId,
+                turnId: parsed.turnId,
+                revision: parsed.transcriptRevision,
+            });
+        });
+    }
 };
 
 const originalFetch = window.fetch;
 window.fetch = async (...args) => {
-  const url = String(args[0]?.url ?? args[0]);
-  if (url.includes("/api/agent/")) {
-    window.__agentazProbe.fetches.push({
-      t: Date.now(),
-      url,
-      method: args[1]?.method ?? "GET",
-    });
-  }
-  return originalFetch(...args);
+    const url = String(args[0]?.url ?? args[0]);
+    if (url.includes("/api/agent/")) {
+        window.__agentazProbe.fetches.push({
+            t: Date.now(),
+            url,
+            method: args[1]?.method ?? "GET",
+        });
+    }
+    return originalFetch(...args);
 };
 ```
 

@@ -5,8 +5,7 @@ import { computed, onBeforeUnmount, ref } from "vue";
 import type { UiBlock, UiMessage } from "../../types/protocol";
 
 type MarkdownNode =
-  | string
-  | [string | null, Record<string, unknown>, ...MarkdownNode[]];
+  string | [string | null, Record<string, unknown>, ...MarkdownNode[]];
 
 type ToolCallBlock = Extract<UiBlock, { type: "tool_call" }>;
 type ToolResultBlock = Extract<UiBlock, { type: "tool_result" }>;
@@ -128,7 +127,7 @@ const copyableMarkdown = computed(() =>
     .filter((block): block is Extract<UiBlock, { type: "text" }> => {
       return block.type === "text" && Boolean(block.text.trim());
     })
-    .map((block) => block.text.trim())
+    .map(block => block.text.trim())
     .join("\n\n"),
 );
 const canCopyMarkdown = computed(
@@ -195,12 +194,12 @@ function formatHumanReadable(value: unknown, depth = 0): string {
 function formatArray(values: unknown[], depth: number) {
   if (values.length === 0) return "None.";
   if (values.every(isPrimitiveValue)) {
-    return values.map((value) => formatHumanReadable(value, depth)).join(", ");
+    return values.map(value => formatHumanReadable(value, depth)).join(", ");
   }
 
   const prefix = "  ".repeat(depth);
   return values
-    .map((value) => {
+    .map(value => {
       const formatted = formatHumanReadable(value, depth + 1);
       if (!formatted.includes("\n")) return `${prefix}- ${formatted}`;
       return `${prefix}- ${formatted.replaceAll("\n", `\n${prefix}  `)}`;
@@ -242,7 +241,7 @@ function humanizeKey(key: string) {
   return key
     .replace(/[_-]+/g, " ")
     .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
-    .replace(/\b\w/g, (char) => char.toUpperCase());
+    .replace(/\b\w/g, char => char.toUpperCase());
 }
 
 function isPrimitiveValue(value: unknown) {
@@ -326,7 +325,7 @@ function plainMarkdownOnly() {
 }
 
 function filterMarkdownNodes(nodes: MarkdownNode[]): MarkdownNode[] {
-  return nodes.flatMap((node) => {
+  return nodes.flatMap(node => {
     if (typeof node === "string") return [node];
 
     const [tag, attributes, ...children] = node;
@@ -448,8 +447,7 @@ function filterMarkdownAttributes(
               >
                 <pre
                   class="overflow-y-auto max-h-72 whitespace-pre-wrap break-all text-foreground font-mono text-[11px] leading-relaxed"
-                  >{{ block.text }}</pre
-                >
+                  >{{ block.text }}</pre>
               </div>
             </div>
 
@@ -503,8 +501,7 @@ function filterMarkdownAttributes(
             >
               <pre
                 class="whitespace-pre-wrap wrap-break-word text-xs leading-relaxed text-muted-foreground font-sans"
-                >{{ block.text }}</pre
-              >
+                >{{ block.text }}</pre>
             </div>
           </div>
 
@@ -564,8 +561,7 @@ function filterMarkdownAttributes(
                 </div>
                 <pre
                   class="overflow-x-auto whitespace-pre-wrap wrap-break-word rounded-md bg-background/60 p-2.5 text-xs leading-relaxed text-foreground/80 font-mono"
-                  >{{ formatToolInput(block.input) }}</pre
-                >
+                  >{{ formatToolInput(block.input) }}</pre>
               </section>
               <section class="space-y-1.5">
                 <div
@@ -593,8 +589,7 @@ function filterMarkdownAttributes(
                       ? 'text-red-700/90 dark:text-red-300/90'
                       : 'text-foreground/80'
                   "
-                  >{{ formatToolResult(block.result, block.status) }}</pre
-                >
+                  >{{ formatToolResult(block.result, block.status) }}</pre>
               </section>
             </div>
           </div>

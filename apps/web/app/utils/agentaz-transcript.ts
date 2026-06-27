@@ -2,30 +2,30 @@ import type { UiBlock, UiMessage } from "../../types/protocol";
 import { areSameToolBlock } from "./app.util";
 
 export function ensureTranscriptMessage(
-  messagesBySessionId: Record<string, UiMessage[]>,
-  sessionId: string,
-  messageId: string,
+    messagesBySessionId: Record<string, UiMessage[]>,
+    sessionId: string,
+    messageId: string,
 ) {
-  const bucket = ensureMessageBucket(messagesBySessionId, sessionId);
-  let message = bucket.find((item) => item.id === messageId);
-  if (!message) {
-    message = {
-      id: messageId,
-      role: "assistant",
-      blocks: [],
-      createdAt: Date.now(),
-    };
-    bucket.push(message);
-  }
-  return message;
+    const bucket = ensureMessageBucket(messagesBySessionId, sessionId);
+    let message = bucket.find(item => item.id === messageId);
+    if (!message) {
+        message = {
+            id: messageId,
+            role: "assistant",
+            blocks: [],
+            createdAt: Date.now(),
+        };
+        bucket.push(message);
+    }
+    return message;
 }
 
 export function ensureMessageBucket(
-  messagesBySessionId: Record<string, UiMessage[]>,
-  sessionId: string,
+    messagesBySessionId: Record<string, UiMessage[]>,
+    sessionId: string,
 ) {
-  messagesBySessionId[sessionId] ??= [];
-  return messagesBySessionId[sessionId];
+    messagesBySessionId[sessionId] ??= [];
+    return messagesBySessionId[sessionId];
 }
 
 /**
@@ -49,45 +49,49 @@ export function ensureMessageBucket(
  * @returns Backend history prefixed with any still-unconfirmed local user prompts.
  */
 export function mergeHistoryWithOptimisticMessages(
-  currentMessages: UiMessage[] | undefined,
-  historyMessages: UiMessage[],
+    currentMessages: UiMessage[] | undefined,
+    historyMessages: UiMessage[],
 ) {
-  if (!currentMessages?.length) return historyMessages;
+    if (!currentMessages?.length) return historyMessages;
 
-  const historyUserTextCounts = new Map<string, number>();
-  for (const message of historyMessages) {
-    if (message.role !== "user") continue;
-    const text = userMessageText(message);
-    historyUserTextCounts.set(text, (historyUserTextCounts.get(text) ?? 0) + 1);
-  }
-
-  const pendingLocalUsers: UiMessage[] = [];
-  for (const message of currentMessages) {
-    if (message.role !== "user" || !message.id.startsWith("local-")) continue;
-
-    const text = userMessageText(message);
-    const matchingHistoryCount = historyUserTextCounts.get(text) ?? 0;
-    if (matchingHistoryCount > 0) {
-      historyUserTextCounts.set(text, matchingHistoryCount - 1);
-      continue;
+    const historyUserTextCounts = new Map<string, number>();
+    for (const message of historyMessages) {
+        if (message.role !== "user") continue;
+        const text = userMessageText(message);
+        historyUserTextCounts.set(
+            text,
+            (historyUserTextCounts.get(text) ?? 0) + 1,
+        );
     }
 
-    pendingLocalUsers.push(message);
-  }
+    const pendingLocalUsers: UiMessage[] = [];
+    for (const message of currentMessages) {
+        if (message.role !== "user" || !message.id.startsWith("local-"))
+            continue;
 
-  if (pendingLocalUsers.length === 0) return historyMessages;
-  return [...pendingLocalUsers, ...historyMessages];
+        const text = userMessageText(message);
+        const matchingHistoryCount = historyUserTextCounts.get(text) ?? 0;
+        if (matchingHistoryCount > 0) {
+            historyUserTextCounts.set(text, matchingHistoryCount - 1);
+            continue;
+        }
+
+        pendingLocalUsers.push(message);
+    }
+
+    if (pendingLocalUsers.length === 0) return historyMessages;
+    return [...pendingLocalUsers, ...historyMessages];
 }
 
 export function upsertMessage(
-  messagesBySessionId: Record<string, UiMessage[]>,
-  sessionId: string,
-  message: UiMessage,
+    messagesBySessionId: Record<string, UiMessage[]>,
+    sessionId: string,
+    message: UiMessage,
 ) {
-  const bucket = ensureMessageBucket(messagesBySessionId, sessionId);
-  const index = bucket.findIndex((item) => item.id === message.id);
-  if (index === -1) bucket.push(message);
-  else bucket[index] = message;
+    const bucket = ensureMessageBucket(messagesBySessionId, sessionId);
+    const index = bucket.findIndex(item => item.id === message.id);
+    if (index === -1) bucket.push(message);
+    else bucket[index] = message;
 }
 
 /**
@@ -99,34 +103,34 @@ export function upsertMessage(
  * the backend history predates the newer turn protocol.
  */
 export function confirmOptimisticUserMessage(
-  messagesBySessionId: Record<string, UiMessage[]>,
-  sessionId: string,
-  clientMessageId: string,
-  confirmedMessage: UiMessage,
+    messagesBySessionId: Record<string, UiMessage[]>,
+    sessionId: string,
+    clientMessageId: string,
+    confirmedMessage: UiMessage,
 ) {
-  const bucket = ensureMessageBucket(messagesBySessionId, sessionId);
-  const index = bucket.findIndex((item) => {
-    return (
-      item.clientMessageId === clientMessageId ||
-      (item.role === "user" &&
-        item.id.startsWith("local-") &&
-        item.blocks.some(
-          (block) =>
-            block.type === "text" &&
-            confirmedMessage.blocks.some(
-              (confirmedBlock) =>
-                confirmedBlock.type === "text" &&
-                confirmedBlock.text === block.text,
-            ),
-        ))
-    );
-  });
+    const bucket = ensureMessageBucket(messagesBySessionId, sessionId);
+    const index = bucket.findIndex(item => {
+        return (
+            item.clientMessageId === clientMessageId ||
+            (item.role === "user" &&
+                item.id.startsWith("local-") &&
+                item.blocks.some(
+                    block =>
+                        block.type === "text" &&
+                        confirmedMessage.blocks.some(
+                            confirmedBlock =>
+                                confirmedBlock.type === "text" &&
+                                confirmedBlock.text === block.text,
+                        ),
+                ))
+        );
+    });
 
-  if (index === -1) {
-    upsertMessage(messagesBySessionId, sessionId, confirmedMessage);
-  } else {
-    bucket[index] = confirmedMessage;
-  }
+    if (index === -1) {
+        upsertMessage(messagesBySessionId, sessionId, confirmedMessage);
+    } else {
+        bucket[index] = confirmedMessage;
+    }
 }
 
 /**
@@ -138,21 +142,21 @@ export function confirmOptimisticUserMessage(
  * optimistic/canonical placeholder from becoming an orphaned transcript entry.
  */
 export function removeUserMessageByClientMessageId(
-  messagesBySessionId: Record<string, UiMessage[]>,
-  sessionId: string,
-  clientMessageId: string,
+    messagesBySessionId: Record<string, UiMessage[]>,
+    sessionId: string,
+    clientMessageId: string,
 ) {
-  const bucket = messagesBySessionId[sessionId];
-  if (!bucket?.length) return;
-  messagesBySessionId[sessionId] = bucket.filter(
-    (item) =>
-      !(
-        item.role === "user" &&
-        (item.clientMessageId === clientMessageId ||
-          item.id === `local-${clientMessageId}` ||
-          item.id === `user-${clientMessageId}`)
-      ),
-  );
+    const bucket = messagesBySessionId[sessionId];
+    if (!bucket?.length) return;
+    messagesBySessionId[sessionId] = bucket.filter(
+        item =>
+            !(
+                item.role === "user" &&
+                (item.clientMessageId === clientMessageId ||
+                    item.id === `local-${clientMessageId}` ||
+                    item.id === `user-${clientMessageId}`)
+            ),
+    );
 }
 
 /**
@@ -163,63 +167,68 @@ export function removeUserMessageByClientMessageId(
  * reconciliation, not cryptographic secrecy.
  */
 export function createClientMessageId() {
-  if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();
-  return `cm-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+    if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();
+    return `cm-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
 }
 
 export function upsertMessageBlock(
-  messagesBySessionId: Record<string, UiMessage[]>,
-  sessionId: string,
-  messageId: string,
-  block: UiBlock,
+    messagesBySessionId: Record<string, UiMessage[]>,
+    sessionId: string,
+    messageId: string,
+    block: UiBlock,
 ) {
-  const message = ensureTranscriptMessage(
-    messagesBySessionId,
-    sessionId,
-    messageId,
-  );
-  const index = message.blocks.findIndex(
-    (item) => item.id === block.id || areSameToolBlock(item, block),
-  );
-  if (index === -1) message.blocks.push(block);
-  else message.blocks[index] = block;
+    const message = ensureTranscriptMessage(
+        messagesBySessionId,
+        sessionId,
+        messageId,
+    );
+    const index = message.blocks.findIndex(
+        item => item.id === block.id || areSameToolBlock(item, block),
+    );
+    if (index === -1) message.blocks.push(block);
+    else message.blocks[index] = block;
 }
 
 export function appendMessageBlockDelta(
-  messagesBySessionId: Record<string, UiMessage[]>,
-  sessionId: string,
-  messageId: string,
-  blockId: string,
-  blockType: "text" | "thinking" | "tool_result",
-  delta: string,
+    messagesBySessionId: Record<string, UiMessage[]>,
+    sessionId: string,
+    messageId: string,
+    blockId: string,
+    blockType: "text" | "thinking" | "tool_result",
+    delta: string,
 ) {
-  const message = ensureTranscriptMessage(
-    messagesBySessionId,
-    sessionId,
-    messageId,
-  );
-  let block = message.blocks.find((item) => item.id === blockId);
-  if (!block) {
-    if (blockType === "text") {
-      block = { id: blockId, type: "text", text: "" };
-    } else if (blockType === "thinking") {
-      block = { id: blockId, type: "thinking", text: "", collapsed: true };
-    } else {
-      block = {
-        id: blockId,
-        type: "tool_result",
-        toolCallId: "",
-        content: "",
-        isError: false,
-      };
+    const message = ensureTranscriptMessage(
+        messagesBySessionId,
+        sessionId,
+        messageId,
+    );
+    let block = message.blocks.find(item => item.id === blockId);
+    if (!block) {
+        if (blockType === "text") {
+            block = { id: blockId, type: "text", text: "" };
+        } else if (blockType === "thinking") {
+            block = {
+                id: blockId,
+                type: "thinking",
+                text: "",
+                collapsed: true,
+            };
+        } else {
+            block = {
+                id: blockId,
+                type: "tool_result",
+                toolCallId: "",
+                content: "",
+                isError: false,
+            };
+        }
+        message.blocks.push(block);
     }
-    message.blocks.push(block);
-  }
-  if (block.type === "text" || block.type === "thinking") {
-    block.text += delta;
-  } else if (block.type === "tool_result") {
-    block.content += delta;
-  }
+    if (block.type === "text" || block.type === "thinking") {
+        block.text += delta;
+    } else if (block.type === "tool_result") {
+        block.content += delta;
+    }
 }
 
 /**
@@ -230,11 +239,11 @@ export function appendMessageBlockDelta(
  * user-message splitting without inspecting assistant-only block types.
  */
 function userMessageText(message: UiMessage) {
-  return message.blocks
-    .filter((block): block is Extract<UiBlock, { type: "text" }> => {
-      return block.type === "text";
-    })
-    .map((block) => block.text)
-    .join("\n")
-    .trim();
+    return message.blocks
+        .filter((block): block is Extract<UiBlock, { type: "text" }> => {
+            return block.type === "text";
+        })
+        .map(block => block.text)
+        .join("\n")
+        .trim();
 }
