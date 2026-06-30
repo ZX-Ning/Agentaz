@@ -1,0 +1,13 @@
+{
+    "workspace": ["./packages/api", "./packages/protocol"],
+    "nodeModulesDir": "auto",
+    "tasks": {
+        "check": "deno task check:api",
+        "check:api": "deno task --filter @agentaz/api check",
+        "test": "deno task --filter @agentaz/api test"
+    },
+    "fmt": {
+        "indentWidth": 4,
+        "semiColons": true
+    }
+}

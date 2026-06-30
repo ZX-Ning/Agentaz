@@ -1,0 +1,15 @@
+{
+    "name": "@agentaz/api",
+    "exports": "./src/mod.ts",
+    "publish": false,
+    "imports": {
+        "@hono/hono": "jsr:@hono/hono@^4.10.7",
+        "@hono/hono/cookie": "jsr:@hono/hono@^4.10.7/cookie",
+        "@hono/hono/streaming": "jsr:@hono/hono@^4.10.7/streaming",
+        "@earendil-works/pi-coding-agent": "npm:@earendil-works/pi-coding-agent@0.75.4"
+    },
+    "tasks": {
+        "check": "deno check src/mod.ts src/main.ts src/**/*.test.ts",
+        "test": "deno test src/**/*.test.ts"
+    }
+}

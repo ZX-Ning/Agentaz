@@ -1,0 +1,5 @@
+{
+    "name": "@agentaz/protocol",
+    "exports": "./mod.ts",
+    "publish": false
+}
