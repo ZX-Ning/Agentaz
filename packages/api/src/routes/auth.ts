@@ -1,6 +1,6 @@
 import { Hono } from "@hono/hono";
 import type { AuthLoginRequest, AuthLoginResponse } from "@agentaz/protocol";
-import { readJsonBody } from "../http/agent.ts";
+import { readJsonBody } from "../http/request.ts";
 import {
     clearAuthSession,
     getAuthSession,

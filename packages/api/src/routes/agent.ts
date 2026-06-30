@@ -20,11 +20,11 @@ import {
     acquireRequestSessionControl,
     getConfiguredAgentRegistry,
     parseUiRequestResponse,
-    readJsonBody,
     requestClientId,
     requireRouteParam,
     withRequestSessionControl,
 } from "../http/agent.ts";
+import { readJsonBody } from "../http/request.ts";
 import { getAgentRuntime } from "../runtime/agent-runtime.ts";
 import type { SseAgentHub } from "../runtime/sse-hub.ts";
 import { BadRequestError, SessionNotFoundError } from "../errors.ts";
