@@ -9,12 +9,10 @@
         "test": "deno task --filter @agentaz/api test"
     },
     "fmt": {
-        "indentWidth": 4,
         "semiColons": true,
         "singleQuote": false,
         "trailingCommas": "onlyMultiLine",
         "useBraces": "always",
-        "useTabs": false,
         "nextControlFlowPosition": "nextLine",
         "singleBodyPosition":"nextLine"
     }
