@@ -30,7 +30,9 @@ export class BadRequestError extends AgentazDomainError {
 
 /** The requested loaded session is not present in the process working set. */
 export class SessionNotFoundError extends AgentazDomainError {
-    constructor(message = "No loaded session is available for this command.") {
+    constructor(
+        message = "No loaded session is available for this command.",
+    ) {
         super(message, 404, "session_not_found");
     }
 }
@@ -49,7 +51,11 @@ export class PersistedSessionNotFoundError extends AgentazDomainError {
 /** The requested session cannot be removed because work is still in flight. */
 export class SessionBusyError extends AgentazDomainError {
     constructor() {
-        super("Session is busy and cannot be modified.", 409, "session_busy");
+        super(
+            "Session is busy and cannot be modified.",
+            409,
+            "session_busy",
+        );
     }
 }
 

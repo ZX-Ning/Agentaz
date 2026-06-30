@@ -237,8 +237,10 @@ export class PiSessionController {
      * the cached promise is reset so the next call can retry.
      */
     private getServices(): Promise<AgentSessionServices> {
-        if (this.servicesPromise) return this.servicesPromise;
-        this.servicesPromise = this.host.createServices().catch(error => {
+        if (this.servicesPromise) {
+            return this.servicesPromise;
+        }
+        this.servicesPromise = this.host.createServices().catch((error) => {
             this.servicesPromise = undefined;
             throw error;
         });
@@ -257,7 +259,7 @@ export class PiSessionController {
     get sessionId() {
         return (
             this.session?.sessionId ??
-            this.requireSessionManager().getSessionId()
+                this.requireSessionManager().getSessionId()
         );
     }
 
@@ -268,7 +270,7 @@ export class PiSessionController {
     get sessionFile() {
         return (
             this.session?.sessionFile ??
-            this.requireSessionManager().getSessionFile()
+                this.requireSessionManager().getSessionFile()
         );
     }
 
@@ -284,7 +286,9 @@ export class PiSessionController {
      * produced by the previous controller instance.
      */
     seedHistoryRevision(revision: number) {
-        if (revision <= this.transcriptRevision) return;
+        if (revision <= this.transcriptRevision) {
+            return;
+        }
         this.transcriptRevision = revision;
         this.cachedHistory = undefined;
     }
@@ -326,7 +330,9 @@ export class PiSessionController {
         const session = this.session;
         const sessionId = this.sessionId;
         const sessionFile = this.sessionFile;
-        const summary = summarizeSessionManager(this.requireSessionManager());
+        const summary = summarizeSessionManager(
+            this.requireSessionManager(),
+        );
         return {
             file: sessionFile ?? sessionId,
             ...summary,
@@ -364,9 +370,11 @@ export class PiSessionController {
                 turnId: turn.turnId,
                 transcriptRevision: this.transcriptRevision,
             });
-        } catch (error) {
-            const message =
-                error instanceof Error ? error.message : String(error);
+        }
+        catch (error) {
+            const message = error instanceof Error
+                ? error.message
+                : String(error);
             this.host.emit({
                 type: "turn_failed",
                 sessionId: this.sessionId,
@@ -442,16 +450,19 @@ export class PiSessionController {
         this.compacting = true;
         try {
             await this.ensureInitialized();
-            const result =
-                await this.requireSession().compact(customInstructions);
+            const result = await this.requireSession().compact(
+                customInstructions,
+            );
             this.invalidateHistoryCache();
             return {
                 ...result,
                 revision: this.transcriptRevision,
             } satisfies CompactionResult & { revision: number };
-        } catch (error) {
-            const message =
-                error instanceof Error ? error.message : String(error);
+        }
+        catch (error) {
+            const message = error instanceof Error
+                ? error.message
+                : String(error);
             if (message === "Nothing to compact (session too small)") {
                 throw new ContextCompactUnavailableError(message);
             }
@@ -459,7 +470,8 @@ export class PiSessionController {
                 throw new ContextCompactUnavailableError(message);
             }
             throw error;
-        } finally {
+        }
+        finally {
             this.compacting = false;
             this.sendStatus();
         }
@@ -485,9 +497,9 @@ export class PiSessionController {
             : this.requireSessionManager().buildSessionContext();
         const restoredModel = restored?.model
             ? this.modelRegistry.find(
-                  restored.model.provider,
-                  restored.model.modelId,
-              )
+                restored.model.provider,
+                restored.model.modelId,
+            )
             : undefined;
 
         return {
@@ -496,13 +508,11 @@ export class PiSessionController {
             current: session?.model
                 ? toUiModel(session.model)
                 : restoredModel
-                  ? toUiModel(restoredModel)
-                  : undefined,
-            thinkingLevel:
-                session?.thinkingLevel ??
+                ? toUiModel(restoredModel)
+                : undefined,
+            thinkingLevel: session?.thinkingLevel ??
                 normalizeThinkingLevel(restored?.thinkingLevel),
-            availableThinkingLevels:
-                session?.getAvailableThinkingLevels() ??
+            availableThinkingLevels: session?.getAvailableThinkingLevels() ??
                 DEFAULT_THINKING_LEVELS,
             pendingModel: this.pendingSettings.model
                 ? toUiModel(this.pendingSettings.model)
@@ -521,7 +531,9 @@ export class PiSessionController {
     async setModel(provider: string, id: string) {
         await this.ensureInitialized();
         const model = this.modelRegistry.find(provider, id);
-        if (!model) throw new UnknownModelError(provider, id);
+        if (!model) {
+            throw new UnknownModelError(provider, id);
+        }
 
         const session = this.requireSession();
         if (this.isWorkflowBusy()) {
@@ -580,7 +592,9 @@ export class PiSessionController {
      * After disposal, the controller should not be used.
      */
     async dispose() {
-        if (this.disposed || this.disposing) return;
+        if (this.disposed || this.disposing) {
+            return;
+        }
         this.disposing = true;
 
         // Snapshot the SDK session directly. requireSession(false) rejects
@@ -605,7 +619,8 @@ export class PiSessionController {
                         type: "session_shutdown",
                         reason: "quit",
                     });
-                } catch (error) {
+                }
+                catch (error) {
                     console.error(
                         "[agentaz-server] extension session_shutdown error",
                         error,
@@ -616,7 +631,8 @@ export class PiSessionController {
             // Phase 3: Dispose the SDK session. This invalidates the extension
             // runner and releases SDK resources.
             session?.dispose();
-        } finally {
+        }
+        finally {
             this.sessionResult = undefined;
             this.uiContext = undefined;
             this.unsubscribe = undefined;
@@ -634,7 +650,9 @@ export class PiSessionController {
      * agent_end event is received.
      */
     getHistory(): SessionHistoryResponse {
-        if (this.cachedHistory) return this.cachedHistory;
+        if (this.cachedHistory) {
+            return this.cachedHistory;
+        }
         const branchEntries = this.requireSessionManager()
             .getBranch()
             .filter((entry: any) => entry.id);
@@ -649,7 +667,9 @@ export class PiSessionController {
 
         const historyItems = transcriptEntries.map(
             (entry: any, index: number) => {
-                if (entry.type === "compaction") return entry;
+                if (entry.type === "compaction") {
+                    return entry;
+                }
 
                 const message = entry.message;
                 const branchIndex = branchEntries.findIndex(
@@ -758,13 +778,18 @@ export class PiSessionController {
      * the shared initPromise.
      */
     private async ensureInitialized() {
-        if (this.sessionResult) return;
-        if (this.initPromise) return this.initPromise;
+        if (this.sessionResult) {
+            return;
+        }
+        if (this.initPromise) {
+            return this.initPromise;
+        }
 
         this.initPromise = this.initializeSession();
         try {
             await this.initPromise;
-        } finally {
+        }
+        finally {
             this.initPromise = undefined;
         }
     }
@@ -808,15 +833,14 @@ export class PiSessionController {
             // interface isn't fully imported at the type level.
             await session.bindExtensions({
                 uiContext: this.uiContext as any,
-                onError: error => {
+                onError: (error) => {
                     console.error("[agentaz-server] extension error", error);
                     this.host.emit({
                         type: "error",
                         code: "extension_error",
-                        message:
-                            error instanceof Error
-                                ? error.message
-                                : String(error),
+                        message: error instanceof Error
+                            ? error.message
+                            : String(error),
                         recoverable: true,
                     });
                 },
@@ -824,10 +848,11 @@ export class PiSessionController {
 
             // Subscribe to all session events for transcript streaming.
             // The unsubscribe function is stored for cleanup on dispose.
-            this.unsubscribe = session.subscribe(event =>
-                this.onSessionEvent(event as any),
+            this.unsubscribe = session.subscribe((event) =>
+                this.onSessionEvent(event as any)
             );
-        } catch (error) {
+        }
+        catch (error) {
             // If bindExtensions or subscribe fails after extensions were partially
             // initialized, emit session_shutdown so any started extension timers
             // (e.g. permission-system ForwardingManager) are stopped, then dispose
@@ -837,7 +862,8 @@ export class PiSessionController {
                     type: "session_shutdown",
                     reason: "quit",
                 });
-            } catch (shutdownError) {
+            }
+            catch (shutdownError) {
                 console.error(
                     "[agentaz-server] extension session_shutdown error during init cleanup",
                     shutdownError,
@@ -859,7 +885,9 @@ export class PiSessionController {
      */
     private async applyPendingSettingsIfIdle() {
         const session = this.session;
-        if (!session || this.isWorkflowBusy()) return;
+        if (!session || this.isWorkflowBusy()) {
+            return;
+        }
 
         // Snapshot and clear pending settings before applying, so the
         // getModelState() call in setModel/setThinkingLevel doesn't
@@ -964,7 +992,8 @@ export class PiSessionController {
                     void this.notifySessionMetadataChanged();
                     break;
             }
-        } catch (error) {
+        }
+        catch (error) {
             console.error(
                 "[agentaz-server] failed to forward session event",
                 error,
@@ -976,7 +1005,8 @@ export class PiSessionController {
     private async notifySessionMetadataChanged() {
         try {
             await this.host.onSessionMetadataChanged();
-        } catch (error) {
+        }
+        catch (error) {
             console.error(
                 "[agentaz-server] failed to refresh session metadata",
                 error,
@@ -992,8 +1022,8 @@ export class PiSessionController {
      * then fall back to messageEvent for backward compatibility.
      */
     private forwardMessageUpdate(sessionId: string, event: any) {
-        const messageEvent =
-            event.assistantMessageEvent ?? event.messageEvent ?? event;
+        const messageEvent = event.assistantMessageEvent ??
+            event.messageEvent ?? event;
 
         // Text delta: append to the current text block in the transcript.
         if (messageEvent.type === "text_delta") {
@@ -1027,10 +1057,9 @@ export class PiSessionController {
         delta: string,
     ) {
         const message = this.ensureAssistantMessage(sessionId, messageId);
-        const block =
-            blockType === "text"
-                ? this.ensureTextBlock(sessionId, message)
-                : this.ensureThinkingBlock(sessionId, message);
+        const block = blockType === "text"
+            ? this.ensureTextBlock(sessionId, message)
+            : this.ensureThinkingBlock(sessionId, message);
 
         // Accumulate the delta text in the block.
         block.text += delta;
@@ -1075,8 +1104,7 @@ export class PiSessionController {
 
         // Try to find an existing tool_call block — either by toolCallId
         // or by the callBlockId from our location mapping.
-        const existing =
-            findToolCallBlock(message, toolCallId) ??
+        const existing = findToolCallBlock(message, toolCallId) ??
             message.blocks.find(
                 (block): block is Extract<UiBlock, { type: "tool_call" }> =>
                     block.id === location.callBlockId &&
@@ -1088,8 +1116,7 @@ export class PiSessionController {
             id: location.callBlockId,
             type: "tool_call",
             toolCallId,
-            toolName:
-                event.toolName ??
+            toolName: event.toolName ??
                 event.name ??
                 event.tool ??
                 existing?.toolName ??
@@ -1127,7 +1154,9 @@ export class PiSessionController {
      */
     private streamToolResultDelta(sessionId: string, event: any) {
         const partialResult = event.partialResult;
-        if (!partialResult) return;
+        if (!partialResult) {
+            return;
+        }
 
         const toolCallId = this.toolCallId(event, "update");
         const location = this.ensureToolBlockLocation(sessionId, toolCallId);
@@ -1262,8 +1291,7 @@ export class PiSessionController {
 
     /** Returns the current text block within a message, creating it if needed. */
     private ensureTextBlock(sessionId: string, message: UiMessage) {
-        const blockId =
-            this.currentTextBlockId ??
+        const blockId = this.currentTextBlockId ??
             this.nextTextLikeBlockId(message, "text");
         this.currentTextBlockId = blockId;
         return this.ensureTextLikeBlock(sessionId, message, blockId, "text");
@@ -1271,8 +1299,7 @@ export class PiSessionController {
 
     /** Returns the current thinking block within a message, creating it if needed. */
     private ensureThinkingBlock(sessionId: string, message: UiMessage) {
-        const blockId =
-            this.currentThinkingBlockId ??
+        const blockId = this.currentThinkingBlockId ??
             this.nextTextLikeBlockId(message, "thinking");
         this.currentThinkingBlockId = blockId;
         return this.ensureTextLikeBlock(
@@ -1291,11 +1318,15 @@ export class PiSessionController {
      * assistant turn, the next delta needs a new block id instead of reusing
      * `<message>:text:0` and being rendered before intervening tool blocks.
      */
-    private nextTextLikeBlockId(message: UiMessage, type: "text" | "thinking") {
-        let index = message.blocks.filter(block => block.type === type).length;
+    private nextTextLikeBlockId(
+        message: UiMessage,
+        type: "text" | "thinking",
+    ) {
+        let index =
+            message.blocks.filter((block) => block.type === type).length;
         let blockId = `${message.id}:${type}:${index}`;
 
-        while (message.blocks.some(block => block.id === blockId)) {
+        while (message.blocks.some((block) => block.id === blockId)) {
             index += 1;
             blockId = `${message.id}:${type}:${index}`;
         }
@@ -1318,14 +1349,15 @@ export class PiSessionController {
             (block): block is Extract<UiBlock, { type: typeof type }> =>
                 block.id === blockId && block.type === type,
         );
-        if (existing) return existing;
+        if (existing) {
+            return existing;
+        }
 
         // Create new block: text blocks start empty, thinking blocks start
         // collapsed so the user can expand them on demand.
-        const block: UiBlock =
-            type === "text"
-                ? { id: blockId, type: "text", text: "" }
-                : { id: blockId, type: "thinking", text: "", collapsed: true };
+        const block: UiBlock = type === "text"
+            ? { id: blockId, type: "text", text: "" }
+            : { id: blockId, type: "thinking", text: "", collapsed: true };
 
         this.upsertBlock(message, block);
         this.host.emit({
@@ -1347,7 +1379,9 @@ export class PiSessionController {
         toolCallId: string,
     ): ToolBlockLocation {
         const existing = this.toolBlocks.get(toolCallId);
-        if (existing) return existing;
+        if (existing) {
+            return existing;
+        }
 
         // All tool calls are nested under the current assistant message.
         // If no assistant message exists yet, create one.
@@ -1371,7 +1405,9 @@ export class PiSessionController {
      */
     private toolCallId(event: any, phase: "start" | "update" | "end") {
         const explicit = extractToolCallId(event);
-        if (explicit) return explicit;
+        if (explicit) {
+            return explicit;
+        }
 
         // For anonymous tool calls, generate a synthetic id that persists
         // across start/update/end events for the same execution.
@@ -1388,11 +1424,12 @@ export class PiSessionController {
      */
     private upsertBlock(message: UiMessage, block: UiBlock) {
         const index = message.blocks.findIndex(
-            item => item.id === block.id || areSameToolBlock(item, block),
+            (item) => item.id === block.id || areSameToolBlock(item, block),
         );
         if (index === -1) {
             message.blocks.push(block);
-        } else {
+        }
+        else {
             message.blocks[index] = block;
         }
     }
@@ -1414,7 +1451,9 @@ export class PiSessionController {
      */
     private sendStatus(emit: EmitEvent = this.host.emit) {
         const session = this.session;
-        if (!session) return;
+        if (!session) {
+            return;
+        }
         emit({
             type: "status",
             sessionId: session.sessionId,
@@ -1430,7 +1469,8 @@ export class PiSessionController {
     private contextUsage() {
         try {
             return normalizeContextUsage(this.session?.getContextUsage());
-        } catch (error) {
+        }
+        catch (error) {
             console.warn(
                 "[agentaz-server] failed to read context usage",
                 error,
@@ -1445,7 +1485,8 @@ export class PiSessionController {
             return summarizeUsageStatsFromEntries(
                 this.requireSessionManager().getBranch(),
             );
-        } catch (error) {
+        }
+        catch (error) {
             console.warn(
                 "[agentaz-server] failed to read session usage stats",
                 error,
@@ -1537,8 +1578,7 @@ export function normalizeMessages(
         // Tool result messages are attached to the preceding assistant message.
         // If there is no preceding assistant message, create a synthetic one.
         if (isToolResultMessage(message)) {
-            const target =
-                lastAssistant ??
+            const target = lastAssistant ??
                 createSyntheticAssistantMessage(message, index);
             appendToolResultToMessage(target, message, index);
             if (!lastAssistant) {
@@ -1554,11 +1594,11 @@ export function normalizeMessages(
         const role = normalizeRole(message.role);
         const uiMessage: UiMessage = {
             id: messageId,
-            entryId:
-                options.entryIdByMessageId?.get(String(message.id)) ??
+            entryId: options.entryIdByMessageId?.get(String(message.id)) ??
                 options.entryIdByMessageIndex?.get(index),
-            rewindEntryId:
-                options.rewindEntryIdByMessageId?.get(String(message.id)) ??
+            rewindEntryId: options.rewindEntryIdByMessageId?.get(
+                String(message.id),
+            ) ??
                 options.rewindEntryIdByMessageIndex?.get(index),
             role,
             blocks: normalizeContent(message.content ?? message, messageId),
@@ -1591,10 +1631,9 @@ export function normalizeMessages(
 /** Converts a Pi compaction entry into a durable transcript marker. */
 function normalizeCompactionEntry(entry: any, index: number): UiMessage {
     const messageId = `compaction-${entry.id ?? index}`;
-    const tokensBefore =
-        typeof entry.tokensBefore === "number"
-            ? entry.tokensBefore.toLocaleString()
-            : "unknown";
+    const tokensBefore = typeof entry.tokensBefore === "number"
+        ? entry.tokensBefore.toLocaleString()
+        : "unknown";
     return {
         id: messageId,
         entryId: entry.id,
@@ -1603,7 +1642,8 @@ function normalizeCompactionEntry(entry: any, index: number): UiMessage {
             {
                 id: `${messageId}:text`,
                 type: "text",
-                text: `Context compacted. Previous context: ${tokensBefore} tokens.`,
+                text:
+                    `Context compacted. Previous context: ${tokensBefore} tokens.`,
             },
         ],
         createdAt: toTimestamp(entry.timestamp),
@@ -1639,8 +1679,8 @@ function appendToolResultToMessage(
     index: number,
 ) {
     const toolCallId = extractToolCallId(toolResult) ?? `tool-${index}`;
-    const toolName =
-        toolResult.toolName ?? toolResult.name ?? toolResult.tool ?? "tool";
+    const toolName = toolResult.toolName ?? toolResult.name ??
+        toolResult.tool ?? "tool";
     const callBlockId = `${message.id}:tool:${toolCallId}:call`;
     const resultBlockId = `${message.id}:tool:${toolCallId}:result`;
 
@@ -1652,7 +1692,8 @@ function appendToolResultToMessage(
         existingCall.toolName = existingCall.toolName || toolName;
         existingCall.input ??= extractToolInput(toolResult);
         existingCall.status = toolResult.isError ? "error" : "completed";
-    } else {
+    }
+    else {
         // No existing call block — create one.
         message.blocks.push({
             id: callBlockId,
@@ -1673,19 +1714,19 @@ function appendToolResultToMessage(
         isError: toolResult.isError ?? Boolean(toolResult.error),
     };
     const existingIndex = message.blocks.findIndex(
-        block => block.id === resultBlockId,
+        (block) => block.id === resultBlockId,
     );
     if (existingIndex === -1) {
         message.blocks.push(resultBlock);
-    } else {
+    }
+    else {
         message.blocks[existingIndex] = resultBlock;
     }
 }
 
 /** Normalizes tool result content into a displayable string. */
 function normalizeToolResultContent(toolResult: any) {
-    const content =
-        toolResult.content ??
+    const content = toolResult.content ??
         toolResult.result ??
         toolResult.output ??
         toolResult.error ??
@@ -1703,7 +1744,9 @@ function normalizeRole(role: unknown): UiMessage["role"] {
     ) {
         return role;
     }
-    if (role === "toolResult") return "tool";
+    if (role === "toolResult") {
+        return "tool";
+    }
     return "system";
 }
 
@@ -1730,7 +1773,11 @@ function normalizeContent(content: unknown, messageId: string): UiBlock[] {
         return blocks;
     }
     return [
-        { id: `${messageId}:text:0`, type: "text", text: flattenText(content) },
+        {
+            id: `${messageId}:text:0`,
+            type: "text",
+            text: flattenText(content),
+        },
     ];
 }
 
@@ -1786,10 +1833,9 @@ function normalizeContentPart(
             id: `${messageId}:tool:${toolCallId}:result`,
             type: "tool_result",
             toolCallId,
-            content:
-                typeof part.content === "string"
-                    ? part.content
-                    : flattenText(part.content),
+            content: typeof part.content === "string"
+                ? part.content
+                : flattenText(part.content),
             isError: part.isError ?? false,
         };
     }
@@ -1816,8 +1862,7 @@ function normalizeContentPart(
  * shapes — this function checks them all.
  */
 export function extractToolCallId(value: any): string | undefined {
-    const id =
-        value?.toolCallId ??
+    const id = value?.toolCallId ??
         value?.tool_call_id ??
         value?.callID ??
         value?.callId ??
@@ -1840,11 +1885,11 @@ export function extractToolCallId(value: any): string | undefined {
 export function extractToolInput(value: any): unknown {
     return (
         value?.input ??
-        value?.args ??
-        value?.params ??
-        value?.arguments ??
-        value?.toolInput ??
-        value?.toolCall?.arguments
+            value?.args ??
+            value?.params ??
+            value?.arguments ??
+            value?.toolInput ??
+            value?.toolCall?.arguments
     );
 }
 
@@ -1872,10 +1917,14 @@ export function areSameToolBlock(left: UiBlock, right: UiBlock) {
  * Recursively joins array elements and stringifies objects.
  */
 export function flattenText(content: unknown): string {
-    if (typeof content === "string") return content;
+    if (typeof content === "string") {
+        return content;
+    }
     if (Array.isArray(content)) {
         return content
-            .map(part => (typeof part === "string" ? part : (part?.text ?? "")))
+            .map((
+                part,
+            ) => (typeof part === "string" ? part : (part?.text ?? "")))
             .join("");
     }
     return JSON.stringify(content);
@@ -1883,7 +1932,7 @@ export function flattenText(content: unknown): string {
 
 /** Converts ImagePayload to Pi SDK image format (base64 media). */
 export function toPiImages(images?: ImagePayload[]): any[] | undefined {
-    return images?.map(image => ({
+    return images?.map((image) => ({
         type: "image",
         source: {
             type: "base64",
@@ -1900,7 +1949,9 @@ export function toUiSessionSummary(info: any): UiSessionSummary {
         sessionId: info.id ?? info.sessionId,
         name: info.name,
         createdAt: toTimestamp(info.created ?? info.createdAt),
-        updatedAt: toTimestamp(info.modified ?? info.updatedAt ?? info.mtimeMs),
+        updatedAt: toTimestamp(
+            info.modified ?? info.updatedAt ?? info.mtimeMs,
+        ),
         firstMessage: info.firstMessage ?? info.preview,
     };
 }
@@ -1924,13 +1975,19 @@ export function normalizeThinkingLevel(level: unknown): ThinkingLevel {
 
 /** Returns supported thinking levels for a model based on its reasoning capability. */
 export function supportedThinkingLevels(model: any): ThinkingLevel[] {
-    if (!model?.reasoning) return ["off"];
-    return DEFAULT_THINKING_LEVELS.filter(level => {
+    if (!model?.reasoning) {
+        return ["off"];
+    }
+    return DEFAULT_THINKING_LEVELS.filter((level) => {
         // If the model has a thinkingLevelMap, check if this level is mapped.
         const mapped = model.thinkingLevelMap?.[level];
-        if (mapped === null) return false;
+        if (mapped === null) {
+            return false;
+        }
         // "xhigh" requires an explicit mapping.
-        if (level === "xhigh") return mapped !== undefined;
+        if (level === "xhigh") {
+            return mapped !== undefined;
+        }
         return true;
     });
 }
@@ -1954,17 +2011,25 @@ export function summarizeSessionManager(
 export function firstUserMessage(entries: any[]) {
     for (const entry of entries) {
         const message = entry?.type === "message" ? entry.message : undefined;
-        if (message?.role !== "user") continue;
+        if (message?.role !== "user") {
+            continue;
+        }
         const text = flattenText(message.content);
-        if (text) return text;
+        if (text) {
+            return text;
+        }
     }
     return undefined;
 }
 
 /** Converts a timestamp-like value to a numeric epoch milliseconds. */
 export function toTimestamp(value: unknown): number | undefined {
-    if (typeof value === "number") return value;
-    if (value instanceof Date) return value.getTime();
+    if (typeof value === "number") {
+        return value;
+    }
+    if (value instanceof Date) {
+        return value.getTime();
+    }
     if (typeof value === "string") {
         const timestamp = Date.parse(value);
         return Number.isNaN(timestamp) ? undefined : timestamp;
@@ -1982,13 +2047,15 @@ export function summarizeToolResult(result: unknown) {
 export function normalizeContextUsage(
     raw:
         | {
-              tokens: number | null;
-              contextWindow: number;
-              percent: number | null;
-          }
+            tokens: number | null;
+            contextWindow: number;
+            percent: number | null;
+        }
         | undefined,
 ): UiContextUsage | undefined {
-    if (!raw) return undefined;
+    if (!raw) {
+        return undefined;
+    }
     return {
         tokens: raw.tokens,
         contextWindow: raw.contextWindow,
@@ -2011,12 +2078,15 @@ export function summarizeUsageStatsFromEntries(
     let cost = 0;
 
     for (const entry of entries) {
-        if (entry?.type !== "message") continue;
+        if (entry?.type !== "message") {
+            continue;
+        }
 
         const message = entry.message;
         if (message?.role === "user") {
             userMessages += 1;
-        } else if (message?.role === "assistant") {
+        }
+        else if (message?.role === "assistant") {
             assistantMessages += 1;
             toolCalls += countToolCalls(message.content);
 
@@ -2026,7 +2096,8 @@ export function summarizeUsageStatsFromEntries(
             cacheRead += numberOrZero(usage?.cacheRead);
             cacheWrite += numberOrZero(usage?.cacheWrite);
             cost += numberOrZero(usage?.cost?.total);
-        } else if (message?.role === "toolResult" || message?.role === "tool") {
+        }
+        else if (message?.role === "toolResult" || message?.role === "tool") {
             toolResults += 1;
         }
     }
@@ -2050,7 +2121,9 @@ export function summarizeUsageStatsFromEntries(
 
 /** Counts tool-call content parts inside an assistant message. */
 function countToolCalls(content: unknown) {
-    if (!Array.isArray(content)) return 0;
+    if (!Array.isArray(content)) {
+        return 0;
+    }
     return content.filter(
         (part: any) => part?.type === "toolCall" || part?.type === "tool_call",
     ).length;

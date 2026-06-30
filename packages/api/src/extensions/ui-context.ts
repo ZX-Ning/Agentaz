@@ -52,14 +52,16 @@ export class WebExtensionUIContext {
 
     /** Returns the prompt details required to render all outstanding browser approvals. */
     get pendingRequests(): PendingUiRequest[] {
-        return [...this.pending.values()].map(request => ({
+        return [...this.pending.values()].map((request) => ({
             ...request.event,
         }));
     }
 
     /** Returns a browser-safe snapshot of currently registered extension widgets. */
     get extensionWidgets(): UiExtensionWidget[] {
-        return [...this.widgets.values()].map(({ key, placement, lines }) => ({
+        return [...this.widgets.values()].map((
+            { key, placement, lines },
+        ) => ({
             key,
             placement,
             lines: [...lines],
@@ -199,7 +201,8 @@ export class WebExtensionUIContext {
                     placement,
                     Array.isArray(rendered) ? rendered : [],
                 );
-            } catch (error) {
+            }
+            catch (error) {
                 this.notify(
                     error instanceof Error ? error.message : String(error),
                     "error",
@@ -225,7 +228,7 @@ export class WebExtensionUIContext {
     ): Promise<T> {
         const requestId = event.requestId;
 
-        return new Promise<T>(resolve => {
+        return new Promise<T>((resolve) => {
             const timer = setTimeout(() => {
                 this.resolve(requestId, fallback);
             }, this.timeoutMs);
@@ -243,7 +246,9 @@ export class WebExtensionUIContext {
 
     private resolve(requestId: string, value: unknown) {
         const pending = this.pending.get(requestId);
-        if (!pending) return;
+        if (!pending) {
+            return;
+        }
         clearTimeout(pending.timer);
         this.pending.delete(requestId);
         this.onPendingChange?.();

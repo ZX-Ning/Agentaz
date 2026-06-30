@@ -12,7 +12,7 @@ import { jsonError } from "../http/errors.ts";
 
 export const authRoutes = new Hono();
 
-authRoutes.post("/auth/login", async c => {
+authRoutes.post("/auth/login", async (c) => {
     const body = await readJsonBody<AuthLoginRequest>(c);
     if (!body.password) {
         throw jsonError(400, "bad_request", "Password is required.");
@@ -29,12 +29,12 @@ authRoutes.post("/auth/login", async c => {
     });
 });
 
-authRoutes.post("/auth/logout", c => {
+authRoutes.post("/auth/logout", (c) => {
     clearAuthSession(c);
     return c.json({ ok: true });
 });
 
-authRoutes.get("/_auth/session", async c => {
+authRoutes.get("/_auth/session", async (c) => {
     const session = await getAuthSession(c);
     return c.json({
         loggedIn: Boolean(session),

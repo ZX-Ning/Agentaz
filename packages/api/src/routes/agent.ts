@@ -34,32 +34,37 @@ import {
 
 export const agentRoutes = new Hono();
 
-agentRoutes.get("/agent/events", c => {
+agentRoutes.get("/agent/events", (c) => {
     const clientId = crypto.randomUUID();
     const hub = getAgentRuntime().hub;
 
-    return streamSSE(c, async stream => {
+    return streamSSE(c, async (stream) => {
         stream.onAbort(() => hub.close(clientId));
-        await hub.open(clientId, data => {
+        await hub.open(clientId, (data) => {
             void stream.writeSSE({ data });
         });
         await new Promise<void>(() => undefined);
     });
 });
 
-agentRoutes.get("/agent/models", c =>
-    c.json(getConfiguredAgentRegistry().getDefaultModelState()),
+agentRoutes.get(
+    "/agent/models",
+    (c) => c.json(getConfiguredAgentRegistry().getDefaultModelState()),
 );
 
-agentRoutes.get("/agent/state", async c => {
+agentRoutes.get("/agent/state", async (c) => {
     const runtime = getAgentRuntime();
     await refreshProjectionData(runtime.workspace);
     return c.json(
-        getAgentState(runtime.workspace, runtime.presence, requestClientId(c)),
+        getAgentState(
+            runtime.workspace,
+            runtime.presence,
+            requestClientId(c),
+        ),
     );
 });
 
-agentRoutes.post("/agent/sessions", async c => {
+agentRoutes.post("/agent/sessions", async (c) => {
     const body = await readJsonBody<SessionCreateRequest>(c);
     const runtime = getAgentRuntime();
     const clientId = requestClientId(c);
@@ -75,7 +80,7 @@ agentRoutes.post("/agent/sessions", async c => {
     });
 });
 
-agentRoutes.post("/agent/sessions/delete", async c => {
+agentRoutes.post("/agent/sessions/delete", async (c) => {
     const body = await readJsonBody<SessionDeleteRequest>(c);
     const runtime = getAgentRuntime();
     const clientId = requestClientId(c);
@@ -89,7 +94,7 @@ agentRoutes.post("/agent/sessions/delete", async c => {
     });
 });
 
-agentRoutes.patch("/agent/sessions/metadata", async c => {
+agentRoutes.patch("/agent/sessions/metadata", async (c) => {
     const body = await readJsonBody<SessionRenameRequest>(c);
     const runtime = getAgentRuntime();
     const clientId = requestClientId(c);
@@ -104,7 +109,7 @@ agentRoutes.patch("/agent/sessions/metadata", async c => {
     });
 });
 
-agentRoutes.post("/agent/sessions/:sessionId/focus", c => {
+agentRoutes.post("/agent/sessions/:sessionId/focus", (c) => {
     const runtime = getAgentRuntime();
     const sessionId = requireRouteParam(c, "sessionId");
     if (!runtime.workspace.hasSession(sessionId)) {
@@ -121,31 +126,31 @@ agentRoutes.post("/agent/sessions/:sessionId/focus", c => {
     });
 });
 
-agentRoutes.get("/agent/sessions/:sessionId/entries", c =>
-    c.json<SessionEntriesResponse>(
-        getConfiguredAgentRegistry().getSessionEntries(
-            requireRouteParam(c, "sessionId"),
+agentRoutes.get(
+    "/agent/sessions/:sessionId/entries",
+    (c) =>
+        c.json<SessionEntriesResponse>(
+            getConfiguredAgentRegistry().getSessionEntries(
+                requireRouteParam(c, "sessionId"),
+            ),
         ),
-    ),
 );
 
-agentRoutes.get("/agent/sessions/:sessionId/history", c =>
+agentRoutes.get("/agent/sessions/:sessionId/history", (c) =>
     c.json(
         getConfiguredAgentRegistry().getSessionHistory(
             requireRouteParam(c, "sessionId"),
         ),
-    ),
-);
+    ));
 
-agentRoutes.get("/agent/sessions/:sessionId/models", c =>
+agentRoutes.get("/agent/sessions/:sessionId/models", (c) =>
     c.json(
         getConfiguredAgentRegistry().getSessionModelState(
             requireRouteParam(c, "sessionId"),
         ),
-    ),
-);
+    ));
 
-agentRoutes.put("/agent/sessions/:sessionId/model", async c => {
+agentRoutes.put("/agent/sessions/:sessionId/model", async (c) => {
     const sessionId = requireRouteParam(c, "sessionId");
     const body = await readJsonBody<ModelSetRequest>(c);
     if (!body.provider || !body.id) {
@@ -153,32 +158,40 @@ agentRoutes.put("/agent/sessions/:sessionId/model", async c => {
     }
 
     return c.json(
-        await withRequestSessionControl(c, sessionId, lease =>
-            lease.runtime.workspace.setSessionModel(
-                sessionId,
-                body.provider!,
-                body.id!,
-            ),
+        await withRequestSessionControl(
+            c,
+            sessionId,
+            (lease) =>
+                lease.runtime.workspace.setSessionModel(
+                    sessionId,
+                    body.provider!,
+                    body.id!,
+                ),
         ),
     );
 });
 
-agentRoutes.put("/agent/sessions/:sessionId/thinking", async c => {
+agentRoutes.put("/agent/sessions/:sessionId/thinking", async (c) => {
     const sessionId = requireRouteParam(c, "sessionId");
     const body = await readJsonBody<ThinkingSetRequest>(c);
-    if (!body.level) throw new BadRequestError("Thinking level is required.");
+    if (!body.level) {
+        throw new BadRequestError("Thinking level is required.");
+    }
 
     return c.json(
-        await withRequestSessionControl(c, sessionId, lease =>
-            lease.runtime.workspace.setSessionThinkingLevel(
-                sessionId,
-                body.level!,
-            ),
+        await withRequestSessionControl(
+            c,
+            sessionId,
+            (lease) =>
+                lease.runtime.workspace.setSessionThinkingLevel(
+                    sessionId,
+                    body.level!,
+                ),
         ),
     );
 });
 
-agentRoutes.post("/agent/sessions/:sessionId/messages", async c => {
+agentRoutes.post("/agent/sessions/:sessionId/messages", async (c) => {
     const sessionId = requireRouteParam(c, "sessionId");
     const body = await readJsonBody<MessageSubmitRequest>(c);
 
@@ -193,8 +206,9 @@ agentRoutes.post("/agent/sessions/:sessionId/messages", async c => {
         throw new BadRequestError("Unsupported message mode.");
     }
 
-    const clientMessageId =
-        "clientMessageId" in body ? body.clientMessageId : undefined;
+    const clientMessageId = "clientMessageId" in body
+        ? body.clientMessageId
+        : undefined;
     if (body.mode === "prompt" && !clientMessageId) {
         throw new BadRequestError(
             "clientMessageId is required for prompt messages.",
@@ -204,43 +218,46 @@ agentRoutes.post("/agent/sessions/:sessionId/messages", async c => {
     const lease = acquireRequestSessionControl(c, sessionId);
     try {
         const onSettled = lease.release;
-        const response: MessageSubmitResponse =
-            body.mode === "prompt"
-                ? await lease.runtime.workspace.submitMessage(
-                      sessionId,
-                      {
-                          mode: "prompt",
-                          clientMessageId: clientMessageId!,
-                          text: body.text,
-                          images: body.images,
-                      },
-                      onSettled,
-                  )
-                : await lease.runtime.workspace.submitMessage(
-                      sessionId,
-                      {
-                          mode: body.mode,
-                          text: body.text,
-                          images: body.images,
-                      },
-                      onSettled,
-                  );
+        const response: MessageSubmitResponse = body.mode === "prompt"
+            ? await lease.runtime.workspace.submitMessage(
+                sessionId,
+                {
+                    mode: "prompt",
+                    clientMessageId: clientMessageId!,
+                    text: body.text,
+                    images: body.images,
+                },
+                onSettled,
+            )
+            : await lease.runtime.workspace.submitMessage(
+                sessionId,
+                {
+                    mode: body.mode,
+                    text: body.text,
+                    images: body.images,
+                },
+                onSettled,
+            );
         return c.json(response);
-    } catch (error) {
+    }
+    catch (error) {
         lease.release();
         throw error;
     }
 });
 
-agentRoutes.post("/agent/sessions/:sessionId/fork", async c => {
+agentRoutes.post("/agent/sessions/:sessionId/fork", async (c) => {
     const sessionId = requireRouteParam(c, "sessionId");
     const body = await readJsonBody<SessionForkRequest>(c);
     const clientId = requestClientId(c);
-    const controller = await withRequestSessionControl(c, sessionId, lease =>
-        lease.runtime.workspace.forkSession(sessionId, {
-            entryId: body.entryId,
-            name: body.name,
-        }),
+    const controller = await withRequestSessionControl(
+        c,
+        sessionId,
+        (lease) =>
+            lease.runtime.workspace.forkSession(sessionId, {
+                entryId: body.entryId,
+                name: body.name,
+            }),
     );
 
     const runtime = getAgentRuntime();
@@ -254,7 +271,7 @@ agentRoutes.post("/agent/sessions/:sessionId/fork", async c => {
     });
 });
 
-agentRoutes.post("/agent/sessions/:sessionId/revert", async c => {
+agentRoutes.post("/agent/sessions/:sessionId/revert", async (c) => {
     const sessionId = requireRouteParam(c, "sessionId");
     const body = await readJsonBody<SessionRevertRequest>(c);
     const clientId = requestClientId(c);
@@ -262,8 +279,11 @@ agentRoutes.post("/agent/sessions/:sessionId/revert", async c => {
         throw new BadRequestError("Session entry id is required.");
     }
 
-    const controller = await withRequestSessionControl(c, sessionId, lease =>
-        lease.runtime.workspace.revertSession(sessionId, body.entryId!),
+    const controller = await withRequestSessionControl(
+        c,
+        sessionId,
+        (lease) =>
+            lease.runtime.workspace.revertSession(sessionId, body.entryId!),
     );
 
     const runtime = getAgentRuntime();
@@ -277,7 +297,7 @@ agentRoutes.post("/agent/sessions/:sessionId/revert", async c => {
     });
 });
 
-agentRoutes.post("/agent/sessions/:sessionId/compact", async c => {
+agentRoutes.post("/agent/sessions/:sessionId/compact", async (c) => {
     const sessionId = requireRouteParam(c, "sessionId");
     const body = await readJsonBody<ContextCompactRequest>(c);
     if (
@@ -290,46 +310,56 @@ agentRoutes.post("/agent/sessions/:sessionId/compact", async c => {
     }
 
     return c.json<ContextCompactResponse>(
-        await withRequestSessionControl(c, sessionId, lease =>
-            lease.runtime.workspace.compactSession(sessionId, {
-                customInstructions:
-                    body.customInstructions?.trim() || undefined,
-            }),
+        await withRequestSessionControl(
+            c,
+            sessionId,
+            (lease) =>
+                lease.runtime.workspace.compactSession(sessionId, {
+                    customInstructions: body.customInstructions?.trim() ||
+                        undefined,
+                }),
         ),
     );
 });
 
-agentRoutes.post("/agent/sessions/:sessionId/abort", async c => {
+agentRoutes.post("/agent/sessions/:sessionId/abort", async (c) => {
     const sessionId = requireRouteParam(c, "sessionId");
-    await withRequestSessionControl(c, sessionId, lease =>
-        lease.runtime.workspace.abortSession(sessionId),
+    await withRequestSessionControl(
+        c,
+        sessionId,
+        (lease) => lease.runtime.workspace.abortSession(sessionId),
     );
     return c.json({ ok: true, sessionId });
 });
 
-agentRoutes.post("/agent/sessions/:sessionId/queue/clear", async c => {
+agentRoutes.post("/agent/sessions/:sessionId/queue/clear", async (c) => {
     const sessionId = requireRouteParam(c, "sessionId");
-    await withRequestSessionControl(c, sessionId, lease =>
-        lease.runtime.workspace.clearSessionQueue(sessionId),
+    await withRequestSessionControl(
+        c,
+        sessionId,
+        (lease) => lease.runtime.workspace.clearSessionQueue(sessionId),
     );
     return c.json({ ok: true, sessionId });
 });
 
 agentRoutes.post(
     "/agent/sessions/:sessionId/ui-requests/:requestId/response",
-    async c => {
+    async (c) => {
         const sessionId = requireRouteParam(c, "sessionId");
         const requestId = requireRouteParam(c, "requestId");
         const body = parseUiRequestResponse(
             await readJsonBody<UiRequestResponseRequest>(c),
         );
 
-        await withRequestSessionControl(c, sessionId, async lease =>
-            lease.runtime.workspace.resolveUiRequest(
-                sessionId,
-                requestId,
-                body,
-            ),
+        await withRequestSessionControl(
+            c,
+            sessionId,
+            async (lease) =>
+                lease.runtime.workspace.resolveUiRequest(
+                    sessionId,
+                    requestId,
+                    body,
+                ),
         );
         return c.json({ ok: true, sessionId, requestId });
     },

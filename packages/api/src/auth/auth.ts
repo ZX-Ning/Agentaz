@@ -20,7 +20,9 @@ let processSessionSecret = "";
 
 export function requireAdminPasswordHash() {
     const hash = Deno.env.get(ADMIN_PASSWORD_HASH_ENV)?.trim();
-    if (!hash) throw new Error(`${ADMIN_PASSWORD_HASH_ENV} must be provided.`);
+    if (!hash) {
+        throw new Error(`${ADMIN_PASSWORD_HASH_ENV} must be provided.`);
+    }
     return hash;
 }
 
@@ -28,11 +30,11 @@ export function requireAdminPasswordHash() {
 export function assertAuthConfig() {
     requireAdminPasswordHash();
 
-    const configured =
-        Deno.env.get(SESSION_SECRET_ENV) ||
+    const configured = Deno.env.get(SESSION_SECRET_ENV) ||
         Deno.env.get(LEGACY_SESSION_SECRET_ENV) ||
         "";
-    processSessionSecret = configured || randomBytes(32).toString("base64url");
+    processSessionSecret = configured ||
+        randomBytes(32).toString("base64url");
 
     if (!configured) {
         console.warn(
@@ -47,14 +49,17 @@ export function assertAuthConfig() {
 }
 
 export function hashAdminPassword(password: string) {
-    return createHash("sha3-256").update(password, "utf8").digest("base64");
+    return createHash("sha3-256").update(password, "utf8").digest(
+        "base64",
+    );
 }
 
 export function verifyAdminPassword(password: string) {
     const expected = Buffer.from(requireAdminPasswordHash(), "base64");
     const actual = Buffer.from(hashAdminPassword(password), "base64");
     return (
-        expected.length === actual.length && timingSafeEqual(expected, actual)
+        expected.length === actual.length &&
+        timingSafeEqual(expected, actual)
     );
 }
 
@@ -63,7 +68,9 @@ export function unauthorizedError(message = "Authentication required.") {
 }
 
 function requireSessionSecret() {
-    if (!processSessionSecret) assertAuthConfig();
+    if (!processSessionSecret) {
+        assertAuthConfig();
+    }
     return processSessionSecret;
 }
 
@@ -98,7 +105,7 @@ function decodeTextBase64Url(value: string) {
     const base64 = value.replaceAll("-", "+").replaceAll("_", "/");
     const padded = base64.padEnd(Math.ceil(base64.length / 4) * 4, "=");
     return new TextDecoder().decode(
-        Uint8Array.from(atob(padded), char => char.charCodeAt(0)),
+        Uint8Array.from(atob(padded), (char) => char.charCodeAt(0)),
     );
 }
 
@@ -107,9 +114,13 @@ async function createSessionCookie(session: AuthSession) {
     return `${payload}.${await hmac(payload)}`;
 }
 
-async function readSessionCookie(c: Context): Promise<AuthSession | undefined> {
+async function readSessionCookie(
+    c: Context,
+): Promise<AuthSession | undefined> {
     const cookie = getCookie(c, SESSION_COOKIE);
-    if (!cookie) return undefined;
+    if (!cookie) {
+        return undefined;
+    }
 
     const [payload, signature] = cookie.split(".");
     if (!payload || !signature || signature !== (await hmac(payload))) {
@@ -117,11 +128,18 @@ async function readSessionCookie(c: Context): Promise<AuthSession | undefined> {
     }
 
     try {
-        const session = JSON.parse(decodeTextBase64Url(payload)) as AuthSession;
-        if (session.expiresAt <= Date.now()) return undefined;
-        if (session.user?.id !== "admin") return undefined;
+        const session = JSON.parse(
+            decodeTextBase64Url(payload),
+        ) as AuthSession;
+        if (session.expiresAt <= Date.now()) {
+            return undefined;
+        }
+        if (session.user?.id !== "admin") {
+            return undefined;
+        }
         return session;
-    } catch {
+    }
+    catch {
         return undefined;
     }
 }
@@ -161,13 +179,16 @@ export async function getAuthSession(c: Context) {
 
 export async function requireAgentazAuth(c: Context) {
     const session = await readSessionCookie(c);
-    if (!session) throw unauthorizedError();
+    if (!session) {
+        throw unauthorizedError();
+    }
     return session;
 }
 
 function isPublicApiPath(path: string) {
     return (
-        path.endsWith("/api/auth/login") || path.endsWith("/api/_auth/session")
+        path.endsWith("/api/auth/login") ||
+        path.endsWith("/api/_auth/session")
     );
 }
 

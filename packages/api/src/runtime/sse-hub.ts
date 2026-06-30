@@ -58,7 +58,9 @@ export class SseAgentHub {
         await refreshProjectionData(this.workspace);
 
         // The route may observe disconnect while refresh is awaiting.
-        if (this.senders.get(clientId) !== send) return;
+        if (this.senders.get(clientId) !== send) {
+            return;
+        }
 
         // Phase 4: send the initial hello + targeted state snapshot.
         this.pushSafely(
@@ -95,7 +97,9 @@ export class SseAgentHub {
      *   5. Stop the heartbeat if no clients remain connected.
      */
     private handleDisconnect(clientId: string) {
-        if (!this.senders.has(clientId)) return;
+        if (!this.senders.has(clientId)) {
+            return;
+        }
 
         this.senders.delete(clientId);
 
@@ -110,7 +114,9 @@ export class SseAgentHub {
         this.broadcastStateSnapshots();
 
         // Stop the heartbeat timer when no clients are connected.
-        if (this.senders.size === 0) this.stopHeartbeat();
+        if (this.senders.size === 0) {
+            this.stopHeartbeat();
+        }
     }
 
     /**
@@ -118,9 +124,11 @@ export class SseAgentHub {
      * Only subscribes once regardless of how many clients connect.
      */
     private startEventSubscription() {
-        if (this.unsubscribe) return;
-        this.unsubscribe = this.eventBus.subscribe(event =>
-            this.handleRuntimeEvent(event),
+        if (this.unsubscribe) {
+            return;
+        }
+        this.unsubscribe = this.eventBus.subscribe((event) =>
+            this.handleRuntimeEvent(event)
         );
     }
 
@@ -175,7 +183,11 @@ export class SseAgentHub {
             send,
             JSON.stringify({
                 type: "state_snapshot",
-                state: getAgentState(this.workspace, this.presence, clientId),
+                state: getAgentState(
+                    this.workspace,
+                    this.presence,
+                    clientId,
+                ),
             }),
         );
     }
@@ -198,7 +210,9 @@ export class SseAgentHub {
      */
     private broadcast(event: ServerEvent) {
         const data = JSON.stringify(event);
-        for (const send of this.senders.values()) this.pushSafely(send, data);
+        for (const send of this.senders.values()) {
+            this.pushSafely(send, data);
+        }
     }
 
     /**
@@ -210,7 +224,8 @@ export class SseAgentHub {
     private pushSafely(send: SseSend, data: string) {
         try {
             send(data);
-        } catch (error) {
+        }
+        catch (error) {
             console.error("[agentaz-server] sse push failed", error);
         }
     }
@@ -221,7 +236,9 @@ export class SseAgentHub {
      * due to backpressure or reconnection.
      */
     private ensureHeartbeat() {
-        if (this.heartbeat) return;
+        if (this.heartbeat) {
+            return;
+        }
         this.heartbeat = setInterval(
             () => this.broadcastStateSnapshots(),
             15_000,
@@ -230,7 +247,9 @@ export class SseAgentHub {
 
     /** Stops the heartbeat timer when no clients remain connected. */
     private stopHeartbeat() {
-        if (this.heartbeat) clearInterval(this.heartbeat);
+        if (this.heartbeat) {
+            clearInterval(this.heartbeat);
+        }
         this.heartbeat = undefined;
     }
 }

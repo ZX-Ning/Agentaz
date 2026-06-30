@@ -83,12 +83,14 @@ function getLoadedSessionsForClient(
     presence: ClientPresence,
     clientId: string,
 ): UiLoadedSession[] {
-    return workspace.loadedSessions().map((session: UiRuntimeLoadedSession) => {
-        const controlOwnerClientId = presence.ownerOf(session.sessionId);
-        return {
-            ...session,
-            controlOwnerClientId,
-            controlledByCurrentClient: controlOwnerClientId === clientId,
-        };
-    });
+    return workspace.loadedSessions().map(
+        (session: UiRuntimeLoadedSession) => {
+            const controlOwnerClientId = presence.ownerOf(session.sessionId);
+            return {
+                ...session,
+                controlOwnerClientId,
+                controlledByCurrentClient: controlOwnerClientId === clientId,
+            };
+        },
+    );
 }

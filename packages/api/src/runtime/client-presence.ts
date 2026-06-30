@@ -37,7 +37,9 @@ export class ClientPresence {
         this.connectedClients.delete(clientId);
         this.activeSessionByClient.delete(clientId);
         const changedSessionIds: string[] = [];
-        for (const [sessionId, ownerClientId] of this.controlOwnerBySession) {
+        for (
+            const [sessionId, ownerClientId] of this.controlOwnerBySession
+        ) {
             if (ownerClientId === clientId) {
                 this.controlOwnerBySession.delete(sessionId);
                 this.controlHoldCountBySession.delete(sessionId);
@@ -68,12 +70,17 @@ export class ClientPresence {
 
     /** Releases mutation control for a session if the given client owns it. */
     releaseControl(clientId: string, sessionId: string) {
-        if (this.controlOwnerBySession.get(sessionId) !== clientId) return;
-        const nextCount =
-            (this.controlHoldCountBySession.get(sessionId) ?? 1) - 1;
+        if (
+            this.controlOwnerBySession.get(sessionId) !== clientId
+        ) {
+            return;
+        }
+        const nextCount = (this.controlHoldCountBySession.get(sessionId) ?? 1) -
+            1;
         if (nextCount > 0) {
             this.controlHoldCountBySession.set(sessionId, nextCount);
-        } else {
+        }
+        else {
             this.controlHoldCountBySession.delete(sessionId);
             this.controlOwnerBySession.delete(sessionId);
         }
@@ -82,7 +89,8 @@ export class ClientPresence {
     /** Returns the active session visible to one client. */
     activeFor(clientId: string) {
         return (
-            this.activeSessionByClient.get(clientId) ?? this.lastActiveSessionId
+            this.activeSessionByClient.get(clientId) ??
+                this.lastActiveSessionId
         );
     }
 
@@ -111,11 +119,17 @@ export class ClientPresence {
     removeSession(sessionId: string, fallbackSessionId?: string) {
         this.controlOwnerBySession.delete(sessionId);
         this.controlHoldCountBySession.delete(sessionId);
-        for (const [clientId, activeSessionId] of this.activeSessionByClient) {
+        for (
+            const [clientId, activeSessionId] of this.activeSessionByClient
+        ) {
             if (activeSessionId === sessionId) {
                 if (fallbackSessionId) {
-                    this.activeSessionByClient.set(clientId, fallbackSessionId);
-                } else {
+                    this.activeSessionByClient.set(
+                        clientId,
+                        fallbackSessionId,
+                    );
+                }
+                else {
                     this.activeSessionByClient.delete(clientId);
                 }
             }

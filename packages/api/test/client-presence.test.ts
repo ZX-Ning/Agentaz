@@ -30,8 +30,11 @@ Deno.test("ClientPresence rejects conflicting control owners", () => {
 
     try {
         presence.acquireControl("client-b", "session-a");
-    } catch (error) {
-        if (error instanceof SessionControlConflictError) return;
+    }
+    catch (error) {
+        if (error instanceof SessionControlConflictError) {
+            return;
+        }
         throw error;
     }
 

@@ -51,13 +51,17 @@ export async function ensureRequiredPiPackages(agentDir: string) {
     const packages = settings.packages ?? [];
     const configured = new Set(
         packages
-            .map(entry => (typeof entry === "string" ? entry : entry.source))
+            .map(
+                (
+                    entry,
+                ) => (typeof entry === "string" ? entry : entry.source),
+            )
             .filter((source): source is string => Boolean(source)),
     );
 
     // Determine which required packages are missing.
     const missing = REQUIRED_PI_PACKAGE_SOURCES.filter(
-        source => !configured.has(source),
+        (source) => !configured.has(source),
     );
 
     // All packages already configured — no write needed.
@@ -74,7 +78,10 @@ export async function ensureRequiredPiPackages(agentDir: string) {
 
     // Ensure the agent directory exists before writing.
     await mkdir(dirname(settingsPath), { recursive: true });
-    await writeFile(settingsPath, `${JSON.stringify(nextSettings, null, 2)}\n`);
+    await writeFile(
+        settingsPath,
+        `${JSON.stringify(nextSettings, null, 2)}\n`,
+    );
 
     return { settingsPath, added: [...missing] };
 }
@@ -102,7 +109,8 @@ async function readPiSettings(settingsPath: string): Promise<PiSettings> {
             );
         }
         return settings;
-    } catch (error) {
+    }
+    catch (error) {
         // ENOENT is expected on first run — the file will be created.
         if (
             error &&

@@ -6,10 +6,10 @@ export type AgentRuntimeEvent =
     | { type: "state_changed" }
     | { type: "session_removed"; sessionId: string; fallbackSessionId?: string }
     | {
-          type: "control_changed";
-          sessionId: string;
-          controlOwnerClientId?: string;
-      };
+        type: "control_changed";
+        sessionId: string;
+        controlOwnerClientId?: string;
+    };
 
 /** Receives one runtime event from the in-process agent event bus. */
 export type AgentRuntimeEventHandler = (event: AgentRuntimeEvent) => void;
@@ -32,7 +32,8 @@ export class AgentEventBus {
         for (const handler of this.handlers) {
             try {
                 handler(event);
-            } catch (error) {
+            }
+            catch (error) {
                 console.error(
                     "[agentaz-server] runtime event handler failed",
                     error,

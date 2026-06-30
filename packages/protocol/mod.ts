@@ -20,7 +20,12 @@ export const PROTOCOL_VERSION = 8;
  *   - xhigh:   Maximum reasoning trace (requires model support).
  */
 export type ThinkingLevel =
-    "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
+    | "off"
+    | "minimal"
+    | "low"
+    | "medium"
+    | "high"
+    | "xhigh";
 
 /** Base64-encoded image attachment reserved for future multimodal prompts. */
 export type ImagePayload = {
@@ -45,27 +50,27 @@ export type UiBlock =
     | { id: string; type: "text"; text: string }
     | { id: string; type: "thinking"; text: string; collapsed?: boolean }
     | {
-          id: string;
-          type: "tool_call";
-          /** Unique identifier for this tool execution. */
-          toolCallId: string;
-          /** Display name of the tool (e.g. "read", "bash", "edit"). */
-          toolName: string;
-          /** Tool input arguments (provider-specific shape). */
-          input: unknown;
-          /** Execution status in the lifecycle: pending → running → completed/error. */
-          status: "pending" | "running" | "completed" | "error" | "blocked";
-      }
+        id: string;
+        type: "tool_call";
+        /** Unique identifier for this tool execution. */
+        toolCallId: string;
+        /** Display name of the tool (e.g. "read", "bash", "edit"). */
+        toolName: string;
+        /** Tool input arguments (provider-specific shape). */
+        input: unknown;
+        /** Execution status in the lifecycle: pending → running → completed/error. */
+        status: "pending" | "running" | "completed" | "error" | "blocked";
+    }
     | {
-          id: string;
-          type: "tool_result";
-          /** Matches the toolCallId of the corresponding tool_call block. */
-          toolCallId: string;
-          /** Summarized tool output (truncated to 500 chars). */
-          content: string;
-          /** Whether the tool execution resulted in an error. */
-          isError?: boolean;
-      };
+        id: string;
+        type: "tool_result";
+        /** Matches the toolCallId of the corresponding tool_call block. */
+        toolCallId: string;
+        /** Summarized tool output (truncated to 500 chars). */
+        content: string;
+        /** Whether the tool execution resulted in an error. */
+        isError?: boolean;
+    };
 
 /**
  * Normalized chat message independent of Pi SDK's internal message representation.
@@ -125,38 +130,38 @@ export type UiSessionSummary = {
  */
 export type PendingUiRequest =
     | {
-          /** Extension is requesting a single-choice selection from the user. */
-          type: "ui_select_request";
-          sessionId: string;
-          /** Opaque id to include in the POST response. */
-          requestId: string;
-          /** Prompt title displayed to the user. */
-          title: string;
-          /** Available options for selection. */
-          options: string[];
-          /** Timeout in milliseconds before auto-resolving. */
-          timeoutMs: number;
-      }
+        /** Extension is requesting a single-choice selection from the user. */
+        type: "ui_select_request";
+        sessionId: string;
+        /** Opaque id to include in the POST response. */
+        requestId: string;
+        /** Prompt title displayed to the user. */
+        title: string;
+        /** Available options for selection. */
+        options: string[];
+        /** Timeout in milliseconds before auto-resolving. */
+        timeoutMs: number;
+    }
     | {
-          /** Extension is requesting text input from the user. */
-          type: "ui_input_request";
-          sessionId: string;
-          requestId: string;
-          title: string;
-          /** Optional placeholder text for the input field. */
-          placeholder?: string;
-          timeoutMs: number;
-      }
+        /** Extension is requesting text input from the user. */
+        type: "ui_input_request";
+        sessionId: string;
+        requestId: string;
+        title: string;
+        /** Optional placeholder text for the input field. */
+        placeholder?: string;
+        timeoutMs: number;
+    }
     | {
-          /** Extension is requesting a yes/no confirmation from the user. */
-          type: "ui_confirm_request";
-          sessionId: string;
-          requestId: string;
-          title: string;
-          /** Detailed message explaining what is being confirmed. */
-          message: string;
-          timeoutMs: number;
-      };
+        /** Extension is requesting a yes/no confirmation from the user. */
+        type: "ui_confirm_request";
+        sessionId: string;
+        requestId: string;
+        title: string;
+        /** Detailed message explaining what is being confirmed. */
+        message: string;
+        timeoutMs: number;
+    };
 
 /**
  * Runtime state for a Pi session currently loaded in the server process.
@@ -345,125 +350,125 @@ export type ServerErrorEvent = {
 export type ServerEvent =
     | ServerHello
     | {
-          /** Full state snapshot pushed periodically (15s heartbeat) and on state change. */
-          type: "state_snapshot";
-          state: AgentStateResponse;
-      }
+        /** Full state snapshot pushed periodically (15s heartbeat) and on state change. */
+        type: "state_snapshot";
+        state: AgentStateResponse;
+    }
     | {
-          /** Session control lease changed ownership. */
-          type: "control_changed";
-          sessionId: string;
-          /** Client id that now owns the lease, or undefined if released. */
-          controlOwnerClientId?: string;
-      }
+        /** Session control lease changed ownership. */
+        type: "control_changed";
+        sessionId: string;
+        /** Client id that now owns the lease, or undefined if released. */
+        controlOwnerClientId?: string;
+    }
     | {
-          /** A prompt turn was accepted and its canonical user message is available. */
-          type: "turn_started";
-          sessionId: string;
-          /** Stable server-side id for this agent turn. */
-          turnId: string;
-          /** Browser-generated id for optimistic user-message reconciliation. */
-          clientMessageId: string;
-          /** Canonical user message replacing the local optimistic copy. */
-          userMessage: UiMessage;
-      }
+        /** A prompt turn was accepted and its canonical user message is available. */
+        type: "turn_started";
+        sessionId: string;
+        /** Stable server-side id for this agent turn. */
+        turnId: string;
+        /** Browser-generated id for optimistic user-message reconciliation. */
+        clientMessageId: string;
+        /** Canonical user message replacing the local optimistic copy. */
+        userMessage: UiMessage;
+    }
     | {
-          /** A prompt turn finished and the normalized history can be refreshed. */
-          type: "turn_completed";
-          sessionId: string;
-          turnId: string;
-          /** Monotonic transcript revision after the completed turn. */
-          transcriptRevision: number;
-      }
+        /** A prompt turn finished and the normalized history can be refreshed. */
+        type: "turn_completed";
+        sessionId: string;
+        turnId: string;
+        /** Monotonic transcript revision after the completed turn. */
+        transcriptRevision: number;
+    }
     | {
-          /** A prompt turn failed before normal completion. */
-          type: "turn_failed";
-          sessionId: string;
-          turnId: string;
-          clientMessageId?: string;
-          message: string;
-          /** Current transcript revision, if a user message was already recorded. */
-          transcriptRevision?: number;
-      }
+        /** A prompt turn failed before normal completion. */
+        type: "turn_failed";
+        sessionId: string;
+        turnId: string;
+        clientMessageId?: string;
+        message: string;
+        /** Current transcript revision, if a user message was already recorded. */
+        transcriptRevision?: number;
+    }
     | {
-          /** A message was created or updated in the transcript. */
-          type: "message_upsert";
-          sessionId: string;
-          message: UiMessage;
-      }
+        /** A message was created or updated in the transcript. */
+        type: "message_upsert";
+        sessionId: string;
+        message: UiMessage;
+    }
     | {
-          /** A block within a message was created or updated. */
-          type: "message_block_upsert";
-          sessionId: string;
-          messageId: string;
-          block: UiBlock;
-      }
+        /** A block within a message was created or updated. */
+        type: "message_block_upsert";
+        sessionId: string;
+        messageId: string;
+        block: UiBlock;
+    }
     | {
-          /** A streaming text/thinking/tool_result delta was appended to a block. */
-          type: "message_block_delta";
-          sessionId: string;
-          messageId: string;
-          blockId: string;
-          blockType: "text" | "thinking" | "tool_result";
-          /** The new text to append to the block. */
-          delta: string;
-      }
+        /** A streaming text/thinking/tool_result delta was appended to a block. */
+        type: "message_block_delta";
+        sessionId: string;
+        messageId: string;
+        blockId: string;
+        blockType: "text" | "thinking" | "tool_result";
+        /** The new text to append to the block. */
+        delta: string;
+    }
     | {
-          /** A permission decision was made (log event, not interactive). */
-          type: "permission_decision";
-          sessionId?: string;
-          /** The tool or surface requesting permission. */
-          surface: string;
-          /** The value being checked. */
-          value: string;
-          /** The decision: allow or deny. */
-          result: "allow" | "deny";
-          /** How the decision was reached (e.g. "default", "user"). */
-          resolution: string;
-          /** The permission pattern that matched, if any. */
-          matchedPattern?: string | null;
-      }
+        /** A permission decision was made (log event, not interactive). */
+        type: "permission_decision";
+        sessionId?: string;
+        /** The tool or surface requesting permission. */
+        surface: string;
+        /** The value being checked. */
+        value: string;
+        /** The decision: allow or deny. */
+        result: "allow" | "deny";
+        /** How the decision was reached (e.g. "default", "user"). */
+        resolution: string;
+        /** The permission pattern that matched, if any. */
+        matchedPattern?: string | null;
+    }
     | {
-          /** The steer/follow-up queue contents changed. */
-          type: "queue_update";
-          sessionId: string;
-          /** Pending steer messages (redirects to streaming output). */
-          steering: string[];
-          /** Pending follow-up messages (queued for next turn). */
-          followUp: string[];
-      }
+        /** The steer/follow-up queue contents changed. */
+        type: "queue_update";
+        sessionId: string;
+        /** Pending steer messages (redirects to streaming output). */
+        steering: string[];
+        /** Pending follow-up messages (queued for next turn). */
+        followUp: string[];
+    }
     | PendingUiRequest
     | {
-          /** Extension notification/toast for display in the browser. */
-          type: "ui_notify";
-          sessionId?: string;
-          message: string;
-          /** Severity level for styling. */
-          level?: "info" | "warning" | "error";
-      }
+        /** Extension notification/toast for display in the browser. */
+        type: "ui_notify";
+        sessionId?: string;
+        message: string;
+        /** Severity level for styling. */
+        level?: "info" | "warning" | "error";
+    }
     | {
-          /** Extension widget content was updated. */
-          type: "extension_widget_update";
-          sessionId: string;
-          /** Widget identifier for deduplication. */
-          key: string;
-          /** Where to render the widget (default: aboveEditor). */
-          placement?: UiExtensionWidget["placement"];
-          /** Updated text lines, or undefined to remove the widget. */
-          lines?: string[];
-      }
+        /** Extension widget content was updated. */
+        type: "extension_widget_update";
+        sessionId: string;
+        /** Widget identifier for deduplication. */
+        key: string;
+        /** Where to render the widget (default: aboveEditor). */
+        placement?: UiExtensionWidget["placement"];
+        /** Updated text lines, or undefined to remove the widget. */
+        lines?: string[];
+    }
     | {
-          /** Lightweight session status update (streaming state, pending counts). */
-          type: "status";
-          sessionId?: string;
-          isStreaming: boolean;
-          pendingMessageCount: number;
-          pendingApprovalCount?: number;
-          /** Current context window usage, refreshed on status updates. */
-          contextUsage?: UiContextUsage;
-          /** Cumulative session stats, refreshed on status updates. */
-          usageStats?: UiSessionUsageStats;
-      }
+        /** Lightweight session status update (streaming state, pending counts). */
+        type: "status";
+        sessionId?: string;
+        isStreaming: boolean;
+        pendingMessageCount: number;
+        pendingApprovalCount?: number;
+        /** Current context window usage, refreshed on status updates. */
+        contextUsage?: UiContextUsage;
+        /** Cumulative session stats, refreshed on status updates. */
+        usageStats?: UiSessionUsageStats;
+    }
     | ServerErrorEvent;
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -668,37 +673,37 @@ export type ModelStateResponse = {
  */
 export type MessageSubmitRequest =
     | {
-          /** Start a new agent turn. */
-          mode: "prompt";
-          /** Browser-generated id used to confirm the optimistic user message. */
-          clientMessageId: string;
-          /** Message text content. */
-          text: string;
-          /** Optional image attachments (reserved for future use). */
-          images?: ImagePayload[];
-      }
+        /** Start a new agent turn. */
+        mode: "prompt";
+        /** Browser-generated id used to confirm the optimistic user message. */
+        clientMessageId: string;
+        /** Message text content. */
+        text: string;
+        /** Optional image attachments (reserved for future use). */
+        images?: ImagePayload[];
+    }
     | {
-          /** Redirect the current streaming output; does not create a user message. */
-          mode: "steer";
-          /** Message text content. */
-          text: string;
-          /** Optional image attachments (reserved for future use). */
-          images?: ImagePayload[];
-      }
+        /** Redirect the current streaming output; does not create a user message. */
+        mode: "steer";
+        /** Message text content. */
+        text: string;
+        /** Optional image attachments (reserved for future use). */
+        images?: ImagePayload[];
+    }
     | {
-          /**
-           * Queue a message after the current turn completes.
-           *
-           * Follow-up currently mutates Pi's pending queue only. It does not create a
-           * browser-optimistic transcript turn, so there is no clientMessageId echo
-           * or turn_started confirmation path for this request shape.
-           */
-          mode: "follow_up";
-          /** Message text content. */
-          text: string;
-          /** Optional image attachments (reserved for future use). */
-          images?: ImagePayload[];
-      };
+        /**
+         * Queue a message after the current turn completes.
+         *
+         * Follow-up currently mutates Pi's pending queue only. It does not create a
+         * browser-optimistic transcript turn, so there is no clientMessageId echo
+         * or turn_started confirmation path for this request shape.
+         */
+        mode: "follow_up";
+        /** Message text content. */
+        text: string;
+        /** Optional image attachments (reserved for future use). */
+        images?: ImagePayload[];
+    };
 
 /**
  * HTTP response returned after a message has been accepted for processing.

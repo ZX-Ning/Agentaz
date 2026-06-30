@@ -65,7 +65,9 @@ export class PiSessionWorkspace {
     /** Pi agent home directory (defaults to ~/.pi or PI_CODING_AGENT_DIR). */
     private agentDir = getAgentDir();
     /** Shared auth storage for API keys and credentials. */
-    private authStorage = AuthStorage.create(join(this.agentDir, "auth.json"));
+    private authStorage = AuthStorage.create(
+        join(this.agentDir, "auth.json"),
+    );
     /** Shared model registry backed by models.json in the agent directory. */
     private modelRegistry = ModelRegistry.create(
         this.authStorage,
@@ -97,12 +99,13 @@ export class PiSessionWorkspace {
          * Called during eviction to identify sessions a browser client is
          * currently focused on. Defaults to empty set (all sessions evictable).
          */
-        private readonly getProtectedSessionIds: () => Iterable<string> = () => [],
+        private readonly getProtectedSessionIds: () => Iterable<string> =
+            () => [],
     ) {
         // Prewarm required Pi packages in the background so the first session
         // creation doesn't block on package installation. Extension services
         // are created per-controller — not shared.
-        void this.ensureRequiredPackages().catch(error => {
+        void this.ensureRequiredPackages().catch((error) => {
             console.error("failed to prewarm required Pi packages", error);
         });
     }
@@ -138,7 +141,8 @@ export class PiSessionWorkspace {
                         result,
                     );
                 }
-            } catch (error) {
+            }
+            catch (error) {
                 // Reset on failure so the next caller can retry.
                 this.requiredPackagesPromise = undefined;
                 throw error;
@@ -171,15 +175,15 @@ export class PiSessionWorkspace {
     private createControllerHost(): PiSessionControllerHost {
         return {
             createServices: () => this.createSessionServices(),
-            emit: event => this.emitServerEvent(event),
+            emit: (event) => this.emitServerEvent(event),
             onSessionMetadataChanged: () => this.refreshPersistedSessionCache(),
         };
     }
 
     /** Returns a readonly projection of currently loaded sessions for the UI sidebar. */
     loadedSessions(): UiRuntimeLoadedSession[] {
-        return [...this.sessions.values()].map(controller =>
-            controller.toLoadedSession(),
+        return [...this.sessions.values()].map((controller) =>
+            controller.toLoadedSession()
         );
     }
 
@@ -249,11 +253,13 @@ export class PiSessionWorkspace {
 
         // Check if this file is already loaded.
         const loaded = [...this.sessions.values()].find(
-            controller =>
+            (controller) =>
                 controller.sessionFile &&
                 resolve(controller.sessionFile) === normalizedSessionFile,
         );
-        if (loaded) return loaded;
+        if (loaded) {
+            return loaded;
+        }
 
         await this.releaseOneAvailableSessionIfAtCapacity();
         this.assertCanLoadAnotherSession();
@@ -292,13 +298,15 @@ export class PiSessionWorkspace {
             );
         }
 
-        const normalizedSessionFile =
-            await this.requirePersistedSessionFile(sessionFile);
+        const normalizedSessionFile = await this.requirePersistedSessionFile(
+            sessionFile,
+        );
         const loaded = this.findLoadedSessionByFile(normalizedSessionFile);
 
         if (loaded) {
             await loaded.rename(normalizedName);
-        } else {
+        }
+        else {
             const sessionManager = SessionManager.open(
                 normalizedSessionFile,
                 undefined,
@@ -323,8 +331,9 @@ export class PiSessionWorkspace {
      * idle so dispose/removal cannot interrupt active agent work.
      */
     async softDeletePersistedSession(sessionFile: string) {
-        const normalizedSessionFile =
-            await this.requirePersistedSessionFile(sessionFile);
+        const normalizedSessionFile = await this.requirePersistedSessionFile(
+            sessionFile,
+        );
         const loaded = this.findLoadedSessionByFile(normalizedSessionFile);
         // Capture the loaded id before disposal. A disposed controller is
         // intentionally unusable, so reading loaded.sessionId after dispose()
@@ -396,7 +405,8 @@ export class PiSessionWorkspace {
                 details: result.details,
                 revision: result.revision,
             };
-        } finally {
+        }
+        finally {
             this.emitStateChanged();
         }
     }
@@ -432,7 +442,9 @@ export class PiSessionWorkspace {
         this.assertForkRevertReady(controller);
 
         const sourceFile = controller.sessionFile;
-        if (!sourceFile) throw new SessionNotPersistedError();
+        if (!sourceFile) {
+            throw new SessionNotPersistedError();
+        }
 
         let newSessionFile: string | undefined;
         if (options.entryId?.trim()) {
@@ -447,14 +459,17 @@ export class PiSessionWorkspace {
             if (newSessionFile && !(await fileExists(newSessionFile))) {
                 forceRewriteSessionFile(temporaryManager);
             }
-        } else {
+        }
+        else {
             newSessionFile = SessionManager.forkFrom(
                 sourceFile,
                 this.options.cwd,
             ).getSessionFile();
         }
 
-        if (!newSessionFile) throw new SessionNotPersistedError();
+        if (!newSessionFile) {
+            throw new SessionNotPersistedError();
+        }
 
         const normalizedName = options.name?.trim();
         if (normalizedName) {
@@ -465,7 +480,9 @@ export class PiSessionWorkspace {
             ).appendSessionInfo(normalizedName);
         }
 
-        const forkedController = await this.openLoadedSession(newSessionFile);
+        const forkedController = await this.openLoadedSession(
+            newSessionFile,
+        );
         await this.refreshPersistedSessionCache();
         this.emitStateChanged();
         return forkedController;
@@ -489,7 +506,9 @@ export class PiSessionWorkspace {
         this.requireCurrentBranchEntry(controller, normalizedEntryId);
 
         const sessionFile = controller.sessionFile;
-        if (!sessionFile) throw new SessionNotPersistedError();
+        if (!sessionFile) {
+            throw new SessionNotPersistedError();
+        }
 
         const sessionManager = controller.getSessionManager();
         const currentName = sessionManager.getSessionName() ?? "";
@@ -540,8 +559,9 @@ export class PiSessionWorkspace {
 
     /** Sets the thinking level for one loaded session and returns the updated HTTP model state. */
     async setSessionThinkingLevel(sessionId: string, level: ThinkingLevel) {
-        const state =
-            await this.mutableSession(sessionId).setThinkingLevel(level);
+        const state = await this.mutableSession(sessionId).setThinkingLevel(
+            level,
+        );
         this.emitStateChanged();
         return state;
     }
@@ -567,25 +587,23 @@ export class PiSessionWorkspace {
         onSettled?: () => void,
     ): MessageSubmitResponse {
         const controller = this.mutableSession(sessionId);
-        const turn =
-            request.mode === "prompt"
-                ? {
-                      turnId: crypto.randomUUID(),
-                      clientMessageId: request.clientMessageId,
-                  }
-                : undefined;
+        const turn = request.mode === "prompt"
+            ? {
+                turnId: crypto.randomUUID(),
+                clientMessageId: request.clientMessageId,
+            }
+            : undefined;
 
         // Dispatch to the correct controller method based on mode.
-        const task =
-            request.mode === "steer"
-                ? controller.steer(request.text, request.images)
-                : request.mode === "follow_up"
-                  ? controller.followUp(request.text, request.images)
-                  : controller.prompt(request.text, request.images, turn!);
+        const task = request.mode === "steer"
+            ? controller.steer(request.text, request.images)
+            : request.mode === "follow_up"
+            ? controller.followUp(request.text, request.images)
+            : controller.prompt(request.text, request.images, turn!);
 
         // Attach settlement handlers to the async task.
         // We don't await — the HTTP response returns immediately.
-        task.catch(error => {
+        task.catch((error) => {
             console.error("[agentaz-server] message task failed", error);
             this.emitServerEvent({
                 type: "error",
@@ -598,7 +616,8 @@ export class PiSessionWorkspace {
                 // Refresh persisted cache so newly saved sessions appear.
                 await this.refreshPersistedSessionCache();
                 this.emitStateChanged();
-            } finally {
+            }
+            finally {
                 // Always release the control lease, even if refresh fails.
                 onSettled?.();
             }
@@ -610,8 +629,9 @@ export class PiSessionWorkspace {
         return {
             accepted: true,
             sessionId,
-            clientMessageId:
-                request.mode === "prompt" ? request.clientMessageId : undefined,
+            clientMessageId: request.mode === "prompt"
+                ? request.clientMessageId
+                : undefined,
             turnId: turn?.turnId,
         };
     }
@@ -648,9 +668,11 @@ export class PiSessionWorkspace {
         const controller = this.mutableSession(sessionId);
         if (response.kind === "confirm") {
             controller.resolveConfirm(requestId, response.confirmed);
-        } else if (response.kind === "input") {
+        }
+        else if (response.kind === "input") {
             controller.resolveInput(requestId, response.value);
-        } else {
+        }
+        else {
             controller.resolveSelect(requestId, response.selected);
         }
         this.emitStateChanged();
@@ -663,10 +685,12 @@ export class PiSessionWorkspace {
     async disposeAll() {
         const controllers = [...this.sessions.values()];
         this.sessions.clear();
-        controllers.forEach(controller =>
-            this.rememberHistoryRevision(controller),
+        controllers.forEach((controller) =>
+            this.rememberHistoryRevision(controller)
         );
-        await Promise.all(controllers.map(controller => controller.dispose()));
+        await Promise.all(
+            controllers.map((controller) => controller.dispose()),
+        );
         this.emitStateChanged();
     }
 
@@ -679,7 +703,7 @@ export class PiSessionWorkspace {
     /** Finds a loaded controller by normalized session file path. */
     private findLoadedSessionByFile(normalizedSessionFile: string) {
         return [...this.sessions.values()].find(
-            controller =>
+            (controller) =>
                 controller.sessionFile &&
                 resolve(controller.sessionFile) === normalizedSessionFile,
         );
@@ -701,9 +725,9 @@ export class PiSessionWorkspace {
         const persisted = await this.listPersistedSessions();
         const allowedFiles = new Set(
             persisted
-                .map(session => session.file)
+                .map((session) => session.file)
                 .filter(Boolean)
-                .map(file => resolve(file)),
+                .map((file) => resolve(file)),
         );
 
         if (!allowedFiles.has(normalizedSessionFile)) {
@@ -716,7 +740,9 @@ export class PiSessionWorkspace {
     /** Returns a non-conflicting filename for a soft-deleted session file. */
     private async nextSoftDeletedSessionFile(sessionFile: string) {
         const base = `${sessionFile}.deleted`;
-        if (!(await fileExists(base))) return base;
+        if (!(await fileExists(base))) {
+            return base;
+        }
         return `${base}.${Date.now()}`;
     }
 
@@ -730,12 +756,16 @@ export class PiSessionWorkspace {
      * Emits a session_removed event so presence and projector can update.
      */
     private async releaseOneAvailableSessionIfAtCapacity() {
-        if (this.sessions.size < this.options.maxLoadedSessions) return;
+        if (this.sessions.size < this.options.maxLoadedSessions) {
+            return;
+        }
 
         const protectedSessionIds = new Set(this.getProtectedSessionIds());
         for (const [sessionId, controller] of [...this.sessions]) {
             // Skip protected or busy sessions.
-            if (protectedSessionIds.has(sessionId) || controller.isBusy()) {
+            if (
+                protectedSessionIds.has(sessionId) || controller.isBusy()
+            ) {
                 continue;
             }
 
@@ -771,7 +801,9 @@ export class PiSessionWorkspace {
         const revision = this.historyRevisionBySessionId.get(
             controller.sessionId,
         );
-        if (revision !== undefined) controller.seedHistoryRevision(revision);
+        if (revision !== undefined) {
+            controller.seedHistoryRevision(revision);
+        }
     }
 
     /** Saves a controller revision before disposal/reload can reset it. */
@@ -783,7 +815,10 @@ export class PiSessionWorkspace {
             controller.sessionId,
         );
         if (current === undefined || revision > current) {
-            this.historyRevisionBySessionId.set(controller.sessionId, revision);
+            this.historyRevisionBySessionId.set(
+                controller.sessionId,
+                revision,
+            );
         }
     }
 
@@ -803,7 +838,7 @@ export class PiSessionWorkspace {
     ): SessionEntryInfo[] {
         return controller
             .getEntries()
-            .filter(entry => entry.type === "message")
+            .filter((entry) => entry.type === "message")
             .map((entry, index) => {
                 const message = entry.message;
                 return {
@@ -824,7 +859,9 @@ export class PiSessionWorkspace {
         controller: PiSessionController,
         entryId: string,
     ) {
-        if (!controller.getEntries().some(entry => entry.id === entryId)) {
+        if (
+            !controller.getEntries().some((entry) => entry.id === entryId)
+        ) {
             throw new SessionEntryNotFoundError();
         }
     }
@@ -832,7 +869,9 @@ export class PiSessionWorkspace {
     /** Throws if the loaded session limit has been reached. */
     private assertCanLoadAnotherSession() {
         if (this.sessions.size >= this.options.maxLoadedSessions) {
-            throw new SessionLimitReachedError(this.options.maxLoadedSessions);
+            throw new SessionLimitReachedError(
+                this.options.maxLoadedSessions,
+            );
         }
     }
 
@@ -852,7 +891,8 @@ async function fileExists(path: string) {
     try {
         await access(path);
         return true;
-    } catch {
+    }
+    catch {
         return false;
     }
 }

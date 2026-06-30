@@ -56,12 +56,15 @@ export function acquireRequestSessionControl(c: Context, sessionId: string) {
 export async function withRequestSessionControl<T>(
     c: Context,
     sessionId: string,
-    run: (lease: ReturnType<typeof acquireRequestSessionControl>) => Promise<T>,
+    run: (
+        lease: ReturnType<typeof acquireRequestSessionControl>,
+    ) => Promise<T>,
 ) {
     const lease = acquireRequestSessionControl(c, sessionId);
     try {
         return await run(lease);
-    } finally {
+    }
+    finally {
         lease.release();
     }
 }
@@ -70,7 +73,11 @@ export async function withRequestSessionControl<T>(
 export function requireRouteParam(c: Context, name: string) {
     const value = c.req.param(name);
     if (!value) {
-        throw jsonError(400, "bad_request", `Missing route parameter: ${name}`);
+        throw jsonError(
+            400,
+            "bad_request",
+            `Missing route parameter: ${name}`,
+        );
     }
     return decodeURIComponent(value);
 }
@@ -80,13 +87,20 @@ export async function readJsonBody<T extends object>(
     c: Context,
 ): Promise<Partial<T>> {
     const contentLength = c.req.header("content-length");
-    if (contentLength === "0") return {};
+    if (contentLength === "0") {
+        return {};
+    }
 
     try {
         return (await c.req.json()) ?? {};
-    } catch (error) {
+    }
+    catch (error) {
         if (error instanceof SyntaxError) {
-            throw jsonError(400, "bad_request", "Malformed JSON request body.");
+            throw jsonError(
+                400,
+                "bad_request",
+                "Malformed JSON request body.",
+            );
         }
         // Hono throws when there is no body; routes with optional JSON treat it as empty.
         if (
@@ -122,7 +136,9 @@ export function parseUiRequestResponse(
     }
 
     if (body.kind === "select") {
-        if (body.selected !== undefined && typeof body.selected !== "string") {
+        if (
+            body.selected !== undefined && typeof body.selected !== "string"
+        ) {
             throw new BadRequestError(
                 "Select UI response selected value must be a string.",
             );
@@ -138,7 +154,9 @@ export function agentHttpError(error: unknown) {
     if (error instanceof AgentazDomainError) {
         return new HttpError(error.statusCode, error.message, error.data);
     }
-    if (error instanceof HttpError) return error;
+    if (error instanceof HttpError) {
+        return error;
+    }
 
     const message = error instanceof Error ? error.message : String(error);
     let statusCode = 500;
@@ -147,22 +165,28 @@ export function agentHttpError(error: unknown) {
     if (message.includes("required")) {
         statusCode = 400;
         code = "bad_request";
-    } else if (message.includes("No loaded session")) {
+    }
+    else if (message.includes("No loaded session")) {
         statusCode = 404;
         code = "session_not_found";
-    } else if (message.includes("Loaded session limit reached")) {
+    }
+    else if (message.includes("Loaded session limit reached")) {
         statusCode = 409;
         code = "session_limit_reached";
-    } else if (message.includes("controlled by another browser client")) {
+    }
+    else if (message.includes("controlled by another browser client")) {
         statusCode = 409;
         code = "session_control_conflict";
-    } else if (message.includes("Session is busy")) {
+    }
+    else if (message.includes("Session is busy")) {
         statusCode = 409;
         code = "session_busy";
-    } else if (message.includes("Unknown model")) {
+    }
+    else if (message.includes("Unknown model")) {
         statusCode = 400;
         code = "unknown_model";
-    } else if (message.includes("Agent is running")) {
+    }
+    else if (message.includes("Agent is running")) {
         statusCode = 409;
         code = "agent_running";
     }

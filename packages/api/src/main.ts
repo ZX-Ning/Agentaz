@@ -38,13 +38,17 @@ export function createApp() {
 
 function numberEnv(name: string, fallback: number) {
     const raw = Deno.env.get(name);
-    if (!raw) return fallback;
+    if (!raw) {
+        return fallback;
+    }
     const parsed = Number(raw);
     return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
 export function initServerRuntime() {
-    if (serverRuntimeInitialized) return;
+    if (serverRuntimeInitialized) {
+        return;
+    }
 
     assertAuthConfig();
 

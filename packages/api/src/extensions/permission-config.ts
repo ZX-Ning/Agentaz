@@ -12,7 +12,12 @@ export const PERMISSION_EXTENSION_ID = "pi-permission-system";
  * Located at <agentDir>/extensions/pi-permission-system/config.json.
  */
 export function getGlobalPermissionConfigPath(agentDir: string) {
-    return join(agentDir, "extensions", PERMISSION_EXTENSION_ID, "config.json");
+    return join(
+        agentDir,
+        "extensions",
+        PERMISSION_EXTENSION_ID,
+        "config.json",
+    );
 }
 
 /**
@@ -39,7 +44,8 @@ export async function ensurePermissionConfig(agentDir: string) {
         await stat(configPath);
         // Config already exists — leave the user's customizations intact.
         return { configPath, created: false };
-    } catch {
+    }
+    catch {
         // Missing config is expected on first run — create a default.
     }
 

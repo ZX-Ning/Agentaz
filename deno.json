@@ -10,6 +10,12 @@
     },
     "fmt": {
         "indentWidth": 4,
-        "semiColons": true
+        "semiColons": true,
+        "singleQuote": false,
+        "trailingCommas": "onlyMultiLine",
+        "useBraces": "always",
+        "useTabs": false,
+        "nextControlFlowPosition": "nextLine",
+        "singleBodyPosition":"nextLine"
     }
 }

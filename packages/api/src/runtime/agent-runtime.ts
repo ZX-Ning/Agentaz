@@ -123,7 +123,9 @@ export function initAgentRuntime() {
         const protectedSessionIds = new Set<string>();
         for (const clientId of [LOCAL_CLIENT_ID, ...presence.clients()]) {
             const activeSessionId = presence.activeFor(clientId);
-            if (activeSessionId) protectedSessionIds.add(activeSessionId);
+            if (activeSessionId) {
+                protectedSessionIds.add(activeSessionId);
+            }
         }
         return protectedSessionIds;
     });
@@ -131,8 +133,10 @@ export function initAgentRuntime() {
     // Phase 3: Wire session_removed events → presence cleanup.
     // When the workspace evicts a session, remove it from presence tracking
     // so other services don't reference a stale session id.
-    eventBus.subscribe(event => {
-        if (event.type !== "session_removed") return;
+    eventBus.subscribe((event) => {
+        if (event.type !== "session_removed") {
+            return;
+        }
         presence.removeSession(event.sessionId, event.fallbackSessionId);
         eventBus.publish({ type: "state_changed" });
     });
@@ -168,7 +172,9 @@ export function getAgentRuntime() {
  * just to dispose an app that never accepted an agent request.
  */
 export async function disposeAgentRuntime() {
-    if (!runtime) return;
+    if (!runtime) {
+        return;
+    }
 
     const currentRuntime = runtime;
     runtime = undefined;
