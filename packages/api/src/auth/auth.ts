@@ -1,19 +1,26 @@
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { getCookie, setCookie } from "@hono/hono/cookie";
 import type { Context, Next } from "@hono/hono";
+import { symmetricDecodeJWT, symmetricEncodeJWT } from "better-auth/crypto";
 import { jsonError } from "../http/errors.ts";
 
 const ADMIN_PASSWORD_HASH_ENV = "AGENTAZ_ADMIN_PASSWORD_HASH";
 const SESSION_SECRET_ENV = "AGENTAZ_SESSION_SECRET";
-const LEGACY_SESSION_SECRET_ENV = "NUXT_SESSION_PASSWORD";
 const MIN_SESSION_SECRET_LENGTH = 32;
-const SESSION_COOKIE = "agentaz_session";
 const SESSION_MAX_AGE_SECONDS = 60 * 60 * 24;
+const SESSION_COOKIE = "better-auth.session_token";
+const SESSION_TOKEN_SALT = "agentaz-admin-session";
 
-type AuthSession = {
-    user: { id: "admin" };
+type SessionTokenPayload = {
+    sub: "admin";
     loggedInAt: number;
     expiresAt: number;
+};
+
+export type AdminAuthSession = {
+    user: { id: "admin" };
+    expires: string;
+    loggedInAt: number;
 };
 
 let processSessionSecret = "";
@@ -26,19 +33,16 @@ export function requireAdminPasswordHash() {
     return hash;
 }
 
-/** Validates auth env and creates a process-local cookie secret when omitted. */
+/** Validates auth env and creates a process-local Better Auth secret when omitted. */
 export function assertAuthConfig() {
     requireAdminPasswordHash();
 
-    const configured = Deno.env.get(SESSION_SECRET_ENV) ||
-        Deno.env.get(LEGACY_SESSION_SECRET_ENV) ||
-        "";
-    processSessionSecret = configured ||
-        randomBytes(32).toString("base64url");
+    const configured = Deno.env.get(SESSION_SECRET_ENV) || "";
+    processSessionSecret = configured || randomBytes(32).toString("base64url");
 
     if (!configured) {
         console.warn(
-            `${SESSION_SECRET_ENV} is not set; generated a process-local session cookie secret. Existing browser sessions will be invalid after restart.`,
+            `${SESSION_SECRET_ENV} is not set; generated a process-local Better Auth secret. Existing browser sessions will be invalid after restart.`,
         );
     }
     if (processSessionSecret.length < MIN_SESSION_SECRET_LENGTH) {
@@ -49,17 +53,14 @@ export function assertAuthConfig() {
 }
 
 export function hashAdminPassword(password: string) {
-    return createHash("sha3-256").update(password, "utf8").digest(
-        "base64",
-    );
+    return createHash("sha3-256").update(password, "utf8").digest("base64");
 }
 
 export function verifyAdminPassword(password: string) {
     const expected = Buffer.from(requireAdminPasswordHash(), "base64");
     const actual = Buffer.from(hashAdminPassword(password), "base64");
     return (
-        expected.length === actual.length &&
-        timingSafeEqual(expected, actual)
+        expected.length === actual.length && timingSafeEqual(expected, actual)
     );
 }
 
@@ -74,85 +75,25 @@ function requireSessionSecret() {
     return processSessionSecret;
 }
 
-async function hmac(payload: string) {
-    const key = await crypto.subtle.importKey(
-        "raw",
-        new TextEncoder().encode(requireSessionSecret()),
-        { name: "HMAC", hash: "SHA-256" },
-        false,
-        ["sign"],
-    );
-    const signature = await crypto.subtle.sign(
-        "HMAC",
-        key,
-        new TextEncoder().encode(payload),
-    );
-    return encodeBase64Url(new Uint8Array(signature));
-}
-
-function encodeBase64Url(bytes: Uint8Array) {
-    return btoa(String.fromCharCode(...bytes))
-        .replaceAll("+", "-")
-        .replaceAll("/", "_")
-        .replaceAll("=", "");
-}
-
-function encodeTextBase64Url(text: string) {
-    return encodeBase64Url(new TextEncoder().encode(text));
-}
-
-function decodeTextBase64Url(value: string) {
-    const base64 = value.replaceAll("-", "+").replaceAll("_", "/");
-    const padded = base64.padEnd(Math.ceil(base64.length / 4) * 4, "=");
-    return new TextDecoder().decode(
-        Uint8Array.from(atob(padded), (char) => char.charCodeAt(0)),
-    );
-}
-
-async function createSessionCookie(session: AuthSession) {
-    const payload = encodeTextBase64Url(JSON.stringify(session));
-    return `${payload}.${await hmac(payload)}`;
-}
-
-async function readSessionCookie(
+export async function signInWithAdminPassword(
     c: Context,
-): Promise<AuthSession | undefined> {
-    const cookie = getCookie(c, SESSION_COOKIE);
-    if (!cookie) {
-        return undefined;
+    password: string,
+): Promise<AdminAuthSession> {
+    if (!verifyAdminPassword(password)) {
+        throw unauthorizedError("Invalid password.");
     }
 
-    const [payload, signature] = cookie.split(".");
-    if (!payload || !signature || signature !== (await hmac(payload))) {
-        return undefined;
-    }
-
-    try {
-        const session = JSON.parse(
-            decodeTextBase64Url(payload),
-        ) as AuthSession;
-        if (session.expiresAt <= Date.now()) {
-            return undefined;
-        }
-        if (session.user?.id !== "admin") {
-            return undefined;
-        }
-        return session;
-    }
-    catch {
-        return undefined;
-    }
-}
-
-export async function setAuthSession(c: Context) {
     const loggedInAt = Date.now();
-    const session: AuthSession = {
-        user: { id: "admin" },
-        loggedInAt,
-        expiresAt: loggedInAt + SESSION_MAX_AGE_SECONDS * 1000,
-    };
+    const expiresAt = loggedInAt + SESSION_MAX_AGE_SECONDS * 1000;
+    const session = adminSession({ sub: "admin", loggedInAt, expiresAt });
+    const token = await symmetricEncodeJWT<SessionTokenPayload>(
+        { sub: "admin", loggedInAt, expiresAt },
+        requireSessionSecret(),
+        SESSION_TOKEN_SALT,
+        SESSION_MAX_AGE_SECONDS,
+    );
 
-    setCookie(c, SESSION_COOKIE, await createSessionCookie(session), {
+    setCookie(c, SESSION_COOKIE, token, {
         httpOnly: true,
         sameSite: "Lax",
         secure: new URL(c.req.url).protocol === "https:",
@@ -173,22 +114,47 @@ export function clearAuthSession(c: Context) {
     });
 }
 
-export async function getAuthSession(c: Context) {
-    return await readSessionCookie(c);
+export async function getAuthSession(
+    c: Context,
+): Promise<AdminAuthSession | undefined> {
+    const token = getCookie(c, SESSION_COOKIE);
+    if (!token) {
+        return undefined;
+    }
+
+    const payload = await symmetricDecodeJWT<SessionTokenPayload>(
+        token,
+        requireSessionSecret(),
+        SESSION_TOKEN_SALT,
+    );
+    if (
+        !payload || payload.sub !== "admin" || payload.expiresAt <= Date.now()
+    ) {
+        return undefined;
+    }
+
+    return adminSession(payload);
 }
 
 export async function requireAgentazAuth(c: Context) {
-    const session = await readSessionCookie(c);
+    const session = await getAuthSession(c);
     if (!session) {
         throw unauthorizedError();
     }
     return session;
 }
 
+function adminSession(payload: SessionTokenPayload): AdminAuthSession {
+    return {
+        user: { id: "admin" },
+        expires: new Date(payload.expiresAt).toISOString(),
+        loggedInAt: payload.loggedInAt,
+    };
+}
+
 function isPublicApiPath(path: string) {
     return (
-        path.endsWith("/api/auth/login") ||
-        path.endsWith("/api/_auth/session")
+        path.endsWith("/api/auth/login") || path.endsWith("/api/_auth/session")
     );
 }
 

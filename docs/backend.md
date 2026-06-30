@@ -9,7 +9,9 @@ are switched over.
 
 ## Scope
 
-The backend runs the Pi SDK server-side and exposes browser-facing HTTP APIs plus an SSE event stream. The current implementation is local-first and single-user by default:
+The backend runs the Pi SDK server-side and exposes browser-facing HTTP APIs
+plus an SSE event stream. The current implementation is local-first and
+single-user by default:
 
 - one startup-configured working directory
 - server-resident loaded sessions
@@ -74,17 +76,16 @@ PI_WEB_CWD                       working directory, defaults to Deno.cwd()
 PI_WEB_APPROVAL_TIMEOUT_MS       defaults to 300000
 PI_WEB_MAX_LOADED_SESSIONS       defaults to 5
 AGENTAZ_ADMIN_PASSWORD_HASH      required base64(SHA3-256(password-string))
-AGENTAZ_SESSION_SECRET           optional stable HMAC cookie secret, 32+ chars
-NUXT_SESSION_PASSWORD            legacy fallback secret accepted during migration
+AGENTAZ_SESSION_SECRET           optional stable Better Auth secret, 32+ chars
 HOST / DENO_HOST                 used only for non-localhost exposure warnings
 ```
 
 Shared runtime constraints:
 
 - `cwd` is startup-configured.
-- `maxLoadedSessions` limits the in-memory working set. Loaded sessions stay resident across focus
-  changes; when the cap is reached, the workspace evicts one idle, non-active session before loading
-  another available session.
+- `maxLoadedSessions` limits the in-memory working set. Loaded sessions stay
+  resident across focus changes; when the cap is reached, the workspace evicts
+  one idle, non-active session before loading another available session.
 - The web UI does not currently switch cwd.
 - Non-localhost bind still warns because the app exposes a powerful single-user
   coding agent surface.
@@ -113,33 +114,33 @@ runtimeConfig: {
 
 **Why not `process.env.PI_WEB_CWD` in nuxt.config.ts?**
 
-Nuxt evaluates `process.env` expressions at build time and bakes
-the resulting value into the build output. Setting `PI_WEB_CWD` at
-runtime would have no effect if the value were read in
-`nuxt.config.ts`. The startup plugin is server-only code that runs at
-process start, so it reads the runtime environment correctly.
+Nuxt evaluates `process.env` expressions at build time and bakes the resulting
+value into the build output. Setting `PI_WEB_CWD` at runtime would have no
+effect if the value were read in `nuxt.config.ts`. The startup plugin is
+server-only code that runs at process start, so it reads the runtime environment
+correctly.
 
 Important constraints:
 
 - `AGENTAZ_ADMIN_PASSWORD_HASH` is required and must be
   `base64(SHA3-256(password-string))`.
-- `NUXT_SESSION_PASSWORD` is optional but recommended for stable sessions across
-  restarts. When provided, it must be at least 32 characters. When omitted, the
-  startup plugin generates a process-local secret and writes it into runtime
-  config before auth routes are used. Do not derive it from the admin password
-  hash.
+- `AGENTAZ_SESSION_SECRET` is optional but recommended for stable sessions
+  across restarts. When provided, it must be at least 32 characters. When
+  omitted, startup generates a process-local secret before auth routes are used.
+  Do not derive it from the admin password hash.
 - Non-localhost bind still warns because the app exposes a powerful single-user
   coding agent surface.
 
 ## Authentication
 
-The Deno/Hono backend currently uses stateless signed cookie sessions and custom
-password verification for the single admin user. Password compatibility with
-`nuxt-auth-utils` is not required. The cookie secret is `AGENTAZ_SESSION_SECRET`
-when provided, or `NUXT_SESSION_PASSWORD` as a migration fallback. If neither is
-provided, startup generates a process-local secret and existing browser sessions
-are invalid after restart. Auth.js can be introduced later, but it is not wired
-in the current Hono package.
+The Deno/Hono backend uses Better Auth crypto for the single admin user's
+encrypted stateless cookie session. It does not enable Better Auth's
+database-backed users/accounts model. Do not add an auth adapter or database
+unless the product model changes.
+
+Password compatibility with `nuxt-auth-utils` is not required. Better Auth uses
+`AGENTAZ_SESSION_SECRET` when provided. If it is omitted, startup generates a
+process-local secret and existing browser sessions are invalid after restart.
 
 The legacy Nuxt backend uses `nuxt-auth-utils` for encrypted cookie sessions.
 
@@ -160,8 +161,9 @@ All other `/api/**` endpoints are protected by server middleware, including
 `GET /api/health`. The SSE endpoint `GET /api/agent/events` also requires a
 valid session cookie before the event stream is opened.
 
-The login route compares `base64(SHA3-256(password))` with
-`AGENTAZ_ADMIN_PASSWORD_HASH` and creates a 24-hour admin session on success.
+The login route remains a project JSON endpoint. It compares
+`base64(SHA3-256(password))` with `AGENTAZ_ADMIN_PASSWORD_HASH`, then stores a
+24-hour encrypted stateless admin session in an HTTP-only cookie on success.
 
 ## HTTP Agent API
 
@@ -210,7 +212,8 @@ Responsibilities:
 - Adapt the per-request transport stream to the `SseAgentHub` writer interface.
 - Emit realtime server events to connected browser subscribers.
 
-The route should stay thin. Put connection/session logic in utilities, not the route file.
+The route should stay thin. Put connection/session logic in utilities, not the
+route file.
 
 ## SSE Hub
 
@@ -218,9 +221,11 @@ The route should stay thin. Put connection/session logic in utilities, not the r
 
 - client attach/detach
 - heartbeat snapshots
-- leaving loaded session lifecycle to `PiSessionWorkspace` when browsers disconnect
+- leaving loaded session lifecycle to `PiSessionWorkspace` when browsers
+  disconnect
 
-The hub is owned by the process-wide `AgentRuntime`. Configuration is centralized there:
+The hub is owned by the process-wide `AgentRuntime`. Configuration is
+centralized there:
 
 ```ts
 configureAgentRuntime(options); // Deno startup or legacy Nitro plugin
@@ -235,19 +240,21 @@ The first config wins. Reconfiguration with different values should fail loudly.
 
 - `PiSessionWorkspace`: Pi SDK services and loaded session lifecycle.
 - `ClientPresence`: browser client ids, focus, and control leases.
-- `AgentEventBus`: typed in-process pub/sub between session runtime and realtime transport.
+- `AgentEventBus`: typed in-process pub/sub between session runtime and realtime
+  transport.
 - `SseAgentHub`: SSE stream lifecycle and event forwarding.
 
 Client-specific HTTP/SSE state snapshots are built by pure helpers in
 `session-projector.ts`, not by an AgentRuntime-owned service.
 
-SSE `hello` assigns the browser tab `clientId`. Client-specific HTTP requests should send that
-identity back through `X-Agentaz-Client-Id`; routes fall back to `LOCAL_CLIENT_ID` only for non-browser
-or pre-SSE callers.
+SSE `hello` assigns the browser tab `clientId`. Client-specific HTTP requests
+should send that identity back through `X-Agentaz-Client-Id`; routes fall back
+to `LOCAL_CLIENT_ID` only for non-browser or pre-SSE callers.
 
 `PiSessionWorkspace` owns server-resident Pi SDK session lifecycle:
 
-- create/open/list the loaded working set and available persisted sessions for the current cwd
+- create/open/list the loaded working set and available persisted sessions for
+  the current cwd
 - return global model picker defaults without creating a Pi session
 - normalize Pi messages/events into `ServerEvent`
 - accept prompt/steer/follow-up over HTTP and stream output over SSE
@@ -262,22 +269,24 @@ It projects one browser-facing assistant `UiMessage` per agent turn, including
 consecutive Pi SDK assistant messages and tool result blocks, so live streaming
 and HTTP history reload use the same grouping.
 
-The workspace shares only process-wide backing objects that are not extension runtimes
-(`AuthStorage`, `ModelRegistry`, working directory). Each loaded `PiSessionController` owns its own
-Pi SDK `AgentSessionServices` instance with a controller-local resource loader and extension runtime.
-This per-controller isolation prevents stale extension context errors when one loaded session is
-disposed while another session's extensions are still active (e.g. permission-system pollers).
+The workspace shares only process-wide backing objects that are not extension
+runtimes (`AuthStorage`, `ModelRegistry`, working directory). Each loaded
+`PiSessionController` owns its own Pi SDK `AgentSessionServices` instance with a
+controller-local resource loader and extension runtime. This per-controller
+isolation prevents stale extension context errors when one loaded session is
+disposed while another session's extensions are still active (e.g.
+permission-system pollers).
 
-Service creation is still warmed at the workspace level for required Pi package configuration,
-but full SDK extension loading happens per controller. See
-`docs/implementation/session-performance.md` for the performance tradeoff and investigation
-history.
+Service creation is still warmed at the workspace level for required Pi package
+configuration, but full SDK extension loading happens per controller. See
+`docs/implementation/session-performance.md` for the performance tradeoff and
+investigation history.
 
 Keep Pi SDK details out of the frontend and route handlers.
 
-Manual context compact uses `POST /api/agent/sessions/:sessionId/compact`.
-The browser should pass the active loaded session id explicitly. The operation
-is synchronous and intentionally idle-only: if the session is initializing,
+Manual context compact uses `POST /api/agent/sessions/:sessionId/compact`. The
+browser should pass the active loaded session id explicitly. The operation is
+synchronous and intentionally idle-only: if the session is initializing,
 streaming, has queued messages, has pending browser UI prompts, or is already
 compacting, the backend returns `409 session_busy` instead of aborting current
 work. A session that is too small to compact, or already compacted at the
@@ -302,7 +311,8 @@ Rules:
 - Add protocol changes explicitly.
 - Keep SSE server events discriminated by `type`.
 - Keep HTTP request/response DTOs in the same protocol file.
-- Keep frontend message rendering on normalized `UiMessage` / `UiBlock`, not raw Pi SDK internals.
+- Keep frontend message rendering on normalized `UiMessage` / `UiBlock`, not raw
+  Pi SDK internals.
 - If adding/changing events, update frontend handling and smoke tests as needed.
 
 Current important server events include:
@@ -335,17 +345,28 @@ recovery.
 
 ### Usage Data
 
-The `status` SSE event and loaded-session state (`UiRuntimeLoadedSession`) include optional Pi SDK usage fields:
+The `status` SSE event and loaded-session state (`UiRuntimeLoadedSession`)
+include optional Pi SDK usage fields:
 
-- `contextUsage` (`UiContextUsage | undefined`): current context window usage from `session.getContextUsage()`. Includes `tokens` (nullable), `contextWindow`, and `percent` (nullable). Nullable when the session has not yet sent an LLM request (e.g. right after compaction or before the first prompt).
-- `usageStats` (`UiSessionUsageStats | undefined`): cumulative stats for the current persisted branch. Includes message/tool counts, token breakdown (`input`, `output`, `cacheRead`, `cacheWrite`, `total`), and `cost`. Calculated from session entries so totals do not reset after context compact. Nullable only if usage projection fails.
+- `contextUsage` (`UiContextUsage | undefined`): current context window usage
+  from `session.getContextUsage()`. Includes `tokens` (nullable),
+  `contextWindow`, and `percent` (nullable). Nullable when the session has not
+  yet sent an LLM request (e.g. right after compaction or before the first
+  prompt).
+- `usageStats` (`UiSessionUsageStats | undefined`): cumulative stats for the
+  current persisted branch. Includes message/tool counts, token breakdown
+  (`input`, `output`, `cacheRead`, `cacheWrite`, `total`), and `cost`.
+  Calculated from session entries so totals do not reset after context compact.
+  Nullable only if usage projection fails.
 
-These fields are refreshed on every `sendStatus()` call (after turns, compaction, model changes, queue updates, and reconnect recovery). Do not estimate tokens in Agentaz — use Pi SDK as the single source of truth.
+These fields are refreshed on every `sendStatus()` call (after turns,
+compaction, model changes, queue updates, and reconnect recovery). Do not
+estimate tokens in Agentaz — use Pi SDK as the single source of truth.
 
-History projection includes Pi `compaction` entries as durable `system`
-messages in the transcript. The marker is intentionally concise and uses the
-persisted `tokensBefore` value; the full compaction summary remains in the Pi
-session entry and is not rendered in the chat transcript by default.
+History projection includes Pi `compaction` entries as durable `system` messages
+in the transcript. The marker is intentionally concise and uses the persisted
+`tokensBefore` value; the full compaction summary remains in the Pi session
+entry and is not rendered in the chat transcript by default.
 
 `clientMessageId` belongs to prompt submissions only. `follow_up` currently
 queues text inside Pi's pending queue and does not create a confirmed browser
@@ -365,7 +386,8 @@ projection when reloading sessions over HTTP.
 
 Dangerous tool approvals use `@gotgenes/pi-permission-system`.
 
-`permission-config.ts` creates global permission config under the Pi agent directory:
+`permission-config.ts` creates global permission config under the Pi agent
+directory:
 
 ```txt
 <agentDir>/extensions/pi-permission-system/config.json
@@ -373,7 +395,10 @@ Dangerous tool approvals use `@gotgenes/pi-permission-system`.
 
 `agentDir` comes from `PI_CODING_AGENT_DIR` or the Pi SDK default.
 
-`WebExtensionUIContext` bridges extension UI prompts to the browser by emitting protocol events and waiting for browser responses. It also renders extension widgets as plain text lines for browser display, currently used by `@juicesharp/rpiv-todo`.
+`WebExtensionUIContext` bridges extension UI prompts to the browser by emitting
+protocol events and waiting for browser responses. It also renders extension
+widgets as plain text lines for browser display, currently used by
+`@juicesharp/rpiv-todo`.
 
 Expected approval behavior:
 
@@ -391,7 +416,8 @@ Do not remove the permission-system integration without updating `docs/plan.md`.
 Current behavior:
 
 - start with no loaded session unless one already exists in the process
-- create a real Pi session only when the frontend opens a persisted session or materializes a draft
+- create a real Pi session only when the frontend opens a persisted session or
+  materializes a draft
 - list sessions for current cwd
 - open/resume selected session
 - keep loaded sessions server-resident across focus changes and SSE disconnects
@@ -437,9 +463,9 @@ The smoke test assumes the dev server is already running. It checks:
 - authenticated REST state/history/models/session lifecycle endpoints
 
 The running server must be started with an `AGENTAZ_ADMIN_PASSWORD_HASH` value
-matching `PI_WEB_SMOKE_ADMIN_PASSWORD`. If `NUXT_SESSION_PASSWORD` is omitted,
-the server generates a process-local session secret and smoke-test login still
-works for that process.
+matching `PI_WEB_SMOKE_ADMIN_PASSWORD`. If `AGENTAZ_SESSION_SECRET` is omitted,
+the server generates a process-local Better Auth secret and smoke-test login
+still works for that process.
 
 ## Verification
 

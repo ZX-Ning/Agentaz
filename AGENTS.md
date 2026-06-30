@@ -30,7 +30,7 @@ packages
     └── src/
         ├── main.ts               Hono app assembly and runtime startup
         ├── routes/               Hono route modules mounted under /api
-        ├── auth/                 Stateless single-user cookie auth
+        ├── auth/                 Better Auth encrypted stateless cookie auth
         ├── http/                 Hono request/error helpers
         ├── runtime/              Runtime composition, presence, events, SSE hub
         ├── pi/                   Pi SDK session workspace/controller

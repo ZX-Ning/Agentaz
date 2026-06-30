@@ -4,9 +4,7 @@ import { readJsonBody } from "../http/agent.ts";
 import {
     clearAuthSession,
     getAuthSession,
-    setAuthSession,
-    unauthorizedError,
-    verifyAdminPassword,
+    signInWithAdminPassword,
 } from "../auth/auth.ts";
 import { jsonError } from "../http/errors.ts";
 
@@ -17,11 +15,7 @@ authRoutes.post("/auth/login", async (c) => {
     if (!body.password) {
         throw jsonError(400, "bad_request", "Password is required.");
     }
-    if (!verifyAdminPassword(body.password)) {
-        throw unauthorizedError("Invalid password.");
-    }
-
-    const session = await setAuthSession(c);
+    const session = await signInWithAdminPassword(c, body.password);
     return c.json<AuthLoginResponse>({
         ok: true,
         user: session.user,
@@ -29,8 +23,8 @@ authRoutes.post("/auth/login", async (c) => {
     });
 });
 
-authRoutes.post("/auth/logout", (c) => {
-    clearAuthSession(c);
+authRoutes.post("/auth/logout", async (c) => {
+    await clearAuthSession(c);
     return c.json({ ok: true });
 });
 

@@ -1,13 +1,14 @@
 # Frontend Development Guide
 
-This document describes the current frontend direction for Agentaz. It is intentionally lightweight and should evolve as the UI becomes more complete.
+This document describes the current frontend direction for Agentaz. It is
+intentionally lightweight and should evolve as the UI becomes more complete.
 
 ## Scope
 
 The current frontend is a Nuxt/Vue browser UI for a Pi SDK agent. The migration
-target is a separated Vue frontend that talks to the Deno/Hono backend, but
-Nuxt remains the runnable frontend for now. The current UI should feel like a
-simple ChatGPT-style coding assistant:
+target is a separated Vue frontend that talks to the Deno/Hono backend, but Nuxt
+remains the runnable frontend for now. The current UI should feel like a simple
+ChatGPT-style coding assistant:
 
 - one active chat surface
 - a sidebar for status and sessions
@@ -16,7 +17,10 @@ simple ChatGPT-style coding assistant:
 - web approval UI for dangerous operations
 - a single-user admin password page at `/login` before agent HTTP/SSE startup
 
-The frontend should not introduce multi-user, project switching, or database-backed concepts unless the product plan changes. The server already owns loaded sessions; richer multi-tab/controller semantics remain future product work until recorded in `docs/plan.md`.
+The frontend should not introduce multi-user, project switching, or
+database-backed concepts unless the product plan changes. The server already
+owns loaded sessions; richer multi-tab/controller semantics remain future
+product work until recorded in `docs/plan.md`.
 
 ## Location
 
@@ -32,11 +36,11 @@ apps/web/types/protocol.ts
 ```
 
 `app.vue` is only the Nuxt shell around `NuxtPage`. It gives protected app
-routes a stable page key so navigation inside the agent workspace stays
-SPA-like and does not recreate the SSE client. Route-specific UI lives in
-file routes, with `/login` as the public login page. The protected workspace
-lives in `pages/index.vue`, which also declares `/session/:sessionId` as a Nuxt
-route alias. Authentication redirects live in `auth.global.ts`.
+routes a stable page key so navigation inside the agent workspace stays SPA-like
+and does not recreate the SSE client. Route-specific UI lives in file routes,
+with `/login` as the public login page. The protected workspace lives in
+`pages/index.vue`, which also declares `/session/:sessionId` as a Nuxt route
+alias. Authentication redirects live in `auth.global.ts`.
 
 Suggested future structure:
 
@@ -89,16 +93,19 @@ text-sidebar-foreground
 border-sidebar-border
 ```
 
-Do not hardcode broad gray palettes unless it is temporary. Prefer the semantic classes above so light/dark mode remains consistent.
+Do not hardcode broad gray palettes unless it is temporary. Prefer the semantic
+classes above so light/dark mode remains consistent.
 
 ### Hardcoded color exceptions
 
-Only small, localized status indicators may use hardcoded Tailwind colors directly (e.g. `bg-amber-500`, `text-emerald-500`). These are limited to:
+Only small, localized status indicators may use hardcoded Tailwind colors
+directly (e.g. `bg-amber-500`, `text-emerald-500`). These are limited to:
 
 - Status dots (for example, tool block status dots in `ChatMessage.vue`)
 - Inline error / warning text within otherwise theme-token-styled blocks
 
-For any larger structural element — borders, backgrounds, text blocks, shadows — always use the semantic tokens above.
+For any larger structural element — borders, backgrounds, text blocks, shadows —
+always use the semantic tokens above.
 
 ### Shadows
 
@@ -119,7 +126,9 @@ The design radius is configured as:
 --radius: 0.45rem;
 ```
 
-Use normal Tailwind radius utilities such as `rounded-lg`; do not globally override Tailwind utilities. Keep `rounded-full` only for true circles/avatars/status dots.
+Use normal Tailwind radius utilities such as `rounded-lg`; do not globally
+override Tailwind utilities. Keep `rounded-full` only for true
+circles/avatars/status dots.
 
 ### Font
 
@@ -127,7 +136,10 @@ IBM Plex Sans is loaded in Nuxt head config and applied globally in `main.css`.
 
 ## SSE Protocol
 
-The frontend uses HTTP for browser-initiated actions and state snapshots, and SSE (Server-Sent Events) only for realtime server events. The `/login` page must complete before the agent workspace mounts, because the SSE endpoint requires authentication:
+The frontend uses HTTP for browser-initiated actions and state snapshots, and
+SSE (Server-Sent Events) only for realtime server events. The `/login` page must
+complete before the agent workspace mounts, because the SSE endpoint requires
+authentication:
 
 ```txt
 /api/agent/events
@@ -135,7 +147,7 @@ The frontend uses HTTP for browser-initiated actions and state snapshots, and SS
 
 The browser relies on a same-origin session cookie for both HTTP APIs and the
 SSE request. In the current Nuxt app this is the `nuxt-auth-utils` cookie; the
-Deno/Hono migration package uses its own stateless signed cookie for now.
+Deno/Hono migration package uses Better Auth encrypted stateless cookies.
 
 Protocol types live in:
 
@@ -152,17 +164,19 @@ apps/web/types/protocol.ts
 When protocol shapes change:
 
 1. Update `packages/protocol/mod.ts`.
-2. Mirror compatible changes to `apps/web/types/protocol.ts` until the Nuxt frontend is removed.
+2. Mirror compatible changes to `apps/web/types/protocol.ts` until the Nuxt
+   frontend is removed.
 3. Update backend HTTP routes and SSE emitters.
 4. Update frontend `$fetch` calls and event handling.
-5. Consider updating `scripts/smoke-backend.mjs` if handshake or required startup events change.
+5. Consider updating `scripts/smoke-backend.mjs` if handshake or required
+   startup events change.
 
 Prompt submissions use protocol v8 turn reconciliation. The browser generates
-`clientMessageId` before `POST /api/agent/sessions/:sessionId/messages`,
-renders a local optimistic user message, and replaces that local message when
-SSE `turn_started` returns the canonical backend `UiMessage`. If the prompt
-fails, `turn_failed` removes the optimistic/canonical placeholder and forces a
-history refresh so Pi's persisted history remains authoritative. `status` and
+`clientMessageId` before `POST /api/agent/sessions/:sessionId/messages`, renders
+a local optimistic user message, and replaces that local message when SSE
+`turn_started` returns the canonical backend `UiMessage`. If the prompt fails,
+`turn_failed` removes the optimistic/canonical placeholder and forces a history
+refresh so Pi's persisted history remains authoritative. `status` and
 `state_snapshot` update runtime UI only; transcript history should refresh from
 explicit `turn_completed.transcriptRevision`, `turn_failed`, or direct user
 actions such as fork/revert/reload.
@@ -196,19 +210,41 @@ Current state includes:
 - connection status
 - server hello/cwd
 - chat messages
-- a local draft session shown before the first prompt creates a real backend session
+- a local draft session shown before the first prompt creates a real backend
+  session
 - open, working, and available session summaries
 - model list/current model
 - streaming/pending queue state
 - prompt text
 - last error
 
-Keep state normalized around `UiMessage` and `UiBlock` rather than raw Pi SDK messages. The backend should translate Pi events into app-level protocol events.
-Treat `loadedSessions` as the server-resident working set. Loaded sessions should be focused with the session-specific focus endpoint; normal persisted sessions should be opened on demand from `persistedSessions`.
-Loaded sessions may include optional context/token usage metadata (`contextUsage` and `usageStats`), refreshed via `status` SSE events and included in `state_snapshot` responses. The header context menu renders these values for the active loaded session. Manual context compact is a browser-triggered HTTP action through `POST /api/agent/sessions/:sessionId/compact`; SSE/snapshots remain the source of truth for refreshed usage after compact. Persisted Pi compaction entries are projected by the backend history endpoint as concise `system` messages, so the frontend should not add local-only compact markers.
-The initial empty chat and the New session button use a frontend-only draft session. The draft fetches model options through `GET /api/agent/models`, which does not create a Pi session. It is not sent to the backend until the user submits the first prompt; at that point the frontend creates a real session, applies the selected model/thinking settings, moves the optimistic user message to the returned session id, and submits the prompt.
-Real sessions are reflected in the browser URL as `/session/:sessionId`. Draft sessions do not get a session route and stay at `/`; after the first prompt materializes a draft, the frontend replaces the URL with the returned real session id. Direct visits to `/session/:sessionId` first focus an already-loaded session, then fall back to the persisted session list by matching `sessionId` and opening the existing `sessionFile`.
-Unauthenticated direct visits to any app route redirect to `/login?redirect=<original path>`. Successful login returns to that redirect target when it is a safe same-origin path.
+Keep state normalized around `UiMessage` and `UiBlock` rather than raw Pi SDK
+messages. The backend should translate Pi events into app-level protocol events.
+Treat `loadedSessions` as the server-resident working set. Loaded sessions
+should be focused with the session-specific focus endpoint; normal persisted
+sessions should be opened on demand from `persistedSessions`. Loaded sessions
+may include optional context/token usage metadata (`contextUsage` and
+`usageStats`), refreshed via `status` SSE events and included in
+`state_snapshot` responses. The header context menu renders these values for the
+active loaded session. Manual context compact is a browser-triggered HTTP action
+through `POST /api/agent/sessions/:sessionId/compact`; SSE/snapshots remain the
+source of truth for refreshed usage after compact. Persisted Pi compaction
+entries are projected by the backend history endpoint as concise `system`
+messages, so the frontend should not add local-only compact markers. The initial
+empty chat and the New session button use a frontend-only draft session. The
+draft fetches model options through `GET /api/agent/models`, which does not
+create a Pi session. It is not sent to the backend until the user submits the
+first prompt; at that point the frontend creates a real session, applies the
+selected model/thinking settings, moves the optimistic user message to the
+returned session id, and submits the prompt. Real sessions are reflected in the
+browser URL as `/session/:sessionId`. Draft sessions do not get a session route
+and stay at `/`; after the first prompt materializes a draft, the frontend
+replaces the URL with the returned real session id. Direct visits to
+`/session/:sessionId` first focus an already-loaded session, then fall back to
+the persisted session list by matching `sessionId` and opening the existing
+`sessionFile`. Unauthenticated direct visits to any app route redirect to
+`/login?redirect=<original path>`. Successful login returns to that redirect
+target when it is a safe same-origin path.
 
 ## Chat Transcript
 
@@ -219,9 +255,16 @@ Render user and assistant messages differently:
 - tool events: dedicated tool call/result blocks inside the assistant turn
 - thinking blocks: eventually collapsed by default
 
-User and assistant text blocks render Markdown with Comark. Tool output, tool results, and thinking blocks stay in plain `<pre>` rendering so command output and internal reasoning text are not parsed as Markdown. `message_block_delta` may append to text, thinking, or tool result blocks; tool result deltas should update the block's `content` field, while text/thinking deltas update `text`.
+User and assistant text blocks render Markdown with Comark. Tool output, tool
+results, and thinking blocks stay in plain `<pre>` rendering so command output
+and internal reasoning text are not parsed as Markdown. `message_block_delta`
+may append to text, thinking, or tool result blocks; tool result deltas should
+update the block's `content` field, while text/thinking deltas update `text`.
 
-The browser transcript should match the backend projection: one assistant `UiMessage` per agent turn, with ordered blocks for text, thinking, tool calls, and tool results. Reloaded HTTP history should render with the same grouping as live SSE streaming.
+The browser transcript should match the backend projection: one assistant
+`UiMessage` per agent turn, with ordered blocks for text, thinking, tool calls,
+and tool results. Reloaded HTTP history should render with the same grouping as
+live SSE streaming.
 
 History responses include a monotonic `revision`. The frontend should keep the
 newest revision per session, ignore stale history responses, and keep
@@ -231,8 +274,8 @@ timing or older persisted data. The normal prompt confirmation path is
 matching optimistic/canonical user message before refreshing history; if Pi
 persisted it, history will restore it.
 
-Persisted history messages may include `UiMessage.entryId`, which identifies
-the current-branch Pi session entry backing that rendered message, and
+Persisted history messages may include `UiMessage.entryId`, which identifies the
+current-branch Pi session entry backing that rendered message, and
 `UiMessage.rewindEntryId`, which identifies the previous current-branch entry.
 The first fork/revert UI uses only user messages with a `rewindEntryId` as
 anchors. Forking from a user message creates and focuses a new loaded session
@@ -253,22 +296,28 @@ Future behavior:
 
 - If streaming, allow choosing between `steer` and `follow_up`; add an explicit
   queued-message UI/protocol before rendering follow-up as optimistic chat.
-- Add attachment/image affordance only after backend image handling is implemented.
+- Add attachment/image affordance only after backend image handling is
+  implemented.
 
 ## Approval UI
 
-Dangerous tool approvals are routed through backend extension UI events. Frontend should eventually handle:
+Dangerous tool approvals are routed through backend extension UI events.
+Frontend should eventually handle:
 
 - `ui_confirm_request`
 - `ui_select_request`
 - `ui_input_request`
 - matching HTTP response submissions
 
-Approval UI should be prominent, modal or docked near the composer, and must clearly show the action being approved.
+Approval UI should be prominent, modal or docked near the composer, and must
+clearly show the action being approved.
 
 ## Extension Widgets
 
-Extension widgets arrive through `extension_widget_update` events and are rendered as plain text lines near the active transcript. The current implementation is intentionally minimal and exists to support `@juicesharp/rpiv-todo` before a fuller widget design is decided.
+Extension widgets arrive through `extension_widget_update` events and are
+rendered as plain text lines near the active transcript. The current
+implementation is intentionally minimal and exists to support
+`@juicesharp/rpiv-todo` before a fuller widget design is decided.
 
 ## Error Handling
 
@@ -277,4 +326,5 @@ Use backend `error` events and SSE failures to show:
 - a visible alert in the main UI
 - a toast for transient events
 
-Do not silently swallow JSON parse failures or protocol mismatches during development.
+Do not silently swallow JSON parse failures or protocol mismatches during
+development.
