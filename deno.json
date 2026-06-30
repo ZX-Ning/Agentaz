@@ -4,6 +4,8 @@
     "tasks": {
         "check": "deno task check:api",
         "check:api": "deno task --filter @agentaz/api check",
+        "serve": "deno task serve:api",
+        "serve:api": "deno task --filter @agentaz/api serve",
         "test": "deno task --filter @agentaz/api test"
     },
     "fmt": {

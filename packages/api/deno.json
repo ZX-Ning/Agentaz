@@ -9,7 +9,8 @@
         "@earendil-works/pi-coding-agent": "npm:@earendil-works/pi-coding-agent@0.75.4"
     },
     "tasks": {
-        "check": "deno check src/mod.ts src/main.ts src/**/*.test.ts",
-        "test": "deno test src/**/*.test.ts"
+        "check": "deno check src/mod.ts src/main.ts test/**/*.test.ts",
+        "serve": "deno serve --allow-env --allow-read  --allow-ffi --allow-write --allow-run --allow-net --allow-sys --host 127.0.0.1 --port 3000 src/main.ts",
+        "test": "deno test test/**/*.test.ts"
     }
 }

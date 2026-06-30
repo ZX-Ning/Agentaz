@@ -4,15 +4,19 @@ Guidance for AI coding agents working in this repository.
 
 ## Project Summary
 
-Agentaz is a local-first general purpose / coding agent with a browser UI built on top of pi-sdk.
+Agentaz is a local-first general purpose / coding agent with a browser UI built
+on top of pi-sdk.
 
 The repository is currently in a backend/frontend split migration:
 
 - Current runnable app: Nuxt fullstack app under `apps/web`.
-- Migration target: Deno workspace with shared protocol under `packages/protocol` and Hono backend under `packages/api`.
-- The old Nuxt server code remains as the compatibility baseline until the Hono backend and frontend migration are fully wired.
+- Migration target: Deno workspace with shared protocol under
+  `packages/protocol` and Hono backend under `packages/api`.
+- The old Nuxt server code remains as the compatibility baseline until the Hono
+  backend and frontend migration are fully wired.
 
-Docs should distinguish current implementation constraints from future product decisions and from in-progress migration scaffolding.
+Docs should distinguish current implementation constraints from future product
+decisions and from in-progress migration scaffolding.
 
 Core architecture:
 
@@ -61,6 +65,7 @@ Use Deno for the new packages:
 ```bash
 deno task check # Deno workspace typecheck for packages/api
 deno task test  # Deno tests
+deno task serve # run the Hono API server on 127.0.0.1:8000
 ```
 
 If `deno` is not on PATH, use the local installation path for your environment.
@@ -76,32 +81,54 @@ pnpm test:api      # REST/SSE smoke test; requires dev server already running
 pnpm smoke:backend # backend smoke test; requires dev server already running
 ```
 
-Do not run `pnpm build` by default because it is slower. Run build only when requested or when changes affect build/runtime packaging. Do not run `pnpm dev` or start the dev server. If needed, ask the user to run them. Do not start a Deno server unless the user asks for a runtime smoke test.
+Do not run `pnpm build` by default because it is slower. Run build only when
+requested or when changes affect build/runtime packaging. Do not run `pnpm dev`
+or start the dev server. If needed, ask the user to run them. Do not start a
+Deno server unless the user asks for a runtime smoke test.
 
 ## Development Constraints
 
 - Keep the app local-first and single-user unless explicitly asked otherwise.
 - Do not add authentication or multi-user concepts without updating docs/plan.
-- The backend should bind to `127.0.0.1` by default. Non-localhost bind is allowed only through env override and should warn loudly.
+- The backend should bind to `127.0.0.1` by default. Non-localhost bind is
+  allowed only through env override and should warn loudly.
 - The SSE hub is currently a process singleton.
-- Browser-initiated actions should use HTTP APIs; SSE is for realtime server events only.
+- Browser-initiated actions should use HTTP APIs; SSE is for realtime server
+  events only.
 - Loaded Pi sessions are server-resident and should survive SSE detach.
-- The agent `cwd` is startup-configured and is not currently selected in the web UI.
-- Dangerous tool permissions should route through the web approval path, currently using `@gotgenes/pi-permission-system`.
+- The agent `cwd` is startup-configured and is not currently selected in the web
+  UI.
+- Dangerous tool permissions should route through the web approval path,
+  currently using `@gotgenes/pi-permission-system`.
 
 ## Code Style Expectations
 
 - TypeScript everywhere.
-- Keep protocol changes explicit in `packages/protocol/mod.ts`. While the legacy Nuxt app remains, mirror compatible protocol changes in `apps/web/types/protocol.ts`.
-- If adding/changing HTTP DTOs or SSE event shapes, update both frontend handling and backend emitters/routes.
-- Prefer small, focused modules under `packages/api/src/{auth,http,routes,runtime,pi,extensions}` for the Deno backend.
-- Hono route files should export route-local `Hono` apps; `packages/api/src/main.ts` assembles them and exports the app for `deno serve`.
-- If touching the legacy Nuxt backend, keep compatibility edits scoped under `apps/web/server/` and avoid mixing old/new architecture changes in the same commit unless needed.
-- Keep frontend state simple until there is a strong reason to introduce a larger store.
+- Keep protocol changes explicit in `packages/protocol/mod.ts`. While the legacy
+  Nuxt app remains, mirror compatible protocol changes in
+  `apps/web/types/protocol.ts`.
+- If adding/changing HTTP DTOs or SSE event shapes, update both frontend
+  handling and backend emitters/routes.
+- Prefer small, focused modules under
+  `packages/api/src/{auth,http,routes,runtime,pi,extensions}` for the Deno
+  backend.
+- Hono route files should export route-local `Hono` apps;
+  `packages/api/src/main.ts` assembles them and exports the app for
+  `deno serve`.
+- If touching the legacy Nuxt backend, keep compatibility edits scoped under
+  `apps/web/server/` and avoid mixing old/new architecture changes in the same
+  commit unless needed.
+- Keep frontend state simple until there is a strong reason to introduce a
+  larger store.
 
 ### Comments
 
-Write comments proactively, especially around API boundaries, non-obvious contracts, lifecycle behavior, and long functions. Keep them technically precise and linguistically concise: prefer short JSDoc, compact inline notes, lists, arrows, and symbols over paragraph-style explanation. Comments should clarify intent, invariants, side effects, error behavior, and phase boundaries without becoming essays.
+Write comments proactively, especially around API boundaries, non-obvious
+contracts, lifecycle behavior, and long functions. Keep them technically precise
+and linguistically concise: prefer short JSDoc, compact inline notes, lists,
+arrows, and symbols over paragraph-style explanation. Comments should clarify
+intent, invariants, side effects, error behavior, and phase boundaries without
+becoming essays.
 
 ## Development Guides
 
@@ -134,9 +161,9 @@ pnpm lint
 pnpm typecheck
 ```
 
-`pnpm lint` does not run `nuxt prepare`; in a fresh checkout, run `pnpm typecheck`
-or another Nuxt prepare/type generation command first so `.nuxt/eslint.config.mjs`
-exists.
+`pnpm lint` does not run `nuxt prepare`; in a fresh checkout, run
+`pnpm typecheck` or another Nuxt prepare/type generation command first so
+`.nuxt/eslint.config.mjs` exists.
 
 For backend protocol changes, also consider:
 
@@ -155,18 +182,21 @@ Update docs when changing product decisions or architecture:
 - `docs/plan.md`: canonical product decisions and current baseline.
 - `docs/frontend.md`: frontend implementation guidance.
 - `docs/backend.md`: backend implementation guidance.
-- `docs/implementation/`: focused implementation notes for specific backend/frontend choices.
+- `docs/implementation/`: focused implementation notes for specific
+  backend/frontend choices.
 
 ## Things Not To Do Without Asking
 
-- DO NOT add authentication, user accounts, database persistence, or SaaS/team concepts.
+- DO NOT add authentication, user accounts, database persistence, or SaaS/team
+  concepts.
 - DO NOT add project/cwd switching in the UI.
 - DO NOT remove the Pi permission-system integration.
-- DO NOT delete the legacy Nuxt server/frontend until the Hono backend and frontend migration have replaced it.
+- DO NOT delete the legacy Nuxt server/frontend until the Hono backend and
+  frontend migration have replaced it.
 - DO NOT run broad formatting or rewrite unrelated files.
-- DO NOT overwrite existing working-tree changes. If the working tree already has
-  large changes, or existing changes would affect the current implementation,
-  pause editing and ask whether they should be committed first.
+- DO NOT overwrite existing working-tree changes. If the working tree already
+  has large changes, or existing changes would affect the current
+  implementation, pause editing and ask whether they should be committed first.
 - DO NOT commit changes unless the user asks.
 
 Formatting is scoped to the files being changed:
@@ -177,11 +207,17 @@ Formatting is scoped to the files being changed:
 
 ## Communication style:
 
-Maintain technical precision and professional engineering judgment, but avoid overusing obscure, corporate, overly formal, or unnecessarily “enterprise-sounding” language in normal conversation.
+Maintain technical precision and professional engineering judgment, but avoid
+overusing obscure, corporate, overly formal, or unnecessarily
+“enterprise-sounding” language in normal conversation.
 
-The user is a professional programmer. Do not explain concepts as if they have no coding experience. Prefer concise, practical, engineer-to-engineer communication.
+The user is a professional programmer. Do not explain concepts as if they have
+no coding experience. Prefer concise, practical, engineer-to-engineer
+communication.
 
-Use plain language when possible. Keep responses short and focused. When a simple visual structure helps, use lightweight diagrams such as arrows, dependency chains, or small code-shaped sketches to reduce long explanations.
+Use plain language when possible. Keep responses short and focused. When a
+simple visual structure helps, use lightweight diagrams such as arrows,
+dependency chains, or small code-shaped sketches to reduce long explanations.
 
 Examples of preferred style:
 

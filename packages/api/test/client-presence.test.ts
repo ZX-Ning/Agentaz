@@ -1,5 +1,8 @@
-import { ClientPresence, LOCAL_CLIENT_ID } from "./client-presence.ts";
-import { SessionControlConflictError } from "../errors.ts";
+import {
+    ClientPresence,
+    LOCAL_CLIENT_ID,
+} from "../src/runtime/client-presence.ts";
+import { SessionControlConflictError } from "../src/errors.ts";
 
 Deno.test("ClientPresence tracks focus and control leases", () => {
     const presence = new ClientPresence();
