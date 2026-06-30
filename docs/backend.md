@@ -1,6 +1,11 @@
 # Backend Development Guide
 
-This document describes the Nitro backend for Agentaz.
+This document describes the Agentaz backend during the Deno/Hono migration.
+
+The migration target is a Deno workspace with a Hono backend package under
+`packages/api`. The legacy Nuxt/Nitro backend under `apps/web/server` remains as
+the current runnable compatibility baseline until the frontend and smoke tests
+are switched over.
 
 ## Scope
 
@@ -12,9 +17,37 @@ The backend runs the Pi SDK server-side and exposes browser-facing HTTP APIs plu
 - local bind by default
 - dangerous tool approvals routed to the browser
 
-The product has moved beyond the original MVP planning phase. Treat this guide as documentation of the current backend shape, not as a permanent constraint on future server-side multi-session/runtime work.
+The product has moved beyond the original MVP planning phase. Treat this guide
+as documentation of the current backend shape and migration target, not as a
+permanent constraint on future server-side multi-session/runtime work.
 
 ## Main Files
+
+New Deno/Hono package:
+
+```txt
+packages/api/deno.json
+packages/api/src/main.ts
+packages/api/src/routes/health.ts
+packages/api/src/routes/auth.ts
+packages/api/src/routes/agent.ts
+packages/api/src/auth/auth.ts
+packages/api/src/http/agent.ts
+packages/api/src/http/errors.ts
+packages/api/src/runtime/agent-runtime.ts
+packages/api/src/runtime/client-presence.ts
+packages/api/src/runtime/event-bus.ts
+packages/api/src/runtime/session-projector.ts
+packages/api/src/runtime/sse-hub.ts
+packages/api/src/pi/session-workspace.ts
+packages/api/src/pi/session-controller.ts
+packages/api/src/extensions/ui-context.ts
+packages/api/src/extensions/permission-config.ts
+packages/api/src/errors.ts
+packages/protocol/mod.ts
+```
+
+Legacy Nuxt/Nitro backend, kept during migration:
 
 ```txt
 apps/web/server/api/health.get.ts
@@ -33,7 +66,30 @@ apps/web/types/protocol.ts
 
 ## Runtime Configuration
 
-Nuxt runtime config currently defines:
+The Deno/Hono backend reads runtime configuration from environment variables at
+process startup:
+
+```txt
+PI_WEB_CWD                       working directory, defaults to Deno.cwd()
+PI_WEB_APPROVAL_TIMEOUT_MS       defaults to 300000
+PI_WEB_MAX_LOADED_SESSIONS       defaults to 5
+AGENTAZ_ADMIN_PASSWORD_HASH      required base64(SHA3-256(password-string))
+AGENTAZ_SESSION_SECRET           optional stable HMAC cookie secret, 32+ chars
+NUXT_SESSION_PASSWORD            legacy fallback secret accepted during migration
+HOST / DENO_HOST                 used only for non-localhost exposure warnings
+```
+
+Shared runtime constraints:
+
+- `cwd` is startup-configured.
+- `maxLoadedSessions` limits the in-memory working set. Loaded sessions stay resident across focus
+  changes; when the cap is reached, the workspace evicts one idle, non-active session before loading
+  another available session.
+- The web UI does not currently switch cwd.
+- Non-localhost bind still warns because the app exposes a powerful single-user
+  coding agent surface.
+
+The legacy Nuxt runtime config currently defines:
 
 ```ts
 runtimeConfig: {
@@ -65,11 +121,6 @@ process start, so it reads the runtime environment correctly.
 
 Important constraints:
 
-- `cwd` is startup-configured.
-- `maxLoadedSessions` limits the in-memory working set. Loaded sessions stay resident across focus
-  changes; when the cap is reached, the workspace evicts one idle, non-active session before loading
-  another available session.
-- The web UI does not currently switch cwd.
 - `AGENTAZ_ADMIN_PASSWORD_HASH` is required and must be
   `base64(SHA3-256(password-string))`.
 - `NUXT_SESSION_PASSWORD` is optional but recommended for stable sessions across
@@ -82,8 +133,15 @@ Important constraints:
 
 ## Authentication
 
-Agentaz uses `nuxt-auth-utils` for encrypted cookie sessions and custom password
-verification for the single admin user.
+The Deno/Hono backend currently uses stateless signed cookie sessions and custom
+password verification for the single admin user. Password compatibility with
+`nuxt-auth-utils` is not required. The cookie secret is `AGENTAZ_SESSION_SECRET`
+when provided, or `NUXT_SESSION_PASSWORD` as a migration fallback. If neither is
+provided, startup generates a process-local secret and existing browser sessions
+are invalid after restart. Auth.js can be introduced later, but it is not wired
+in the current Hono package.
+
+The legacy Nuxt backend uses `nuxt-auth-utils` for encrypted cookie sessions.
 
 Public auth endpoints:
 
@@ -103,8 +161,7 @@ All other `/api/**` endpoints are protected by server middleware, including
 valid session cookie before the event stream is opened.
 
 The login route compares `base64(SHA3-256(password))` with
-`AGENTAZ_ADMIN_PASSWORD_HASH` and calls `setUserSession()` with the admin user
-payload on success. Sessions expire after 24 hours.
+`AGENTAZ_ADMIN_PASSWORD_HASH` and creates a 24-hour admin session on success.
 
 ## HTTP Agent API
 
@@ -114,6 +171,8 @@ Browser-initiated actions and snapshots use HTTP:
 GET    /api/agent/state
 GET    /api/agent/models
 POST   /api/agent/sessions
+PATCH  /api/agent/sessions/metadata
+POST   /api/agent/sessions/delete
 POST   /api/agent/sessions/:sessionId/focus
 GET    /api/agent/sessions/:sessionId/entries
 GET    /api/agent/sessions/:sessionId/history
@@ -142,12 +201,13 @@ Endpoint:
 GET /api/agent/events
 ```
 
-Uses h3's built-in `createEventStream` to send `text/event-stream` formatted data.
+The Deno/Hono backend uses Hono streaming helpers to send `text/event-stream`
+formatted data. The legacy Nuxt backend uses h3's `createEventStream`.
 
 Responsibilities:
 
 - Resolve the configured `AgentRuntime`.
-- Adapt the per-request h3 `EventStream` to the `SseAgentHub` writer interface.
+- Adapt the per-request transport stream to the `SseAgentHub` writer interface.
 - Emit realtime server events to connected browser subscribers.
 
 The route should stay thin. Put connection/session logic in utilities, not the route file.
@@ -163,7 +223,7 @@ The route should stay thin. Put connection/session logic in utilities, not the r
 The hub is owned by the process-wide `AgentRuntime`. Configuration is centralized there:
 
 ```ts
-configureAgentRuntime(options); // startup plugin
+configureAgentRuntime(options); // Deno startup or legacy Nitro plugin
 getAgentRuntime().hub; // routes/helpers
 ```
 
@@ -226,6 +286,12 @@ current leaf, returns `409 context_compact_unavailable`.
 ## Protocol
 
 Protocol types live in:
+
+```txt
+packages/protocol/mod.ts
+```
+
+While the Nuxt frontend remains, keep the legacy mirror in sync:
 
 ```txt
 apps/web/types/protocol.ts

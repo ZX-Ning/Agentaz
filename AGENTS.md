@@ -4,14 +4,38 @@ Guidance for AI coding agents working in this repository.
 
 ## Project Summary
 
-Agentaz is a local-first Nuxt app for a general purpose / coding agent with a browser UI build on top of pi-sdk. The project has moved beyond the original MVP phase; docs should distinguish current implementation constraints from future product decisions.
+Agentaz is a local-first general purpose / coding agent with a browser UI built on top of pi-sdk.
+
+The repository is currently in a backend/frontend split migration:
+
+- Current runnable app: Nuxt fullstack app under `apps/web`.
+- Migration target: Deno workspace with shared protocol under `packages/protocol` and Hono backend under `packages/api`.
+- The old Nuxt server code remains as the compatibility baseline until the Hono backend and frontend migration are fully wired.
+
+Docs should distinguish current implementation constraints from future product decisions and from in-progress migration scaffolding.
 
 Core architecture:
 
 ```txt
+deno.json                         Deno workspace root
+
+packages
+├── protocol/                     Shared HTTP DTO and SSE protocol types
+│   └── mod.ts
+└── api/                          Deno/Hono backend package
+    └── src/
+        ├── main.ts               Hono app assembly and runtime startup
+        ├── routes/               Hono route modules mounted under /api
+        ├── auth/                 Stateless single-user cookie auth
+        ├── http/                 Hono request/error helpers
+        ├── runtime/              Runtime composition, presence, events, SSE hub
+        ├── pi/                   Pi SDK session workspace/controller
+        ├── extensions/           Extension UI bridge and permission config
+        └── errors.ts             Domain error classes
+
 apps/web
 ├── app/                         Vue/Nuxt frontend
-├── server/                      Nitro backend
+├── server/                      Legacy Nitro backend kept during migration
 │   ├── api/agent/               HTTP endpoints for browser actions/snapshots
 │   ├── api/agent/events.get.ts  SSE endpoint for realtime server events
 │   └── utils/
@@ -32,7 +56,16 @@ docs
 
 ## Common Commands
 
-Use pnpm from the repository root.
+Use Deno for the new packages:
+
+```bash
+deno task check # Deno workspace typecheck for packages/api
+deno task test  # Deno tests
+```
+
+If `deno` is not on PATH, use the local installation path for your environment.
+
+Use pnpm from the repository root for the legacy Nuxt app:
 
 ```bash
 pnpm dev          # run Nuxt dev server
@@ -43,7 +76,7 @@ pnpm test:api      # REST/SSE smoke test; requires dev server already running
 pnpm smoke:backend # backend smoke test; requires dev server already running
 ```
 
-Do not run `pnpm build` by default because it is slower. Run build only when requested or when changes affect build/runtime packaging. Do not run `pnpm dev` or start the dev server. If needed, ask the user to run them.
+Do not run `pnpm build` by default because it is slower. Run build only when requested or when changes affect build/runtime packaging. Do not run `pnpm dev` or start the dev server. If needed, ask the user to run them. Do not start a Deno server unless the user asks for a runtime smoke test.
 
 ## Development Constraints
 
@@ -59,9 +92,11 @@ Do not run `pnpm build` by default because it is slower. Run build only when req
 ## Code Style Expectations
 
 - TypeScript everywhere.
-- Keep protocol changes explicit in `apps/web/types/protocol.ts`.
+- Keep protocol changes explicit in `packages/protocol/mod.ts`. While the legacy Nuxt app remains, mirror compatible protocol changes in `apps/web/types/protocol.ts`.
 - If adding/changing HTTP DTOs or SSE event shapes, update both frontend handling and backend emitters/routes.
-- Prefer small, focused server utilities under `apps/web/server/utils/`.
+- Prefer small, focused modules under `packages/api/src/{auth,http,routes,runtime,pi,extensions}` for the Deno backend.
+- Hono route files should export route-local `Hono` apps; `packages/api/src/main.ts` assembles them and exports the app for `deno serve`.
+- If touching the legacy Nuxt backend, keep compatibility edits scoped under `apps/web/server/` and avoid mixing old/new architecture changes in the same commit unless needed.
 - Keep frontend state simple until there is a strong reason to introduce a larger store.
 
 ### Comments
@@ -84,6 +119,15 @@ investigation.
 ## Testing / Verification
 
 Minimum verification after code edits:
+
+For Deno package edits:
+
+```bash
+deno task check
+deno task test
+```
+
+For legacy Nuxt/frontend edits:
 
 ```bash
 pnpm lint
@@ -118,17 +162,18 @@ Update docs when changing product decisions or architecture:
 - DO NOT add authentication, user accounts, database persistence, or SaaS/team concepts.
 - DO NOT add project/cwd switching in the UI.
 - DO NOT remove the Pi permission-system integration.
+- DO NOT delete the legacy Nuxt server/frontend until the Hono backend and frontend migration have replaced it.
 - DO NOT run broad formatting or rewrite unrelated files.
 - DO NOT overwrite existing working-tree changes. If the working tree already has
   large changes, or existing changes would affect the current implementation,
   pause editing and ask whether they should be committed first.
 - DO NOT commit changes unless the user asks.
 
-Before committing, run:
+Formatting is scoped to the files being changed:
 
-```bash
-npx prettier --write .
-```
+- For Deno packages, use `deno fmt <paths>`.
+- For legacy Nuxt files, use the existing project tooling only when needed.
+- Do not run full-repo formatting as a commit prerequisite.
 
 ## Communication style:
 

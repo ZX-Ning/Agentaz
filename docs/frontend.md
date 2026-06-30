@@ -4,7 +4,10 @@ This document describes the current frontend direction for Agentaz. It is intent
 
 ## Scope
 
-The frontend is a Nuxt/Vue browser UI for a Pi SDK agent. The current UI should feel like a simple ChatGPT-style coding assistant:
+The current frontend is a Nuxt/Vue browser UI for a Pi SDK agent. The migration
+target is a separated Vue frontend that talks to the Deno/Hono backend, but
+Nuxt remains the runnable frontend for now. The current UI should feel like a
+simple ChatGPT-style coding assistant:
 
 - one active chat surface
 - a sidebar for status and sessions
@@ -130,10 +133,17 @@ The frontend uses HTTP for browser-initiated actions and state snapshots, and SS
 /api/agent/events
 ```
 
-The browser relies on the same-origin `nuxt-auth-utils` session cookie for both
-HTTP APIs and the SSE request.
+The browser relies on a same-origin session cookie for both HTTP APIs and the
+SSE request. In the current Nuxt app this is the `nuxt-auth-utils` cookie; the
+Deno/Hono migration package uses its own stateless signed cookie for now.
 
 Protocol types live in:
+
+```txt
+packages/protocol/mod.ts
+```
+
+While this frontend remains in Nuxt, keep the mirror in sync:
 
 ```txt
 apps/web/types/protocol.ts
@@ -141,10 +151,11 @@ apps/web/types/protocol.ts
 
 When protocol shapes change:
 
-1. Update `types/protocol.ts`.
-2. Update backend HTTP routes and SSE emitters.
-3. Update frontend `$fetch` calls and event handling.
-4. Consider updating `scripts/smoke-backend.mjs` if handshake or required startup events change.
+1. Update `packages/protocol/mod.ts`.
+2. Mirror compatible changes to `apps/web/types/protocol.ts` until the Nuxt frontend is removed.
+3. Update backend HTTP routes and SSE emitters.
+4. Update frontend `$fetch` calls and event handling.
+5. Consider updating `scripts/smoke-backend.mjs` if handshake or required startup events change.
 
 Prompt submissions use protocol v8 turn reconciliation. The browser generates
 `clientMessageId` before `POST /api/agent/sessions/:sessionId/messages`,

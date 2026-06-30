@@ -12,28 +12,29 @@ The app is not a multi-user SaaS or team platform. It has moved beyond the origi
 
 - Target: **personal local/server-hosted Pi agent with a Web UI**.
 - Local-first remains the default trust model.
-- Access is protected by single-user admin-password auth using an encrypted
-  `nuxt-auth-utils` session cookie.
-- The agent runs on the Nuxt/Nitro server side.
+- Access is protected by single-user admin-password auth. The legacy Nuxt app
+  uses `nuxt-auth-utils`; the Deno/Hono migration package uses a stateless
+  signed cookie for now.
+- Current runnable app: Nuxt fullstack under `apps/web`.
+- Migration target: Deno workspace with Hono backend under `packages/api` and
+  shared protocol under `packages/protocol`.
 - The browser UI talks to the server over HTTP APIs plus an SSE event stream.
 - Multi-user auth, accounts, team concepts, and SaaS behavior are not confirmed goals.
 
 ### Authentication
 
 - Authentication is single-user and admin-panel style, not account based.
-- `NUXT_SESSION_PASSWORD` is optional but recommended for stable sessions across
-  restarts. When provided, it must be at least 32 characters. When omitted, the
-  server generates a process-local secret at startup, so existing browser
-  sessions are invalid after restart. It is used only by `nuxt-auth-utils` to
-  encrypt/sign the session cookie.
 - `AGENTAZ_ADMIN_PASSWORD_HASH` is required and must contain
   `base64(SHA3-256(password-string))`.
 - The login endpoint hashes the exact UTF-8 password string entered in the
   browser and compares it with `AGENTAZ_ADMIN_PASSWORD_HASH`.
 - Sessions last 24 hours.
+- Deno/Hono auth currently uses `AGENTAZ_SESSION_SECRET` for stateless signed
+  cookies and accepts `NUXT_SESSION_PASSWORD` as a migration fallback.
+- The legacy Nuxt app uses `NUXT_SESSION_PASSWORD` for `nuxt-auth-utils`.
 - All existing app API endpoints are protected, including `GET /api/health` and
   `GET /api/agent/events`. The only public API endpoints are login and the
-  `nuxt-auth-utils` session discovery endpoint required by the frontend.
+  session discovery endpoint required by the frontend.
 
 ### Working Directory
 
@@ -43,12 +44,37 @@ The app is not a multi-user SaaS or team platform. It has moved beyond the origi
 
 ### Process And Repository Shape
 
-- Use a pnpm workspace with one Nuxt fullstack app under `apps/web`.
+- Use Deno workspaces for migration packages and keep the pnpm/Nuxt app during
+  the transition.
+- New backend package: `packages/api`, using Hono route modules mounted under
+  `/api`.
+- Shared protocol package: `packages/protocol`.
+- Legacy fullstack app: `apps/web`.
 - Keep Pi SDK integration server-side only.
-- Keep browser/server protocol types in `apps/web/types/protocol.ts`.
-- Keep backend runtime utilities under `apps/web/server/utils/`.
+- Keep browser/server protocol types in `packages/protocol/mod.ts`; mirror to
+  `apps/web/types/protocol.ts` while the Nuxt frontend remains.
+- Keep Deno backend code organized under `packages/api/src/{auth,http,routes,runtime,pi,extensions}`.
 
-Important backend pieces:
+Important Deno/Hono backend pieces:
+
+```txt
+packages/api/src/main.ts
+packages/api/src/routes/agent.ts
+packages/api/src/routes/auth.ts
+packages/api/src/routes/health.ts
+packages/api/src/runtime/agent-runtime.ts
+packages/api/src/runtime/client-presence.ts
+packages/api/src/runtime/session-projector.ts
+packages/api/src/runtime/event-bus.ts
+packages/api/src/runtime/sse-hub.ts
+packages/api/src/pi/session-workspace.ts
+packages/api/src/pi/session-controller.ts
+packages/api/src/extensions/ui-context.ts
+packages/api/src/extensions/permission-config.ts
+packages/protocol/mod.ts
+```
+
+Legacy Nuxt backend pieces kept until migration completes:
 
 ```txt
 apps/web/server/api/agent/                HTTP agent API routes
@@ -91,6 +117,7 @@ PUT    /api/agent/sessions/:sessionId/thinking
 POST   /api/agent/sessions/:sessionId/messages
 POST   /api/agent/sessions/:sessionId/fork
 POST   /api/agent/sessions/:sessionId/revert
+POST   /api/agent/sessions/:sessionId/compact
 POST   /api/agent/sessions/:sessionId/abort
 POST   /api/agent/sessions/:sessionId/queue/clear
 POST   /api/agent/sessions/:sessionId/ui-requests/:requestId/response
@@ -187,6 +214,9 @@ Browser / Nuxt Frontend
   └─ Approval response UI
 
 Nuxt/Nitro Server
+  └─ Legacy compatibility backend while migration is in progress
+
+Deno/Hono API Server
   ├─ HTTP agent routes
   ├─ SSE route /api/agent/events
   ├─ AgentRuntime
@@ -213,6 +243,12 @@ Pi SDK
 ## 4. Protocol
 
 Protocol types live in:
+
+```txt
+packages/protocol/mod.ts
+```
+
+Legacy mirror while Nuxt remains:
 
 ```txt
 apps/web/types/protocol.ts
@@ -280,7 +316,10 @@ REST-only data must not be emitted as SSE result events:
 
 ### Included
 
-- Nuxt fullstack app
+- Nuxt fullstack app as current compatibility baseline
+- Deno workspace scaffold
+- Hono backend package scaffold under `packages/api`
+- Shared protocol package under `packages/protocol`
 - startup-specified `cwd`
 - server-side Pi SDK integration
 - HTTP agent API for actions and snapshots
