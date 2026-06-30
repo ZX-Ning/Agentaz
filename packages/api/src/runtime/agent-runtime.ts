@@ -9,7 +9,7 @@ import { SseAgentHub } from "./sse-hub.ts";
 /**
  * Startup options shared by the process-wide agent runtime.
  *
- * These are set once by the Nitro startup plugin from runtime config
+ * These are set once during Hono API bootstrap from env/config
  * and cannot be changed after initialization.
  */
 export type AgentRuntimeOptions = {
@@ -39,7 +39,7 @@ export type AgentRuntime = {
     hub: SseAgentHub;
 };
 
-/** Process-wide runtime singleton, initialized during Nitro startup. */
+/** Process-wide runtime singleton, initialized during API bootstrap. */
 let runtime: AgentRuntime | undefined;
 
 /**
@@ -51,7 +51,7 @@ let runtimeOptions: PiSessionWorkspaceOptions | undefined;
 /**
  * Configures the process-wide agent runtime before any handler can use it.
  *
- * Must be called exactly once during Nitro startup (plugins/startup.ts).
+ * Must be called exactly once during API bootstrap.
  * Subsequent calls with the same options are idempotent (no-op).
  * Calls with different options throw — changing cwd, timeout, or session
  * limits mid-process would leave inconsistent state.
@@ -87,7 +87,7 @@ export function configureAgentRuntime(options: AgentRuntimeOptions) {
 /**
  * Initializes the process-wide agent runtime singleton.
  *
- * Must be called exactly once during Nitro startup (plugins/startup.ts),
+ * Must be called exactly once during API bootstrap,
  * after configureAgentRuntime. Creates all services in dependency order:
  *
  *   1. AgentEventBus — must exist first so other services can subscribe.
@@ -150,8 +150,8 @@ export function initAgentRuntime() {
 /**
  * Returns the fully-initialized process-wide agent runtime singleton.
  *
- * initAgentRuntime() must have been called first (normally during Nitro
- * startup). This accessor is safe to call from any route or handler.
+ * initAgentRuntime() must have been called first (normally during API
+ * bootstrap). This accessor is safe to call from any route or handler.
  *
  * @throws Error if initAgentRuntime has not been called first
  */
@@ -167,7 +167,7 @@ export function getAgentRuntime() {
 /**
  * Disposes the process-wide runtime if it has been initialized.
  *
- * This is used by Nitro shutdown hooks. It deliberately does not call
+ * This is used by process shutdown hooks. It deliberately does not call
  * getAgentRuntime(), because process teardown should not create Pi SDK services
  * just to dispose an app that never accepted an agent request.
  */

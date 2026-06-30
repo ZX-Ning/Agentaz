@@ -26,6 +26,7 @@ import {
     withRequestSessionControl,
 } from "../http/agent.ts";
 import { getAgentRuntime } from "../runtime/agent-runtime.ts";
+import type { SseAgentHub } from "../runtime/sse-hub.ts";
 import { BadRequestError, SessionNotFoundError } from "../errors.ts";
 import {
     getAgentState,
@@ -34,17 +35,37 @@ import {
 
 export const agentRoutes = new Hono();
 
+type AgentEventStream = Parameters<Parameters<typeof streamSSE>[1]>[0];
+
+function handleAgentEventsStream(
+    hub: SseAgentHub,
+    clientId: string,
+    stream: AgentEventStream,
+) {
+    // Return the stream lifetime Promise directly; using async/await here would
+    // still need a never-resolving await just to keep the SSE response open.
+    return new Promise<void>((resolve, reject) => {
+        stream.onAbort(() => {
+            hub.close(clientId);
+            resolve();
+        });
+        hub.open(clientId, (data) => {
+            void stream.writeSSE({ data });
+        }).catch((error) => {
+            hub.close(clientId);
+            reject(error);
+        });
+    });
+}
+
 agentRoutes.get("/agent/events", (c) => {
     const clientId = crypto.randomUUID();
     const hub = getAgentRuntime().hub;
 
-    return streamSSE(c, async (stream) => {
-        stream.onAbort(() => hub.close(clientId));
-        await hub.open(clientId, (data) => {
-            void stream.writeSSE({ data });
-        });
-        await new Promise<void>(() => undefined);
-    });
+    return streamSSE(
+        c,
+        (stream) => handleAgentEventsStream(hub, clientId, stream),
+    );
 });
 
 agentRoutes.get(
@@ -56,11 +77,7 @@ agentRoutes.get("/agent/state", async (c) => {
     const runtime = getAgentRuntime();
     await refreshProjectionData(runtime.workspace);
     return c.json(
-        getAgentState(
-            runtime.workspace,
-            runtime.presence,
-            requestClientId(c),
-        ),
+        getAgentState(runtime.workspace, runtime.presence, requestClientId(c)),
     );
 });
 

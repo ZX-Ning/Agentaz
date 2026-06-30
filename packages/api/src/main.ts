@@ -69,14 +69,6 @@ export function initServerRuntime() {
     addEventListener("unload", () => {
         void disposeAgentRuntime();
     });
-
-    const host = Deno.env.get("HOST") || Deno.env.get("DENO_HOST");
-    if (host && !["127.0.0.1", "localhost"].includes(host)) {
-        console.warn(
-            "WARNING: server is listening on a non-localhost host; ensure single-user auth is intentionally exposed:",
-            host,
-        );
-    }
 }
 
 export const app = createApp();
