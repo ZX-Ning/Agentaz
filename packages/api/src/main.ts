@@ -40,7 +40,7 @@ export function createApp() {
         console.log(`Serving static files: ${staticDir}`);
         app.use(
             "*",
-            serveStatic({ root: staticDir }),
+            serveStatic({ root: staticDir, precompressed: true }),
         );
 
         // SPA history fallback: unknown browser document routes -> index.html.

@@ -10,9 +10,11 @@ RUN deno task build:web-ui && deno task build:server
 
 RUN cd build && deno install
 
-RUN apt-get update -y && apt-get install -y patch
+RUN apt-get update -y && apt-get install -y patch brotli zstd gzip
 
 WORKDIR /project/build
+
+RUN deno -A /project/scripts/utils/precompress.js dist
 
 RUN deno -A /project/scripts/utils/patch-pi-package.js < node_modules/@earendil-works/pi-coding-agent/package.json > tmp.json \
     && mv tmp.json node_modules/@earendil-works/pi-coding-agent/package.json
