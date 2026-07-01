@@ -130,6 +130,12 @@ arrows, and symbols over paragraph-style explanation. Comments should clarify
 intent, invariants, side effects, error behavior, and phase boundaries without
 becoming essays.
 
+### Formatting
+
+- Use `deno fmt <file|directory>` for formatting.
+- Format changed files before each commit.
+- Only format files that are part of the current commit; do not bulk-format unrelated files.
+
 ## Development Guides
 
 Before changing frontend code, read `docs/frontend.md` for UI structure,
@@ -142,6 +148,9 @@ protocol rules.
 Use `docs/implementation/` for focused implementation notes when the task
 touches extension loading, session performance, or another documented
 investigation.
+
+> **Note**: `docs/implementation/` describes the legacy Nuxt/Nitro architecture.
+> Some content may be outdated; reference with caution.
 
 ## Testing / Verification
 
@@ -182,8 +191,6 @@ Update docs when changing product decisions or architecture:
 - `docs/plan.md`: canonical product decisions and current baseline.
 - `docs/frontend.md`: frontend implementation guidance.
 - `docs/backend.md`: backend implementation guidance.
-- `docs/implementation/`: focused implementation notes for specific
-  backend/frontend choices.
 
 ## Things Not To Do Without Asking
 
@@ -198,12 +205,6 @@ Update docs when changing product decisions or architecture:
   has large changes, or existing changes would affect the current
   implementation, pause editing and ask whether they should be committed first.
 - DO NOT commit changes unless the user asks.
-
-Formatting is scoped to the files being changed:
-
-- For Deno packages, use `deno fmt <paths>`.
-- For legacy Nuxt files, use the existing project tooling only when needed.
-- Do not run full-repo formatting as a commit prerequisite.
 
 ## Communication style:
 
