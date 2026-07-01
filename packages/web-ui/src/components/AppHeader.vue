@@ -97,18 +97,19 @@ const isCompactDisabled = computed(
 
 <template>
   <header
-    class="flex min-h-14 shrink-0 items-center justify-between gap-2 border-b border-border bg-background/90 px-2.5 py-2 backdrop-blur sm:h-14 sm:px-6 sm:py-0"
+    class="flex min-h-14 shrink-0 items-center gap-1.5 border-b border-border bg-background/90 px-2 py-2 backdrop-blur sm:h-14 sm:justify-between sm:gap-2 sm:px-6 sm:py-0"
   >
-    <div class="flex min-w-0 flex-1 items-center">
+    <div class="flex min-w-0 flex-1 items-center overflow-hidden">
       <Button
         color="neutral"
         variant="ghost"
         icon="i-lucide-menu"
         size="sm"
-        class="mr-1.5 shrink-0 sm:mr-2.5"
+        aria-label="Toggle sessions sidebar"
+        class="mr-1 shrink-0 px-2 sm:mr-2.5 sm:px-3"
         @click="emit('update:isSidebarOpen', !isSidebarOpen)"
       />
-      <div class="min-w-0">
+      <div class="min-w-0 flex-1">
         <div class="flex min-w-0 items-center gap-2">
           <h1 class="truncate text-sm font-semibold sm:text-base">
             {{ sessionTitle }}
@@ -143,7 +144,7 @@ const isCompactDisabled = computed(
       </div>
     </div>
 
-    <div class="flex shrink-0 items-center gap-1.5 sm:gap-2">
+    <div class="flex min-w-fit shrink-0 items-center gap-1 sm:gap-2">
       <ContextUsagePopover
         :is-open="isContextMenuOpen"
         :active-loaded-session="activeLoadedSession"

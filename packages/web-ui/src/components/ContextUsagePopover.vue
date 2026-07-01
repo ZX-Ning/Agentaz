@@ -213,9 +213,12 @@ function formatCost(value?: number | null) {
       variant="outline"
       size="sm"
       icon="i-lucide-gauge"
+      :aria-label="contextButtonLabel"
       class="flex items-center gap-1 px-2 sm:gap-2 sm:px-3"
     >
-      <span class="text-xs font-medium">{{ contextButtonLabel }}</span>
+      <span class="hidden text-xs font-medium sm:inline">
+        {{ contextButtonLabel }}
+      </span>
       <AppIcon
         name="i-lucide-chevron-down"
         class="size-3.5 shrink-0 opacity-60 sm:size-4"
