@@ -11,3 +11,6 @@ node_modules
 coverage
 .pi/
 _debug*
+dist
+build
+

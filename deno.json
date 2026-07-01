@@ -1,0 +1,24 @@
+{
+    "workspace": ["./packages/api", "./packages/protocol", "./packages/web-ui"],
+    "nodeModulesDir": "auto",
+    "tasks": {
+        "check": "deno task check:api && deno task check:web-ui",
+        "check:api": "deno task --filter @agentaz/api check",
+        "check:web-ui": "deno task --filter @agentaz/web-ui typecheck",
+        "dev:web-ui": "deno task --filter @agentaz/web-ui dev",
+        "build:web-ui": "deno task --filter @agentaz/web-ui build",
+        "build:server": "deno --allow-read --allow-write --unstable-bundle  packages/api/bundle-server.ts",
+        "serve": "deno task serve:api",
+        "serve:api": "deno task --filter @agentaz/api serve",
+        "test": "deno task --filter @agentaz/api test"
+    },
+    "fmt": {
+        "semiColons": true,
+        "singleQuote": false,
+        "trailingCommas": "onlyMultiLine",
+        "useBraces": "always",
+        "nextControlFlowPosition": "nextLine",
+        "singleBodyPosition": "nextLine"
+    },
+    "unstable": ["fmt-component"]
+}

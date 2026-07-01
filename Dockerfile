@@ -1,20 +1,24 @@
-FROM ghcr.io/pnpm/pnpm:11 AS base
+FROM denoland/deno:ubuntu-2.9.0 AS base
 
-RUN pnpm runtime set node 24 -g
-
-WORKDIR /app
+WORKDIR /project
 
 COPY . .
 
-RUN pnpm install --frozen-lockfile && pnpm build
+RUN deno install
 
-FROM node:24-alpine
+RUN deno task build:web-ui && deno task build:server
+
+RUN cd build && deno install
+
+FROM denoland/deno:alpine-2.9.0
+
+COPY --from=base /project/build /app
 
 WORKDIR /app
 
-COPY --from=base /app/apps/web/.output /app/dist
-
-ENV PI_CODING_AGENT_DIR="/root/.pi/agent"
+ENV PI_CODING_AGENT_DIR="/root/.agentaz/agent"
 ENV PI_WEB_CWD="/root/agentaz-workspace/"
+ENV STATIC_FILE_DIR="/app/dist"
+ENV AGENTAZ_PI_NODE_MODULES_DIR="/app/node_modules"
 
-ENTRYPOINT [ "node", "dist/server/index.mjs" ]
+ENTRYPOINT [ "deno", "serve", "--host=0.0.0.0", "--port=3000", "-A", "main.js"]

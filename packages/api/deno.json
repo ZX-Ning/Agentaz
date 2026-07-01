@@ -1,0 +1,16 @@
+{
+    "name": "@agentaz/api",
+    "exports": "./src/mod.ts",
+    "publish": false,
+    "imports": {
+        "@hono/hono": "jsr:@hono/hono@^4.12.0",
+        "@hono/hono/cookie": "jsr:@hono/hono@^4.12.0/cookie",
+        "@hono/hono/streaming": "jsr:@hono/hono@^4.12.0/streaming",
+        "better-auth/crypto": "npm:better-auth@^1.6.23/crypto"
+    },
+    "tasks": {
+        "check": "deno check src/mod.ts src/main.ts test/**/*.test.ts",
+        "serve": "deno serve --env-file --allow-env --allow-read  --allow-ffi --allow-write --allow-run --allow-net --allow-sys --host 127.0.0.1 --port 3000 src/main.ts",
+        "test": "deno test --allow-env --allow-read --allow-sys=homedir --allow-net=127.0.0.1 test/**/*.test.ts"
+    }
+}

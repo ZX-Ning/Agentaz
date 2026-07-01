@@ -1,0 +1,8 @@
+{
+    "name": "Agentaz-api",
+    "dependencies": {
+        "@earendil-works/pi-coding-agent": "^0.80.2",
+        "@juicesharp/rpiv-todo": "^1.20.0",
+        "@gotgenes/pi-permission-system": "^18.0.0"
+    }
+}
