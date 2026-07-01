@@ -5,10 +5,11 @@ intentionally lightweight and should evolve as the UI becomes more complete.
 
 ## Scope
 
-The current frontend is a Nuxt/Vue browser UI for a Pi SDK agent. The migration
-target is a separated Vue frontend that talks to the Deno/Hono backend, but Nuxt
-remains the runnable frontend for now. The current UI should feel like a simple
-ChatGPT-style coding assistant:
+The new frontend lives in `packages/web-ui` as a Vite/Vue SPA that talks to the
+Deno/Hono backend. The legacy Nuxt app under `apps/web` remains in the
+repository as the compatibility baseline during migration, but new frontend work
+should target `packages/web-ui` unless a task explicitly asks for legacy Nuxt
+behavior. The UI should feel like a simple ChatGPT-style coding assistant:
 
 - one active chat surface
 - a sidebar for status and sessions
@@ -27,48 +28,38 @@ product work until recorded in `docs/plan.md`.
 Main frontend files:
 
 ```txt
-apps/web/app/app.vue
-apps/web/app/pages/login.vue
-apps/web/app/pages/index.vue
-apps/web/app/middleware/auth.global.ts
-apps/web/app/assets/css/main.css
-apps/web/types/protocol.ts
+packages/web-ui/src/app.vue
+packages/web-ui/src/main.ts
+packages/web-ui/src/views/LoginView.vue
+packages/web-ui/src/views/AgentWorkspaceView.vue
+packages/web-ui/src/components/
+packages/web-ui/src/composables/
+packages/web-ui/src/assets/css/main.css
 ```
 
-`app.vue` is only the Nuxt shell around `NuxtPage`. It gives protected app
-routes a stable page key so navigation inside the agent workspace stays SPA-like
-and does not recreate the SSE client. Route-specific UI lives in file routes,
-with `/login` as the public login page. The protected workspace lives in
-`pages/index.vue`, which also declares `/session/:sessionId` as a Nuxt route
-alias. Authentication redirects live in `auth.global.ts`.
-
-Suggested future structure:
+The SPA does not use `vue-router`. `app.vue` chooses between `LoginView` and
+`AgentWorkspaceView` from a small History API route store. Supported browser
+paths are:
 
 ```txt
-apps/web/app/
-  app.vue
-  components/AgentWorkspace.vue
-  pages/
-    login.vue
-    index.vue
-  assets/css/main.css
-  components/
-    AppSidebar.vue
-    ChatTranscript.vue
-    ChatMessage.vue
-    ChatComposer.vue
-    ApprovalDialog.vue
-  composables/
-    useAgentSocket.ts
-    useAgentMessages.ts
+/login
+/
+/session/:sessionId
 ```
+
+Unauthenticated app routes redirect to `/login?redirect=<original path>`.
+Successful login returns to a safe same-origin redirect target or `/`.
 
 ## Styling and Theme
 
-Nuxt UI is installed and enabled. Tailwind v4 semantic tokens are defined in:
+The new SPA uses shadcn-vue-style local components built on Reka UI. Do not add
+Nuxt UI to `packages/web-ui`; legacy `U*` components should not appear in the
+new package.
+
+Tailwind v4 semantic tokens are defined in:
 
 ```txt
-apps/web/app/assets/css/main.css
+packages/web-ui/src/assets/css/main.css
 ```
 
 Use semantic Tailwind classes mapped from the project palette:
@@ -132,7 +123,7 @@ circles/avatars/status dots.
 
 ### Font
 
-IBM Plex Sans is loaded in Nuxt head config and applied globally in `main.css`.
+IBM Plex Sans is imported from `src/main.ts` and applied globally in `main.css`.
 
 ## SSE Protocol
 
@@ -155,20 +146,12 @@ Protocol types live in:
 packages/protocol/mod.ts
 ```
 
-While this frontend remains in Nuxt, keep the mirror in sync:
-
-```txt
-apps/web/types/protocol.ts
-```
-
 When protocol shapes change:
 
 1. Update `packages/protocol/mod.ts`.
-2. Mirror compatible changes to `apps/web/types/protocol.ts` until the Nuxt
-   frontend is removed.
-3. Update backend HTTP routes and SSE emitters.
-4. Update frontend `$fetch` calls and event handling.
-5. Consider updating `scripts/smoke-backend.mjs` if handshake or required
+2. Update backend HTTP routes and SSE emitters.
+3. Update frontend `apiFetch` calls and event handling.
+4. Consider updating `scripts/smoke-backend.mjs` if handshake or required
    startup events change.
 
 Prompt submissions use protocol v8 turn reconciliation. The browser generates

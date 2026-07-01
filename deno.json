@@ -1,9 +1,12 @@
 {
-    "workspace": ["./packages/api", "./packages/protocol"],
+    "workspace": ["./packages/api", "./packages/protocol", "./packages/web-ui"],
     "nodeModulesDir": "auto",
     "tasks": {
         "check": "deno task check:api",
         "check:api": "deno task --filter @agentaz/api check",
+        "check:web-ui": "deno task --filter @agentaz/web-ui typecheck",
+        "dev:web-ui": "deno task --filter @agentaz/web-ui dev",
+        "build:web-ui": "deno task --filter @agentaz/web-ui build",
         "serve": "deno task serve:api",
         "serve:api": "deno task --filter @agentaz/api serve",
         "test": "deno task --filter @agentaz/api test"
@@ -14,6 +17,6 @@
         "trailingCommas": "onlyMultiLine",
         "useBraces": "always",
         "nextControlFlowPosition": "nextLine",
-        "singleBodyPosition":"nextLine"
+        "singleBodyPosition": "nextLine"
     }
 }
