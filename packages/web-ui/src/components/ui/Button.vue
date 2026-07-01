@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from "vue";
+import type { HTMLAttributes } from "vue";
 import { LoaderCircle } from "lucide-vue-next";
 import AppIcon from "../AppIcon.vue";
 
@@ -21,7 +22,7 @@ const props = withDefaults(
     disabled?: boolean;
     icon?: string;
     trailingIcon?: string;
-    class?: unknown;
+    class?: HTMLAttributes["class"];
   }>(),
   {
     type: "button",

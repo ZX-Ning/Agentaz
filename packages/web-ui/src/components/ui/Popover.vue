@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from "vue";
+import type { HTMLAttributes } from "vue";
 import {
   PopoverArrow,
   PopoverContent,
@@ -17,14 +18,14 @@ const props = withDefaults(
       sideOffset?: number;
       collisionPadding?: number;
     };
-    ui?: { content?: unknown };
+    ui?: { content?: HTMLAttributes["class"] };
     modal?: boolean;
     side?: "top" | "right" | "bottom" | "left";
     align?: "start" | "center" | "end";
     sideOffset?: number;
     collisionPadding?: number;
-    contentClass?: unknown;
-    class?: unknown;
+    contentClass?: HTMLAttributes["class"];
+    class?: HTMLAttributes["class"];
   }>(),
   {
     side: "bottom",

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import type { HTMLAttributes } from "vue";
 import {
   DialogClose,
   DialogContent,
@@ -12,8 +13,8 @@ import { X } from "lucide-vue-next";
 const props = defineProps<{
   open?: boolean;
   title?: string;
-  ui?: { content?: unknown };
-  contentClass?: unknown;
+  ui?: { content?: HTMLAttributes["class"] };
+  contentClass?: HTMLAttributes["class"];
 }>();
 
 const emit = defineEmits<{
