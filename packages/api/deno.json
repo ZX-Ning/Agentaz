@@ -3,11 +3,10 @@
     "exports": "./src/mod.ts",
     "publish": false,
     "imports": {
-        "@hono/hono": "jsr:@hono/hono@^4.10.7",
-        "@hono/hono/cookie": "jsr:@hono/hono@^4.10.7/cookie",
-        "@hono/hono/streaming": "jsr:@hono/hono@^4.10.7/streaming",
-        "better-auth/crypto": "npm:better-auth@^1.6.23/crypto",
-        "@earendil-works/pi-coding-agent": "npm:@earendil-works/pi-coding-agent@0.75.4"
+        "@hono/hono": "jsr:@hono/hono@^4.12.0",
+        "@hono/hono/cookie": "jsr:@hono/hono@^4.12.0/cookie",
+        "@hono/hono/streaming": "jsr:@hono/hono@^4.12.0/streaming",
+        "better-auth/crypto": "npm:better-auth@^1.6.23/crypto"
     },
     "tasks": {
         "check": "deno check src/mod.ts src/main.ts test/**/*.test.ts",

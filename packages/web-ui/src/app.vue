@@ -1,10 +1,16 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, defineAsyncComponent, onMounted, ref, watch } from "vue";
 import { Toaster } from "vue-sonner";
-import AgentWorkspaceView from "./views/AgentWorkspaceView.vue";
-import LoginView from "./views/LoginView.vue";
 import { useRoute, useRouter } from "./composables/app-route";
 import { useUserSession } from "./composables/app-session";
+
+const LoginView = defineAsyncComponent(() =>
+  import("./views/LoginView.vue")
+);
+
+const AgentWorkspaceView = defineAsyncComponent(() =>
+  import("./views/AgentWorkspaceView.vue")
+);
 
 const route = useRoute();
 const router = useRouter();

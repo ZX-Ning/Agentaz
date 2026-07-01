@@ -1,0 +1,6 @@
+{
+    "name": "Agentaz-api",
+    "dependencies": {
+        "@earendil-works/pi-coding-agent": "0.75.4"
+    }
+}

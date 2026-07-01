@@ -1,8 +1,0 @@
-node_modules
-pnpm-lock.yaml
-.nuxt
-.output
-apps/*/.nuxt
-apps/*/.output
-_debug_workspace
-dist

@@ -12,3 +12,5 @@ coverage
 .pi/
 _debug*
 dist
+build
+
