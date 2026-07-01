@@ -1,4 +1,4 @@
-FROM denoland/deno:ubuntu-2.9.0 AS base
+FROM denoland/deno:debian-2.9.0 AS base
 
 WORKDIR /project
 
@@ -9,6 +9,13 @@ RUN deno install
 RUN deno task build:web-ui && deno task build:server
 
 RUN cd build && deno install
+
+RUN apt-get update -y && apt-get install -y patch
+
+WORKDIR /project/build
+
+RUN deno -A /project/scripts/utils/patch-pi-package.js < node_modules/@earendil-works/pi-coding-agent/package.json > tmp.json \
+    && mv tmp.json node_modules/@earendil-works/pi-coding-agent/package.json
 
 FROM denoland/deno:alpine-2.9.0
 
