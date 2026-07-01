@@ -19,9 +19,9 @@ const usageStats = computed(() => props.activeLoadedSession?.usageStats);
 
 const contextPercentLabel = computed(() =>
   contextUsage.value?.percent === null ||
-  contextUsage.value?.percent === undefined
+    contextUsage.value?.percent === undefined
     ? "--%"
-    : `${Math.round(contextUsage.value.percent)}%`,
+    : `${Math.round(contextUsage.value.percent)}%`
 );
 
 const contextButtonLabel = computed(
@@ -29,23 +29,31 @@ const contextButtonLabel = computed(
 );
 
 function formatTokens(value?: number | null) {
-  if (value === null || value === undefined) return "--";
+  if (value === null || value === undefined) {
+    return "--";
+  }
   return value.toLocaleString();
 }
 
 function formatPercent(value?: number | null) {
-  if (value === null || value === undefined) return "Unavailable";
+  if (value === null || value === undefined) {
+    return "Unavailable";
+  }
   return `${Math.round(value)}%`;
 }
 
 function formatContextTokenWindow() {
   const usage = contextUsage.value;
-  if (!usage || usage.tokens === null) return "-- tokens";
+  if (!usage || usage.tokens === null) {
+    return "-- tokens";
+  }
   return `${formatTokens(usage.tokens)} / ${formatTokens(usage.contextWindow)}`;
 }
 
 function formatCost(value?: number | null) {
-  if (value === null || value === undefined) return "$0.0000";
+  if (value === null || value === undefined) {
+    return "$0.0000";
+  }
   return new Intl.NumberFormat(undefined, {
     style: "currency",
     currency: "USD",

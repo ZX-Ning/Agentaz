@@ -58,35 +58,30 @@ const emit = defineEmits<{
           color="error"
           variant="soft"
           @click="emit('respond', request)"
-          >Cancel</Button
-        >
+        >Cancel</Button>
       </div>
       <div v-else-if="request.type === 'ui_confirm_request'" class="flex gap-2">
         <Button
           size="xs"
           color="primary"
           @click="emit('respond', request, true)"
-          >Confirm</Button
-        >
+        >Confirm</Button>
         <Button
           size="xs"
           color="neutral"
           variant="soft"
           @click="emit('respond', request, false)"
-          >Cancel</Button
-        >
+        >Cancel</Button>
       </div>
       <div v-else class="flex gap-2">
         <Button size="xs" color="primary" @click="emit('respond', request, '')"
-          >Submit empty</Button
-        >
+        >Submit empty</Button>
         <Button
           size="xs"
           color="neutral"
           variant="soft"
           @click="emit('respond', request)"
-          >Cancel</Button
-        >
+        >Cancel</Button>
       </div>
     </div>
   </section>

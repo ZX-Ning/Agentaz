@@ -6,22 +6,25 @@ import { computed, onBeforeUnmount, ref } from "vue";
 import type { UiBlock, UiMessage } from "@agentaz/protocol";
 import { useToast } from "../composables/app-toast";
 
-type MarkdownNode =
-  string | [string | null, Record<string, unknown>, ...MarkdownNode[]];
+type MarkdownNode = string | [
+  string | null,
+  Record<string, unknown>,
+  ...MarkdownNode[],
+];
 
 type ToolCallBlock = Extract<UiBlock, { type: "tool_call" }>;
 type ToolResultBlock = Extract<UiBlock, { type: "tool_result" }>;
 type RenderBlock =
   | Exclude<UiBlock, { type: "tool_call" | "tool_result" }>
   | {
-      id: string;
-      type: "tool";
-      toolCallId: string;
-      toolName: string;
-      status: ToolCallBlock["status"];
-      input: unknown;
-      result?: ToolResultBlock;
-    };
+    id: string;
+    type: "tool";
+    toolCallId: string;
+    toolName: string;
+    status: ToolCallBlock["status"];
+    input: unknown;
+    result?: ToolResultBlock;
+  };
 
 const props = defineProps<{
   message: UiMessage;
@@ -85,9 +88,12 @@ const renderedBlocks = computed<RenderBlock[]>(() => {
   const callIds = new Set<string>();
 
   for (const block of props.message.blocks) {
-    if (block.type === "tool_call") callIds.add(block.toolCallId);
-    if (block.type === "tool_result")
+    if (block.type === "tool_call") {
+      callIds.add(block.toolCallId);
+    }
+    if (block.type === "tool_result") {
       resultByCallId.set(block.toolCallId, block);
+    }
   }
 
   return props.message.blocks.flatMap((block): RenderBlock[] => {
@@ -107,7 +113,9 @@ const renderedBlocks = computed<RenderBlock[]>(() => {
     }
 
     if (block.type === "tool_result") {
-      if (callIds.has(block.toolCallId)) return [];
+      if (callIds.has(block.toolCallId)) {
+        return [];
+      }
       return [
         {
           id: block.id,
@@ -129,8 +137,8 @@ const copyableMarkdown = computed(() =>
     .filter((block): block is Extract<UiBlock, { type: "text" }> => {
       return block.type === "text" && Boolean(block.text.trim());
     })
-    .map(block => block.text.trim())
-    .join("\n\n"),
+    .map((block) => block.text.trim())
+    .join("\n\n")
 );
 const canCopyMarkdown = computed(
   () => props.message.role === "assistant" && Boolean(copyableMarkdown.value),
@@ -157,23 +165,39 @@ function toolCardKey(block: Extract<RenderBlock, { type: "tool" }>) {
 }
 
 function toolStatusLabel(status: ToolCallBlock["status"]) {
-  if (status === "pending") return "pending";
-  if (status === "running") return "running";
-  if (status === "completed") return "done";
-  if (status === "error") return "error";
+  if (status === "pending") {
+    return "pending";
+  }
+  if (status === "running") {
+    return "running";
+  }
+  if (status === "completed") {
+    return "done";
+  }
+  if (status === "error") {
+    return "error";
+  }
   return "blocked";
 }
 
 function formatToolInput(input: unknown) {
-  if (input === undefined || input === null) return "No input.";
-  if (isEmptyObject(input)) return "No input.";
+  if (input === undefined || input === null) {
+    return "No input.";
+  }
+  if (isEmptyObject(input)) {
+    return "No input.";
+  }
   return formatHumanReadable(input);
 }
 
 function formatToolResult(result?: ToolResultBlock, status?: string) {
-  if (!result) return "Waiting for output.";
+  if (!result) {
+    return "Waiting for output.";
+  }
   if (!result.content.trim()) {
-    if (status === "running") return "";
+    if (status === "running") {
+      return "";
+    }
     return result.isError ? "No error details." : "No output.";
   }
   return formatHumanReadable(result.content);
@@ -181,29 +205,46 @@ function formatToolResult(result?: ToolResultBlock, status?: string) {
 
 function formatHumanReadable(value: unknown, depth = 0): string {
   const parsed = parseJsonString(value);
-  if (parsed !== value) return formatHumanReadable(parsed, depth);
+  if (parsed !== value) {
+    return formatHumanReadable(parsed, depth);
+  }
 
-  if (value === null) return "null";
-  if (value === undefined) return "";
-  if (typeof value === "string") return value.trimEnd();
-  if (typeof value === "number" || typeof value === "boolean")
+  if (value === null) {
+    return "null";
+  }
+  if (value === undefined) {
+    return "";
+  }
+  if (typeof value === "string") {
+    return value.trimEnd();
+  }
+  if (typeof value === "number" || typeof value === "boolean") {
     return String(value);
-  if (Array.isArray(value)) return formatArray(value, depth);
-  if (typeof value === "object") return formatObject(value, depth);
+  }
+  if (Array.isArray(value)) {
+    return formatArray(value, depth);
+  }
+  if (typeof value === "object") {
+    return formatObject(value, depth);
+  }
   return String(value);
 }
 
 function formatArray(values: unknown[], depth: number) {
-  if (values.length === 0) return "None.";
+  if (values.length === 0) {
+    return "None.";
+  }
   if (values.every(isPrimitiveValue)) {
-    return values.map(value => formatHumanReadable(value, depth)).join(", ");
+    return values.map((value) => formatHumanReadable(value, depth)).join(", ");
   }
 
   const prefix = "  ".repeat(depth);
   return values
-    .map(value => {
+    .map((value) => {
       const formatted = formatHumanReadable(value, depth + 1);
-      if (!formatted.includes("\n")) return `${prefix}- ${formatted}`;
+      if (!formatted.includes("\n")) {
+        return `${prefix}- ${formatted}`;
+      }
       return `${prefix}- ${formatted.replaceAll("\n", `\n${prefix}  `)}`;
     })
     .join("\n");
@@ -213,28 +254,36 @@ function formatObject(value: object, depth: number) {
   const entries = Object.entries(value).filter(
     ([, item]) => item !== undefined,
   );
-  if (entries.length === 0) return "None.";
+  if (entries.length === 0) {
+    return "None.";
+  }
 
   const prefix = "  ".repeat(depth);
   return entries
     .map(([key, item]) => {
       const label = humanizeKey(key);
       const formatted = formatHumanReadable(item, depth + 1);
-      if (!formatted.includes("\n")) return `${prefix}${label}: ${formatted}`;
+      if (!formatted.includes("\n")) {
+        return `${prefix}${label}: ${formatted}`;
+      }
       return `${prefix}${label}:\n${formatted}`;
     })
     .join("\n");
 }
 
 function parseJsonString(value: unknown) {
-  if (typeof value !== "string") return value;
-  const trimmed = value.trim();
-  if (!trimmed || (!trimmed.startsWith("{") && !trimmed.startsWith("[")))
+  if (typeof value !== "string") {
     return value;
+  }
+  const trimmed = value.trim();
+  if (!trimmed || (!trimmed.startsWith("{") && !trimmed.startsWith("["))) {
+    return value;
+  }
 
   try {
     return JSON.parse(trimmed);
-  } catch {
+  }
+  catch {
     return value;
   }
 }
@@ -243,7 +292,7 @@ function humanizeKey(key: string) {
   return key
     .replace(/[_-]+/g, " ")
     .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
-    .replace(/\b\w/g, char => char.toUpperCase());
+    .replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
 function isPrimitiveValue(value: unknown) {
@@ -262,29 +311,40 @@ function isEmptyObject(value: unknown) {
 }
 
 function formatTime(timestamp?: number) {
-  if (!timestamp) return "";
+  if (!timestamp) {
+    return "";
+  }
   const date = new Date(timestamp);
   return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
 
 function roleLabel(role: UiMessage["role"]) {
-  if (role === "assistant") return "ai";
-  if (role === "user") return "You";
+  if (role === "assistant") {
+    return "ai";
+  }
+  if (role === "user") {
+    return "You";
+  }
   return role;
 }
 
 async function copyMarkdown() {
-  if (!copyableMarkdown.value) return;
+  if (!copyableMarkdown.value) {
+    return;
+  }
 
   try {
     await navigator.clipboard.writeText(copyableMarkdown.value);
     hasCopiedMarkdown.value = true;
-    if (copyFeedbackTimer !== null) window.clearTimeout(copyFeedbackTimer);
+    if (copyFeedbackTimer !== null) {
+      window.clearTimeout(copyFeedbackTimer);
+    }
     copyFeedbackTimer = window.setTimeout(() => {
       hasCopiedMarkdown.value = false;
       copyFeedbackTimer = null;
     }, 1500);
-  } catch {
+  }
+  catch {
     toast.add({
       title: "Copy failed",
       description: "Clipboard access was blocked by the browser.",
@@ -302,7 +362,9 @@ async function copyMarkdown() {
  */
 function focusStart() {
   const article = articleRef.value;
-  if (!article) return;
+  if (!article) {
+    return;
+  }
   article.focus({ preventScroll: true });
   article.scrollIntoView({
     block: "start",
@@ -314,7 +376,9 @@ function focusStart() {
 defineExpose({ focusStart });
 
 onBeforeUnmount(() => {
-  if (copyFeedbackTimer !== null) window.clearTimeout(copyFeedbackTimer);
+  if (copyFeedbackTimer !== null) {
+    window.clearTimeout(copyFeedbackTimer);
+  }
 });
 
 function plainMarkdownOnly() {
@@ -327,14 +391,20 @@ function plainMarkdownOnly() {
 }
 
 function filterMarkdownNodes(nodes: MarkdownNode[]): MarkdownNode[] {
-  return nodes.flatMap(node => {
-    if (typeof node === "string") return [node];
+  return nodes.flatMap((node) => {
+    if (typeof node === "string") {
+      return [node];
+    }
 
     const [tag, attributes, ...children] = node;
-    if (tag === null) return [];
+    if (tag === null) {
+      return [];
+    }
 
     const filteredChildren = filterMarkdownNodes(children);
-    if (!allowedMarkdownTags.has(tag.toLowerCase())) return filteredChildren;
+    if (!allowedMarkdownTags.has(tag.toLowerCase())) {
+      return filteredChildren;
+    }
 
     return [
       [tag, filterMarkdownAttributes(tag, attributes), ...filteredChildren],
@@ -347,29 +417,44 @@ function filterMarkdownAttributes(
   attributes: Record<string, unknown>,
 ) {
   const filtered: Record<string, unknown> = {};
-  if (attributes.$) filtered.$ = attributes.$;
+  if (attributes.$) {
+    filtered.$ = attributes.$;
+  }
 
   if (tag === "a") {
-    if (typeof attributes.href === "string") filtered.href = attributes.href;
-    if (typeof attributes.title === "string") filtered.title = attributes.title;
+    if (typeof attributes.href === "string") {
+      filtered.href = attributes.href;
+    }
+    if (typeof attributes.title === "string") {
+      filtered.title = attributes.title;
+    }
   }
 
   if (tag === "code" || tag === "pre") {
-    if (typeof attributes.class === "string") filtered.class = attributes.class;
+    if (typeof attributes.class === "string") {
+      filtered.class = attributes.class;
+    }
   }
 
   if (tag === "math") {
-    if (typeof attributes.class === "string") filtered.class = attributes.class;
-    if (typeof attributes.content === "string")
+    if (typeof attributes.class === "string") {
+      filtered.class = attributes.class;
+    }
+    if (typeof attributes.content === "string") {
       filtered.content = attributes.content;
+    }
   }
 
   if (tag === "input") {
-    if (attributes.type === "checkbox") filtered.type = attributes.type;
-    if (typeof attributes.checked === "boolean")
+    if (attributes.type === "checkbox") {
+      filtered.type = attributes.type;
+    }
+    if (typeof attributes.checked === "boolean") {
       filtered.checked = attributes.checked;
-    if (typeof attributes.disabled === "boolean")
+    }
+    if (typeof attributes.disabled === "boolean") {
       filtered.disabled = attributes.disabled;
+    }
   }
 
   return filtered;
@@ -449,7 +534,7 @@ function filterMarkdownAttributes(
               >
                 <pre
                   class="overflow-y-auto max-h-72 whitespace-pre-wrap break-all text-foreground font-mono text-[11px] leading-relaxed"
-                  >{{ block.text }}</pre>
+                >{{ block.text }}</pre>
               </div>
             </div>
 
@@ -512,7 +597,7 @@ function filterMarkdownAttributes(
             >
               <pre
                 class="whitespace-pre-wrap wrap-break-word text-xs leading-relaxed text-muted-foreground font-sans"
-                >{{ block.text }}</pre>
+              >{{ block.text }}</pre>
             </div>
           </div>
 
@@ -569,12 +654,13 @@ function filterMarkdownAttributes(
                 <div
                   class="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground"
                 >
-                  <AppIcon name="i-lucide-arrow-down-to-line" class="size-3.5" />
+                  <AppIcon name="i-lucide-arrow-down-to-line"
+                    class="size-3.5" />
                   <span>Input</span>
                 </div>
                 <pre
                   class="overflow-x-auto whitespace-pre-wrap wrap-break-word rounded-md bg-background/60 p-2.5 text-xs leading-relaxed text-foreground/80 font-mono"
-                  >{{ formatToolInput(block.input) }}</pre>
+                >{{ formatToolInput(block.input) }}</pre>
               </section>
               <section class="space-y-1.5">
                 <div
@@ -602,7 +688,7 @@ function filterMarkdownAttributes(
                       ? 'text-red-700/90 dark:text-red-300/90'
                       : 'text-foreground/80'
                   "
-                  >{{ formatToolResult(block.result, block.status) }}</pre>
+                >{{ formatToolResult(block.result, block.status) }}</pre>
               </section>
             </div>
           </div>

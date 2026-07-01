@@ -124,15 +124,19 @@ const isSidebarOpen = ref(false);
 const isAutoStickToBottomEnabled = ref(false);
 const isCompactingContext = ref(false);
 const transcriptScrollRef = ref<HTMLElement | null>(null);
-const revertTargetMessage = ref<null | {
-  id: string;
-  rewindEntryId: string;
-  text: string;
-}>(null);
-const activeSessionOperation = ref<null | {
-  type: "fork" | "revert";
-  messageId: string;
-}>(null);
+const revertTargetMessage = ref<
+  null | {
+    id: string;
+    rewindEntryId: string;
+    text: string;
+  }
+>(null);
+const activeSessionOperation = ref<
+  null | {
+    type: "fork" | "revert";
+    messageId: string;
+  }
+>(null);
 type ChatMessageFocusHandle = {
   focusStart: () => void;
 };
@@ -148,11 +152,13 @@ const showWorkingIndicator = computed(
       pendingMessageCount.value > 0),
 );
 const workingIndicatorMessageId = computed(() => {
-  if (!showWorkingIndicator.value) return null;
+  if (!showWorkingIndicator.value) {
+    return null;
+  }
   const messages = activeMessages.value;
   const assistantMessage = [...messages]
     .reverse()
-    .find(message => message.role === "assistant");
+    .find((message) => message.role === "assistant");
   return assistantMessage?.id ?? messages.at(-1)?.id ?? null;
 });
 const canSubmitToActiveSession = computed(() => Boolean(activeSessionId.value));
@@ -170,8 +176,9 @@ const isInitialSessionListLoading = computed(
 const pageTitle = computed(() => `Agentaz-${activeSessionTitle.value}`);
 
 function closeSidebarOnMobile() {
-  if (window.matchMedia("(max-width: 1023px)").matches)
+  if (window.matchMedia("(max-width: 1023px)").matches) {
     isSidebarOpen.value = false;
+  }
 }
 
 async function handleSidebarSessionSelect(session: SessionListItem) {
@@ -188,7 +195,9 @@ async function handleSidebarSessionRename(payload: {
   session: SessionListItem;
   name: string;
 }) {
-  if (!payload.session.file) return;
+  if (!payload.session.file) {
+    return;
+  }
   await renameSessionAndClose(payload.session.file, payload.name);
 }
 
@@ -198,11 +207,14 @@ async function handleSidebarSessionDelete(session: SessionListItem) {
 }
 
 async function handleCompactContext() {
-  if (isCompactingContext.value) return;
+  if (isCompactingContext.value) {
+    return;
+  }
   isCompactingContext.value = true;
   try {
     await compactActiveContext();
-  } finally {
+  }
+  finally {
     isCompactingContext.value = false;
   }
 }
@@ -212,13 +224,16 @@ async function handleForkMessage(message: {
   rewindEntryId?: string;
   blocks?: Array<{ type: string; text?: string }>;
 }) {
-  if (!message.rewindEntryId || activeSessionOperation.value) return;
+  if (!message.rewindEntryId || activeSessionOperation.value) {
+    return;
+  }
   const text = messageText(message);
   activeSessionOperation.value = { type: "fork", messageId: message.id };
   try {
     await forkFromMessage(message.rewindEntryId);
     promptText.value = text;
-  } finally {
+  }
+  finally {
     activeSessionOperation.value = null;
   }
 }
@@ -228,7 +243,9 @@ function openRevertConfirmation(message: {
   rewindEntryId?: string;
   blocks?: Array<{ type: string; text?: string }>;
 }) {
-  if (!message.rewindEntryId || activeSessionOperation.value) return;
+  if (!message.rewindEntryId || activeSessionOperation.value) {
+    return;
+  }
   revertTargetMessage.value = {
     id: message.id,
     rewindEntryId: message.rewindEntryId,
@@ -237,18 +254,23 @@ function openRevertConfirmation(message: {
 }
 
 function handleRevertModalOpenChange(open: boolean) {
-  if (!open) revertTargetMessage.value = null;
+  if (!open) {
+    revertTargetMessage.value = null;
+  }
 }
 
 async function confirmRevert() {
   const target = revertTargetMessage.value;
-  if (!target || activeSessionOperation.value) return;
+  if (!target || activeSessionOperation.value) {
+    return;
+  }
   activeSessionOperation.value = { type: "revert", messageId: target.id };
   try {
     await revertToMessage(target.rewindEntryId);
     promptText.value = target.text;
     revertTargetMessage.value = null;
-  } finally {
+  }
+  finally {
     activeSessionOperation.value = null;
   }
 }
@@ -258,8 +280,8 @@ function messageText(message: {
 }) {
   return (
     message.blocks
-      ?.filter(block => block.type === "text" && block.text)
-      .map(block => block.text)
+      ?.filter((block) => block.type === "text" && block.text)
+      .map((block) => block.text)
       .join("\n\n") ?? ""
   ).trim();
 }
@@ -304,8 +326,10 @@ function setMessageComponent(messageId: string, component: unknown) {
 function focusLastAssistantMessageStart() {
   const assistantMessage = [...activeMessages.value]
     .reverse()
-    .find(message => message.role === "assistant");
-  if (!assistantMessage) return;
+    .find((message) => message.role === "assistant");
+  if (!assistantMessage) {
+    return;
+  }
   messageComponentById.get(assistantMessage.id)?.focusStart();
 }
 
@@ -314,7 +338,9 @@ function focusLastAssistantMessageStart() {
  */
 function scrollTranscriptToBottom() {
   const container = transcriptScrollRef.value;
-  if (!container) return;
+  if (!container) {
+    return;
+  }
   container.scrollTo({
     top: container.scrollHeight,
     behavior: "auto",
@@ -328,9 +354,13 @@ function scrollTranscriptToBottom() {
  * changes into one animation-frame scroll instead of scrolling on every patch.
  */
 async function scheduleTranscriptBottomStick() {
-  if (!isAutoStickToBottomEnabled.value) return;
+  if (!isAutoStickToBottomEnabled.value) {
+    return;
+  }
   await nextTick();
-  if (scrollToBottomFrame !== null) return;
+  if (scrollToBottomFrame !== null) {
+    return;
+  }
   scrollToBottomFrame = window.requestAnimationFrame(() => {
     scrollToBottomFrame = null;
     scrollTranscriptToBottom();
@@ -348,8 +378,9 @@ watch(
     if (
       !agentaz.hasAppliedInitialRoute.value ||
       agentaz.isSyncingBrowserRoute.value
-    )
+    ) {
       return;
+    }
     void agentazRouteApply.applyBrowserRoute();
   },
 );
@@ -358,14 +389,16 @@ onMounted(() => {
   isSidebarOpen.value = window.matchMedia("(min-width: 1024px)").matches;
   agentazEvents
     .connectEventSource()
-    .then(event => agentazRouteApply.applyInitialRoute(event.state))
+    .then((event) => agentazRouteApply.applyInitialRoute(event.state))
     .catch(() => {
       status.value = "error";
     });
 });
 
-watch(completedTurnFocusRequest, async request => {
-  if (!request || request.sessionId !== activeSessionId.value) return;
+watch(completedTurnFocusRequest, async (request) => {
+  if (!request || request.sessionId !== activeSessionId.value) {
+    return;
+  }
   if (isAutoStickToBottomEnabled.value) {
     await scheduleTranscriptBottomStick();
     return;
@@ -399,8 +432,10 @@ watch(
   { flush: "post" },
 );
 
-watch(isAutoStickToBottomEnabled, enabled => {
-  if (enabled) void scheduleTranscriptBottomStick();
+watch(isAutoStickToBottomEnabled, (enabled) => {
+  if (enabled) {
+    void scheduleTranscriptBottomStick();
+  }
 });
 
 onBeforeUnmount(() => {
@@ -413,7 +448,7 @@ onBeforeUnmount(() => {
   }
 });
 
-watch(pageTitle, title => setDocumentTitle(title), { immediate: true });
+watch(pageTitle, (title) => setDocumentTitle(title), { immediate: true });
 </script>
 
 <template>
@@ -494,7 +529,8 @@ watch(pageTitle, title => setDocumentTitle(title), { immediate: true });
             aria-live="polite"
             class="flex items-center gap-2 px-1 pt-1 text-sm text-muted-foreground sm:px-4"
           >
-            <AppIcon name="i-lucide-loader-circle" class="size-4 animate-spin" />
+            <AppIcon name="i-lucide-loader-circle"
+              class="size-4 animate-spin" />
             <span>compacting...</span>
           </div>
         </div>

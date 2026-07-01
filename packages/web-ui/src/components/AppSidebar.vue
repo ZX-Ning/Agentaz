@@ -22,7 +22,9 @@ const sessionBeingRenamed = ref<SessionListItem | null>(null);
 const renameValue = ref("");
 
 function openRenameDialog(session: SessionListItem) {
-  if (!session.file || session.isDraft) return;
+  if (!session.file || session.isDraft) {
+    return;
+  }
   sessionBeingRenamed.value = session;
   renameValue.value = session.title;
   isRenameOpen.value = true;
@@ -31,7 +33,9 @@ function openRenameDialog(session: SessionListItem) {
 function submitRename() {
   const session = sessionBeingRenamed.value;
   const name = renameValue.value.trim();
-  if (!session || !session.file || !name) return;
+  if (!session || !session.file || !name) {
+    return;
+  }
   emit("rename", { session, name });
   isRenameOpen.value = false;
 }
@@ -151,26 +155,22 @@ function sessionMenuItems(session: SessionListItem) {
               <span
                 v-if="session.isStreaming"
                 class="inline-flex items-center rounded-md border border-transparent bg-emerald-500/15 px-1.5 py-0.5 text-[11px] font-medium whitespace-nowrap text-emerald-700 dark:text-emerald-300"
-                >run</span
-              >
+              >run</span>
               <span
                 v-if="session.pendingApprovalCount"
                 class="inline-flex items-center rounded-md border border-transparent bg-amber-500/15 px-1.5 py-0.5 text-[11px] font-medium whitespace-nowrap text-amber-700 dark:text-amber-300"
-                >{{ session.pendingApprovalCount }}</span
-              >
+              >{{ session.pendingApprovalCount }}</span>
               <span
                 v-if="session.isActive"
                 class="inline-flex items-center rounded-md border border-transparent bg-primary px-1.5 py-0.5 text-[11px] font-medium whitespace-nowrap text-primary-foreground"
-                >open</span
-              >
+              >open</span>
             </span>
           </div>
           <div
             class="mt-1 flex items-center justify-between gap-2 text-xs text-muted-foreground font-normal"
           >
-            <span class="truncate">{{
-              session.sessionId || session.file
-            }}</span>
+            <span
+              class="truncate">{{ session.sessionId || session.file }}</span>
             <span
               v-if="session.isLoaded"
               class="text-[10px] uppercase font-semibold tracking-wider opacity-60"

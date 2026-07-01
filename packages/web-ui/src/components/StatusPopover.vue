@@ -66,8 +66,7 @@ const emit = defineEmits<{
                       ? 'bg-destructive text-white'
                       : 'bg-secondary text-secondary-foreground',
               ]"
-              >{{ statusLabel }}</span
-            >
+            >{{ statusLabel }}</span>
           </div>
 
           <div class="flex items-center justify-between text-sm">
@@ -80,8 +79,7 @@ const emit = defineEmits<{
             </span>
             <span
               class="font-medium bg-secondary px-1.5 py-0.5 rounded text-xs text-secondary-foreground font-sans"
-              >{{ pendingMessageCount }} messages</span
-            >
+            >{{ pendingMessageCount }} messages</span>
           </div>
 
           <div class="flex items-center justify-between text-sm">
@@ -99,8 +97,7 @@ const emit = defineEmits<{
               {{ pendingApprovalCount }} pending
             </span>
             <span v-else class="font-medium text-xs text-muted-foreground"
-              >0 pending</span
-            >
+            >0 pending</span>
           </div>
 
           <div class="flex items-center justify-between text-sm">
@@ -109,8 +106,7 @@ const emit = defineEmits<{
               Available Models
             </span>
             <span class="font-medium text-xs text-muted-foreground font-sans"
-              >{{ modelsCount }} models</span
-            >
+            >{{ modelsCount }} models</span>
           </div>
         </div>
 

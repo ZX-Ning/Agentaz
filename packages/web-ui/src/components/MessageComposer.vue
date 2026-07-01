@@ -46,18 +46,24 @@ const maxVisibleModels = 50;
 
 const selectedModelLabel = computed(() => {
   const selectedLabel = props.modelOptions.find(
-    option => option.value === props.selectedModelKey,
+    (option) => option.value === props.selectedModelKey,
   )?.label;
-  if (selectedLabel) return selectedLabel;
-  if (props.isDraftSession) return "Default model";
+  if (selectedLabel) {
+    return selectedLabel;
+  }
+  if (props.isDraftSession) {
+    return "Default model";
+  }
   return "Model loading...";
 });
 
 const filteredModelOptions = computed(() => {
   const query = modelSearch.value.trim().toLowerCase();
-  if (!query) return props.modelOptions;
+  if (!query) {
+    return props.modelOptions;
+  }
 
-  return props.modelOptions.filter(option => {
+  return props.modelOptions.filter((option) => {
     return (
       option.label.toLowerCase().includes(query) ||
       option.description.toLowerCase().includes(query)
@@ -66,13 +72,13 @@ const filteredModelOptions = computed(() => {
 });
 
 const visibleModelOptions = computed(() =>
-  filteredModelOptions.value.slice(0, maxVisibleModels),
+  filteredModelOptions.value.slice(0, maxVisibleModels)
 );
 const hiddenModelCount = computed(() =>
   Math.max(
     0,
     filteredModelOptions.value.length - visibleModelOptions.value.length,
-  ),
+  )
 );
 const shouldBlockSubmit = computed(
   () => props.isSubmitting && !props.isStreaming,
@@ -85,18 +91,24 @@ function onPromptInput(event: Event) {
 function onComposerKeydown(event: KeyboardEvent) {
   if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
     event.preventDefault();
-    if (shouldBlockSubmit.value) return;
+    if (shouldBlockSubmit.value) {
+      return;
+    }
     emit("submit");
   }
 }
 
 function submitComposer() {
-  if (shouldBlockSubmit.value) return;
+  if (shouldBlockSubmit.value) {
+    return;
+  }
   emit("submit");
 }
 
 function onTopResizeStart(event: MouseEvent) {
-  if (!textareaRef.value) return;
+  if (!textareaRef.value) {
+    return;
+  }
   isResizing.value = true;
   dragStartY.value = event.clientY;
   dragStartHeight.value = textareaRef.value.offsetHeight;
@@ -106,7 +118,9 @@ function onTopResizeStart(event: MouseEvent) {
 }
 
 function onTopResizeMove(event: MouseEvent) {
-  if (!isResizing.value) return;
+  if (!isResizing.value) {
+    return;
+  }
   const deltaY = event.clientY - dragStartY.value;
   const next = dragStartHeight.value - deltaY;
   composerHeight.value = Math.max(minHeight, Math.min(maxHeight, next));
@@ -120,7 +134,9 @@ function onTopResizeEnd() {
 }
 
 function syncHeightFromTextarea() {
-  if (!textareaRef.value) return;
+  if (!textareaRef.value) {
+    return;
+  }
   composerHeight.value = Math.max(
     minHeight,
     Math.min(maxHeight, textareaRef.value.offsetHeight),
@@ -129,7 +145,9 @@ function syncHeightFromTextarea() {
 
 function onModelMenuOpenChange(open: boolean) {
   isModelMenuOpen.value = open;
-  if (open) modelSearch.value = "";
+  if (open) {
+    modelSearch.value = "";
+  }
 }
 
 function selectModel(value: string) {
@@ -214,9 +232,8 @@ onBeforeUnmount(() => {
                   }"
                 />
                 <span class="min-w-0 flex-1">
-                  <span class="block truncate text-xs font-normal">{{
-                    option.label
-                  }}</span>
+                  <span
+                    class="block truncate text-xs font-normal">{{ option.label }}</span>
                   <span
                     class="block truncate text-[11px] font-normal text-muted-foreground"
                   >
@@ -302,9 +319,8 @@ onBeforeUnmount(() => {
         "
         class="shrink-0 bg-primary px-2.5 py-1.5 text-xs font-normal text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
       >
-        <span class="hidden sm:inline">{{
-          props.isStreaming ? "Stop" : "Send"
-        }}</span>
+        <span
+          class="hidden sm:inline">{{ props.isStreaming ? "Stop" : "Send" }}</span>
       </Button>
     </div>
   </form>

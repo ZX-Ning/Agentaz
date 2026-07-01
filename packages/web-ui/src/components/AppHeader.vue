@@ -37,16 +37,27 @@ const isMobileActionsOpen = ref(false);
 const colorMode = useColorMode();
 const isDark = computed(() => colorMode.value === "dark");
 const statusColor = computed(() => {
-  if (props.status === "connected") return "success";
-  if (props.status === "connecting") return "warning";
-  if (props.status === "error") return "error";
+  if (props.status === "connected") {
+    return "success";
+  }
+  if (props.status === "connecting") {
+    return "warning";
+  }
+  if (props.status === "error") {
+    return "error";
+  }
   return "neutral";
 });
 const statusLabel = computed(() => {
-  if (props.status === "connected")
+  if (props.status === "connected") {
     return props.isStreaming ? "Streaming" : "Connected";
-  if (props.status === "connecting") return "Connecting";
-  if (props.status === "error") return "Error";
+  }
+  if (props.status === "connecting") {
+    return "Connecting";
+  }
+  if (props.status === "error") {
+    return "Error";
+  }
   return "Disconnected";
 });
 

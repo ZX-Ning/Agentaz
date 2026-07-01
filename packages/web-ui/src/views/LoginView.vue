@@ -52,12 +52,13 @@ async function login() {
     password.value = "";
     await refreshUserSession();
     await router.replace(safeLoginRedirect.value);
-  } catch (error) {
+  }
+  catch (error) {
     const data = (error as any)?.data?.data ?? (error as any)?.data;
-    loginError.value =
-      data?.message ??
+    loginError.value = data?.message ??
       (error instanceof Error ? error.message : "Login failed.");
-  } finally {
+  }
+  finally {
     isLoggingIn.value = false;
   }
 }

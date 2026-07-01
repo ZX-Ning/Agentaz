@@ -12,50 +12,56 @@ const { loggedIn, fetch: refreshUserSession } = useUserSession();
 const isBootstrapping = ref(true);
 
 const currentView = computed(() =>
-    route.path === "/login" ? LoginView : AgentWorkspaceView
+  route.path === "/login" ? LoginView : AgentWorkspaceView
 );
 
 function loginRouteForCurrentLocation() {
-    if (route.fullPath === "/" || route.path === "/login") return "/login";
-    return { path: "/login", query: { redirect: route.fullPath } };
+  if (route.fullPath === "/" || route.path === "/login") {
+    return "/login";
+  }
+  return { path: "/login", query: { redirect: route.fullPath } };
 }
 
 function safeLoginRedirect() {
-    const rawRedirect = route.query.redirect;
-    const redirect = Array.isArray(rawRedirect) ? rawRedirect[0] : rawRedirect;
-    if (
-        typeof redirect === "string" &&
-        redirect.startsWith("/") &&
-        !redirect.startsWith("//") &&
-        redirect !== "/login"
-    ) {
-        return redirect;
-    }
-    return "/";
+  const rawRedirect = route.query.redirect;
+  const redirect = Array.isArray(rawRedirect) ? rawRedirect[0] : rawRedirect;
+  if (
+    typeof redirect === "string" &&
+    redirect.startsWith("/") &&
+    !redirect.startsWith("//") &&
+    redirect !== "/login"
+  ) {
+    return redirect;
+  }
+  return "/";
 }
 
 async function applyAuthRoute() {
-    if (!loggedIn.value && route.path !== "/login") {
-        await router.replace(loginRouteForCurrentLocation());
-        return;
-    }
-    if (loggedIn.value && route.path === "/login") {
-        await router.replace(safeLoginRedirect());
-    }
+  if (!loggedIn.value && route.path !== "/login") {
+    await router.replace(loginRouteForCurrentLocation());
+    return;
+  }
+  if (loggedIn.value && route.path === "/login") {
+    await router.replace(safeLoginRedirect());
+  }
 }
 
 onMounted(async () => {
-    await refreshUserSession();
-    await applyAuthRoute();
-    isBootstrapping.value = false;
+  await refreshUserSession();
+  await applyAuthRoute();
+  isBootstrapping.value = false;
 });
 
 watch(() => route.fullPath, () => {
-    if (!isBootstrapping.value) void applyAuthRoute();
+  if (!isBootstrapping.value) {
+    void applyAuthRoute();
+  }
 });
 
 watch(loggedIn, () => {
-    if (!isBootstrapping.value) void applyAuthRoute();
+  if (!isBootstrapping.value) {
+    void applyAuthRoute();
+  }
 });
 </script>
 

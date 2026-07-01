@@ -19,7 +19,9 @@ const { fetch: refreshUserSession } = useUserSession();
  * already lands on `/` by default.
  */
 function loginRouteForCurrentLocation() {
-  if (route.fullPath === "/") return "/login";
+  if (route.fullPath === "/") {
+    return "/login";
+  }
   return {
     path: "/login",
     query: { redirect: route.fullPath },
@@ -35,12 +37,12 @@ async function logout() {
     await apiFetch(`${apiBase()}/api/auth/logout`, { method: "POST" });
     await refreshUserSession();
     await router.replace("/login");
-  } catch (error) {
+  }
+  catch (error) {
     const data = (error as any)?.data?.data ?? (error as any)?.data;
     toast.add({
       title: data?.code ?? "logout_failed",
-      description:
-        data?.message ??
+      description: data?.message ??
         (error instanceof Error ? error.message : "Logout failed."),
       color: "error",
     });
