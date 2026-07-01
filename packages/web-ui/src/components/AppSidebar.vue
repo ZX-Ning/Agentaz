@@ -148,26 +148,20 @@ function sessionMenuItems(session: SessionListItem) {
           <div class="flex items-center justify-between gap-2">
             <span class="truncate">{{ session.title }}</span>
             <span class="flex shrink-0 items-center gap-1">
-              <Badge
+              <span
                 v-if="session.isStreaming"
-                color="success"
-                variant="soft"
-                size="xs"
-                >run</Badge
+                class="inline-flex items-center rounded-md border border-transparent bg-emerald-500/15 px-1.5 py-0.5 text-[11px] font-medium whitespace-nowrap text-emerald-700 dark:text-emerald-300"
+                >run</span
               >
-              <Badge
+              <span
                 v-if="session.pendingApprovalCount"
-                color="warning"
-                variant="soft"
-                size="xs"
-                >{{ session.pendingApprovalCount }}</Badge
+                class="inline-flex items-center rounded-md border border-transparent bg-amber-500/15 px-1.5 py-0.5 text-[11px] font-medium whitespace-nowrap text-amber-700 dark:text-amber-300"
+                >{{ session.pendingApprovalCount }}</span
               >
-              <Badge
+              <span
                 v-if="session.isActive"
-                color="primary"
-                variant="soft"
-                size="xs"
-                >open</Badge
+                class="inline-flex items-center rounded-md border border-transparent bg-primary px-1.5 py-0.5 text-[11px] font-medium whitespace-nowrap text-primary-foreground"
+                >open</span
               >
             </span>
           </div>
@@ -199,14 +193,12 @@ function sessionMenuItems(session: SessionListItem) {
       >
         <template #body>
           <form class="space-y-4" @submit.prevent="submitRename">
-            <Input
+            <input
               v-model="renameValue"
               autofocus
               maxlength="120"
               placeholder="Session name"
-              size="xl"
-              class="w-full"
-              :ui="{ base: 'text-base' }"
+              class="flex h-10 w-full rounded-md border border-input bg-transparent px-3 py-1 text-base shadow-xs outline-none transition-colors placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring/35 disabled:cursor-not-allowed disabled:opacity-50"
             />
             <div class="flex justify-end gap-2">
               <Button

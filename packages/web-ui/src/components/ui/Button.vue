@@ -1,8 +1,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { LoaderCircle } from "lucide-vue-next";
-import { cn } from "../../../lib/utils";
-import AppIcon from "../icon/AppIcon.vue";
+import AppIcon from "../AppIcon.vue";
 
 const props = withDefaults(
     defineProps<{
@@ -57,13 +56,13 @@ const sizeClass = computed(() => {
   <button
     :type="type"
     :disabled="disabled || loading"
-    :class="cn(
+    :class="[
       'inline-flex shrink-0 items-center justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50',
       variantClass,
       sizeClass,
       block && 'w-full',
       props.class,
-    )"
+    ]"
   >
     <AppIcon v-if="icon && !loading" :name="icon" class="size-4" />
     <LoaderCircle v-if="loading" class="mr-2 size-4 animate-spin" />

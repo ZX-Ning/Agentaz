@@ -547,9 +547,11 @@ function filterMarkdownAttributes(
                 />
               </span>
               <span class="min-w-0 truncate">{{ block.toolName }}</span>
-              <Badge size="xs" variant="soft" color="neutral">
+              <span
+                class="inline-flex items-center rounded-md border border-transparent bg-secondary px-1.5 py-0.5 text-[11px] font-medium whitespace-nowrap text-secondary-foreground"
+              >
                 {{ toolStatusLabel(block.status) }}
-              </Badge>
+              </span>
               <AppIcon
                 :name="
                   isBlockCollapsed(toolCardKey(block), true)

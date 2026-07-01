@@ -36,9 +36,11 @@ const title = computed(() =>
         <span class="truncate text-sm font-medium">{{ title }}</span>
       </span>
       <span class="flex shrink-0 items-center gap-2">
-        <Badge color="neutral" variant="soft" size="xs">
+        <span
+          class="inline-flex items-center rounded-md border border-transparent bg-secondary px-1.5 py-0.5 text-[11px] font-medium whitespace-nowrap text-secondary-foreground"
+        >
           {{ lineCount }}
-        </Badge>
+        </span>
         <AppIcon
           :name="isOpen ? 'i-lucide-chevron-down' : 'i-lucide-chevron-right'"
           class="size-4 text-muted-foreground"

@@ -102,23 +102,21 @@ const isCompactDisabled = computed(
           <h1 class="truncate text-sm font-semibold sm:text-base">
             {{ sessionTitle }}
           </h1>
-          <Badge
+          <span
             v-if="activeLoadedSession?.controlOwnerClientId"
-            :color="
+            :class="[
+              'hidden items-center rounded-md border border-transparent px-1.5 py-0.5 text-[11px] font-medium whitespace-nowrap sm:inline-flex',
               activeLoadedSession.controlledByCurrentClient
-                ? 'success'
-                : 'warning'
-            "
-            variant="soft"
-            size="xs"
-            class="hidden sm:inline-flex"
+                ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'
+                : 'bg-amber-500/15 text-amber-700 dark:text-amber-300',
+            ]"
           >
             {{
               activeLoadedSession.controlledByCurrentClient
                 ? "working here"
                 : "working elsewhere"
             }}
-          </Badge>
+          </span>
         </div>
         <div
           class="hidden truncate text-xs font-normal text-muted-foreground sm:block"
@@ -232,9 +230,20 @@ const isCompactDisabled = computed(
                     <AppIcon name="i-lucide-activity" class="size-4" />
                     Connection
                   </span>
-                  <Badge :color="statusColor" variant="soft" size="xs">
+                  <span
+                    :class="[
+                      'inline-flex items-center rounded-md border border-transparent px-1.5 py-0.5 text-[11px] font-medium whitespace-nowrap',
+                      statusColor === 'success'
+                        ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'
+                        : statusColor === 'warning'
+                          ? 'bg-amber-500/15 text-amber-700 dark:text-amber-300'
+                          : statusColor === 'error'
+                            ? 'bg-destructive text-white'
+                            : 'bg-secondary text-secondary-foreground',
+                    ]"
+                  >
                     {{ statusLabel }}
-                  </Badge>
+                  </span>
                 </div>
 
                 <div class="flex items-center justify-between gap-3">

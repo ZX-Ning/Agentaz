@@ -8,12 +8,9 @@
     "npm:@tailwindcss/vite@^4.1.0": "4.3.2_vite@6.4.3",
     "npm:@vitejs/plugin-vue@^5.2.0": "5.2.4_vite@6.4.3_vue@3.5.39__typescript@6.0.3_typescript@6.0.3",
     "npm:better-auth@^1.6.23": "1.6.23_vue@3.5.39__typescript@6.0.3_typescript@6.0.3",
-    "npm:class-variance-authority@~0.7.1": "0.7.1",
-    "npm:clsx@^2.1.1": "2.1.1",
     "npm:katex@~0.16.47": "0.16.47",
     "npm:lucide-vue-next@0.468": "0.468.0_vue@3.5.39__typescript@6.0.3_typescript@6.0.3",
     "npm:reka-ui@^2.10.1": "2.10.1_vue@3.5.39__typescript@6.0.3_typescript@6.0.3",
-    "npm:tailwind-merge@^3.4.0": "3.6.0",
     "npm:tailwindcss@^4.3.0": "4.3.2",
     "npm:vite@*": "6.4.3",
     "npm:vite@^6.3.0": "6.4.3",
@@ -1340,15 +1337,6 @@
     "chalk@5.6.2": {
       "integrity": "sha512-7NzBL0rN6fMUW+f7A6Io4h40qQlG+xGmtMxfbnH/K7TAtt8JQWVQK+6g0UXKMeVJoyV5EkkNsErQ8pVD3bLHbA=="
     },
-    "class-variance-authority@0.7.1": {
-      "integrity": "sha512-Ka+9Trutv7G8M6WT6SeiRWz792K5qEqIGEGzXKhAE6xOWAY6pPH8U+9IY3oCMv6kqTmLsv7Xh/2w2RigkePMsg==",
-      "dependencies": [
-        "clsx"
-      ]
-    },
-    "clsx@2.1.1": {
-      "integrity": "sha512-eYm0QWBtUrBWZWG0d386OGAw16Z995PiOVo2B7bjWSbHedGl5e0ZWaq65kOGgUSNesEIDkB9ISbTg/JK9dhCZA=="
-    },
     "comark@0.4.0_katex@0.16.47": {
       "integrity": "sha512-s+wZc9FDgxJDxS3oLhDhthuc8EFggd7oEQaGKEFSw/UbECEwM3qMgW/T3dk6eoNTuy+PNSAyPQtjyKZJfudlbA==",
       "dependencies": [
@@ -1972,9 +1960,6 @@
     "strnum@2.3.0": {
       "integrity": "sha512-ums3KNd42PGyx5xaoVTO1mjU1bH3NpY4vsrVlnv9PNGqQj8wd7rJ6nEypLrJ7z5vxK5RP0yMLo6J/Gsm62DI5Q=="
     },
-    "tailwind-merge@3.6.0": {
-      "integrity": "sha512-uxL7qAVQriqRQPAyK3pj66VqskWqoZ37PW94jwOTwNfq/z9oyu1V+eqrZqtR2+fCiXdYOZe/Modt8GtvqNzu+w=="
-    },
     "tailwindcss@4.3.2": {
       "integrity": "sha512-WtctNNSH8A9jlMIqxzuYumOHU5uGZyRv0Q5svQl+oEPy5w84YpBxdb7MdqyiSPQge5jTJ6zFQLq0PFygdccSBA=="
     },
@@ -2107,12 +2092,9 @@
           "npm:@fontsource-variable/ibm-plex-sans@^5.2.8",
           "npm:@tailwindcss/vite@^4.1.0",
           "npm:@vitejs/plugin-vue@^5.2.0",
-          "npm:class-variance-authority@~0.7.1",
-          "npm:clsx@^2.1.1",
           "npm:katex@~0.16.47",
           "npm:lucide-vue-next@0.468",
           "npm:reka-ui@^2.10.1",
-          "npm:tailwind-merge@^3.4.0",
           "npm:tailwindcss@^4.3.0",
           "npm:vite@^6.3.0",
           "npm:vue-sonner@^2.0.8",

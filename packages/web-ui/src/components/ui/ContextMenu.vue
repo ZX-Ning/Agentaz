@@ -6,7 +6,7 @@ import {
     ContextMenuRoot,
     ContextMenuTrigger,
 } from "reka-ui";
-import AppIcon from "../icon/AppIcon.vue";
+import AppIcon from "../AppIcon.vue";
 
 type MenuItem = {
     label: string;

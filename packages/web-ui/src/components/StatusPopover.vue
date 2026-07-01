@@ -55,9 +55,19 @@ const emit = defineEmits<{
               />
               Connection
             </span>
-            <Badge :color="statusColor" variant="soft" size="xs">{{
-              statusLabel
-            }}</Badge>
+            <span
+              :class="[
+                'inline-flex items-center rounded-md border border-transparent px-1.5 py-0.5 text-[11px] font-medium whitespace-nowrap',
+                statusColor === 'success'
+                  ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'
+                  : statusColor === 'warning'
+                    ? 'bg-amber-500/15 text-amber-700 dark:text-amber-300'
+                    : statusColor === 'error'
+                      ? 'bg-destructive text-white'
+                      : 'bg-secondary text-secondary-foreground',
+              ]"
+              >{{ statusLabel }}</span
+            >
           </div>
 
           <div class="flex items-center justify-between text-sm">
@@ -82,14 +92,12 @@ const emit = defineEmits<{
               />
               Approvals
             </span>
-            <Badge
+            <span
               v-if="pendingApprovalCount > 0"
-              color="warning"
-              variant="solid"
-              size="xs"
+              class="inline-flex items-center rounded-md border border-transparent bg-amber-500/15 px-1.5 py-0.5 text-[11px] font-medium whitespace-nowrap text-amber-700 dark:text-amber-300"
             >
               {{ pendingApprovalCount }} pending
-            </Badge>
+            </span>
             <span v-else class="font-medium text-xs text-muted-foreground"
               >0 pending</span
             >

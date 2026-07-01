@@ -460,13 +460,13 @@ watch(pageTitle, title => setDocumentTitle(title), { immediate: true });
         class="min-h-0 flex-1 overflow-y-auto bg-background px-2 py-3 sm:px-6 sm:py-6"
       >
         <div class="mx-auto flex w-full max-w-3xl flex-col gap-3 sm:gap-5">
-          <Alert
+          <div
             v-if="lastError"
-            color="error"
-            variant="soft"
-            title="Backend error"
-            :description="lastError"
-          />
+            class="rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive"
+          >
+            <div class="font-medium">Backend error</div>
+            <div class="mt-1 text-xs opacity-90">{{ lastError }}</div>
+          </div>
 
           <section
             v-if="!hasMessages"

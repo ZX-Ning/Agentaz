@@ -189,12 +189,10 @@ onBeforeUnmount(() => {
         >
           <template #content>
             <div class="border-b border-border p-2">
-              <Input
+              <input
                 v-model="modelSearch"
                 placeholder="Search models..."
-                variant="none"
-                size="sm"
-                class="text-xs font-normal"
+                class="flex h-8 w-full rounded-md border border-input bg-transparent px-2 py-1 text-xs font-normal shadow-xs outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring/35"
                 @click.stop
                 @keydown.stop
               />

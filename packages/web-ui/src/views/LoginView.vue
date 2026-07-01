@@ -98,24 +98,24 @@ setDocumentTitle("Agentaz Login");
         </p>
       </div>
 
-      <Alert
+      <div
         v-if="loginError"
-        color="error"
-        variant="soft"
-        title="Login failed"
-        :description="loginError"
-      />
+        class="rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive"
+      >
+        <div class="font-medium">Login failed</div>
+        <div class="mt-1 text-xs opacity-90">{{ loginError }}</div>
+      </div>
 
-      <FormField label="Password">
-        <Input
+      <label class="grid gap-2 text-sm font-medium text-foreground">
+        <span>Password</span>
+        <input
           v-model="password"
           type="password"
           autocomplete="current-password"
-          icon="i-lucide-lock"
           autofocus
-          class="w-full"
+          class="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs outline-none transition-colors placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring/35 disabled:cursor-not-allowed disabled:opacity-50"
         />
-      </FormField>
+      </label>
 
       <Button
         type="submit"

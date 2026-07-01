@@ -7,7 +7,6 @@ import {
     PopoverRoot,
     PopoverTrigger,
 } from "reka-ui";
-import { cn } from "../../../lib/utils";
 
 const props = withDefaults(
     defineProps<{
@@ -62,11 +61,11 @@ const resolvedCollisionPadding = computed(() =>
         :align="resolvedAlign"
         :side-offset="resolvedSideOffset"
         :collision-padding="resolvedCollisionPadding"
-        :class="cn(
+        :class="[
           'z-50 overflow-hidden rounded-lg border border-border bg-popover p-0 text-popover-foreground shadow-xl shadow-foreground/10 outline-none dark:shadow-foreground/10',
           ui?.content,
           contentClass,
-        )"
+        ]"
       >
         <slot name="content" />
         <PopoverArrow class="fill-border" />
