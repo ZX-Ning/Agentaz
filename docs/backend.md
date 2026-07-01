@@ -1,11 +1,8 @@
 # Backend Development Guide
 
-This document describes the Agentaz backend during the Deno/Hono migration.
-
-The migration target is a Deno workspace with a Hono backend package under
-`packages/api`. The legacy Nuxt/Nitro backend under `apps/web/server` remains as
-the current runnable compatibility baseline until the frontend and smoke tests
-are switched over.
+This document describes the Agentaz backend in the Deno workspace. The Hono API
+package lives under `packages/api` and serves the browser-facing HTTP APIs, SSE
+event stream, and optional built frontend assets.
 
 ## Scope
 
@@ -20,12 +17,12 @@ single-user by default:
 - dangerous tool approvals routed to the browser
 
 The product has moved beyond the original MVP planning phase. Treat this guide
-as documentation of the current backend shape and migration target, not as a
-permanent constraint on future server-side multi-session/runtime work.
+as documentation of the current backend shape, not as a permanent constraint on
+future server-side multi-session/runtime work.
 
 ## Main Files
 
-New Deno/Hono package:
+Deno/Hono package:
 
 ```txt
 packages/api/deno.json
@@ -49,23 +46,6 @@ packages/api/src/errors.ts
 packages/protocol/mod.ts
 ```
 
-Legacy Nuxt/Nitro backend, kept during migration:
-
-```txt
-apps/web/server/api/health.get.ts
-apps/web/server/api/agent/
-apps/web/server/api/agent/events.get.ts
-apps/web/server/utils/agent-runtime.ts
-apps/web/server/utils/pi-session-workspace.ts
-apps/web/server/utils/client-presence.ts
-apps/web/server/utils/session-projector.ts
-apps/web/server/utils/agent-event-bus.ts
-apps/web/server/utils/sse-agent-hub.ts
-apps/web/server/utils/extension-ui-context.ts
-apps/web/server/utils/permission-config.ts
-apps/web/types/protocol.ts
-```
-
 ## Runtime Configuration
 
 The Deno/Hono backend reads runtime configuration from environment variables at
@@ -78,7 +58,7 @@ PI_WEB_MAX_LOADED_SESSIONS       defaults to 5
 AGENTAZ_ADMIN_PASSWORD_HASH      required base64(SHA3-256(password-string))
 AGENTAZ_SESSION_SECRET           optional stable Better Auth secret, 32+ chars
 AGENTAZ_PI_NODE_MODULES_DIR       optional preinstalled Pi extension node_modules root
-HOST / DENO_HOST                 used only for non-localhost exposure warnings
+STATIC_FILE_DIR                  optional built SPA directory served by Hono
 ```
 
 Shared runtime constraints:
@@ -92,38 +72,11 @@ Shared runtime constraints:
   package roots into Pi settings when present and falls back to the `npm:`
   package sources when absent.
 - The web UI does not currently switch cwd.
-- Non-localhost bind still warns because the app exposes a powerful single-user
-  coding agent surface.
-
-The legacy Nuxt runtime config currently defines:
-
-```ts
-runtimeConfig: {
-  session: {
-    maxAge: 60 * 60 * 24,
-  },
-  piWeb: {
-    /**
-     * Build-time defaults only. The startup plugin
-     * (server/plugins/startup.ts) reads PI_WEB_CWD,
-     * PI_WEB_APPROVAL_TIMEOUT_MS, and
-     * PI_WEB_MAX_LOADED_SESSIONS at runtime and
-     * overrides these values.
-     */
-    cwd: "",
-    approvalTimeoutMs: 5 * 60 * 1000,
-    maxLoadedSessions: 5,
-  },
-}
-```
-
-**Why not `process.env.PI_WEB_CWD` in nuxt.config.ts?**
-
-Nuxt evaluates `process.env` expressions at build time and bakes the resulting
-value into the build output. Setting `PI_WEB_CWD` at runtime would have no
-effect if the value were read in `nuxt.config.ts`. The startup plugin is
-server-only code that runs at process start, so it reads the runtime environment
-correctly.
+- `STATIC_FILE_DIR`, when set, serves static frontend assets and falls back to
+  `index.html` for browser document routes outside `/api`.
+- The checked-in `deno task serve` binds to `127.0.0.1:3000`. Broader network
+  exposure should be explicit and reviewed because the app exposes a powerful
+  single-user coding agent surface.
 
 Important constraints:
 
@@ -133,8 +86,6 @@ Important constraints:
   across restarts. When provided, it must be at least 32 characters. When
   omitted, startup generates a process-local secret before auth routes are used.
   Do not derive it from the admin password hash.
-- Non-localhost bind still warns because the app exposes a powerful single-user
-  coding agent surface.
 
 ## Authentication
 
@@ -143,11 +94,9 @@ encrypted stateless cookie session. It does not enable Better Auth's
 database-backed users/accounts model. Do not add an auth adapter or database
 unless the product model changes.
 
-Password compatibility with `nuxt-auth-utils` is not required. Better Auth uses
-`AGENTAZ_SESSION_SECRET` when provided. If it is omitted, startup generates a
-process-local secret and existing browser sessions are invalid after restart.
-
-The legacy Nuxt backend uses `nuxt-auth-utils` for encrypted cookie sessions.
+Better Auth uses `AGENTAZ_SESSION_SECRET` when provided. If it is omitted,
+startup generates a process-local secret and existing browser sessions are
+invalid after restart.
 
 Public auth endpoints:
 
@@ -209,7 +158,7 @@ GET /api/agent/events
 ```
 
 The Deno/Hono backend uses Hono streaming helpers to send `text/event-stream`
-formatted data. The legacy Nuxt backend uses h3's `createEventStream`.
+formatted data.
 
 Responsibilities:
 
@@ -233,7 +182,7 @@ The hub is owned by the process-wide `AgentRuntime`. Configuration is
 centralized there:
 
 ```ts
-configureAgentRuntime(options); // Deno startup or legacy Nitro plugin
+configureAgentRuntime(options); // Deno startup
 getAgentRuntime().hub; // routes/helpers
 ```
 
@@ -303,12 +252,6 @@ Protocol types live in:
 
 ```txt
 packages/protocol/mod.ts
-```
-
-While the Nuxt frontend remains, keep the legacy mirror in sync:
-
-```txt
-apps/web/types/protocol.ts
 ```
 
 Rules:
@@ -453,41 +396,31 @@ GET /api/health
 
 This endpoint requires authentication.
 
-Smoke script:
+Backend smoke coverage lives in Deno tests:
 
 ```bash
-pnpm test:api
-pnpm smoke:backend
+deno task test
 ```
 
-The smoke test assumes the dev server is already running. It checks:
+The smoke test starts an in-process Hono server. It checks:
 
 - unauthenticated HTTP and SSE rejection
-- login with `PI_WEB_SMOKE_ADMIN_PASSWORD`
+- login with the test admin password
 - authenticated health endpoint
-- authenticated REST state/history/models/session lifecycle endpoints
+- logout behavior
+- SPA static fallback when `STATIC_FILE_DIR` is set
 
-The running server must be started with an `AGENTAZ_ADMIN_PASSWORD_HASH` value
-matching `PI_WEB_SMOKE_ADMIN_PASSWORD`. If `AGENTAZ_SESSION_SECRET` is omitted,
-the server generates a process-local Better Auth secret and smoke-test login
-still works for that process.
+The test sets `AGENTAZ_ADMIN_PASSWORD_HASH` and `AGENTAZ_SESSION_SECRET`
+directly, so it does not require a separately running dev server.
 
 ## Verification
 
 After backend code changes, run:
 
 ```bash
-pnpm typecheck
+deno task check
+deno task test
 ```
 
-For SSE/protocol changes, also consider:
-
-```bash
-# terminal 1
-pnpm dev
-
-# terminal 2
-pnpm smoke:backend
-```
-
-Run `pnpm build` only when requested or when changing build/runtime packaging.
+Run `deno task build:web-ui` only when requested or when changing frontend
+build/runtime packaging.

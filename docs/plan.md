@@ -15,12 +15,11 @@ current implementation baseline.
 
 - Target: **personal local/server-hosted Pi agent with a Web UI**.
 - Local-first remains the default trust model.
-- Access is protected by single-user admin-password auth. The Deno/Hono
-  migration package uses Better Auth crypto for encrypted stateless cookie
-  sessions.
-- Current runnable app: Nuxt fullstack under `apps/web`.
-- Migration target: Deno workspace with Hono backend under `packages/api` and
-  shared protocol under `packages/protocol`.
+- Access is protected by single-user admin-password auth. The Deno/Hono backend
+  uses Better Auth crypto for encrypted stateless cookie sessions.
+- Current runnable app: Deno workspace with Hono backend under `packages/api`,
+  Vite/Vue frontend under `packages/web-ui`, and shared protocol under
+  `packages/protocol`.
 - The browser UI talks to the server over HTTP APIs plus an SSE event stream.
 - Multi-user auth, accounts, team concepts, and SaaS behavior are not confirmed
   goals.
@@ -39,7 +38,6 @@ current implementation baseline.
 - Better Auth uses `AGENTAZ_SESSION_SECRET` for cookie token encryption. If
   omitted, startup generates a process-local secret and browser sessions are
   invalid after restart.
-- The legacy Nuxt app uses `NUXT_SESSION_PASSWORD` for `nuxt-auth-utils`.
 - All existing app API endpoints are protected, including `GET /api/health` and
   `GET /api/agent/events`. The only public API endpoints are login and the
   session discovery endpoint required by the frontend.
@@ -53,15 +51,13 @@ current implementation baseline.
 
 ### Process And Repository Shape
 
-- Use Deno workspaces for migration packages and keep the pnpm/Nuxt app during
-  the transition.
-- New backend package: `packages/api`, using Hono route modules mounted under
+- Use Deno workspaces.
+- Backend package: `packages/api`, using Hono route modules mounted under
   `/api`.
+- Frontend package: `packages/web-ui`, using Vite/Vue.
 - Shared protocol package: `packages/protocol`.
-- Legacy fullstack app: `apps/web`.
 - Keep Pi SDK integration server-side only.
-- Keep browser/server protocol types in `packages/protocol/mod.ts`; mirror to
-  `apps/web/types/protocol.ts` while the Nuxt frontend remains.
+- Keep browser/server protocol types in `packages/protocol/mod.ts`.
 - Keep Deno backend code organized under
   `packages/api/src/{auth,http,routes,runtime,pi,extensions}`.
 
@@ -84,19 +80,16 @@ packages/api/src/extensions/permission-config.ts
 packages/protocol/mod.ts
 ```
 
-Legacy Nuxt backend pieces kept until migration completes:
+Important Vite/Vue frontend pieces:
 
 ```txt
-apps/web/server/api/agent/                HTTP agent API routes
-apps/web/server/api/agent/events.get.ts   SSE streaming endpoint
-apps/web/server/utils/agent-runtime.ts
-apps/web/server/utils/pi-session-workspace.ts
-apps/web/server/utils/client-presence.ts
-apps/web/server/utils/session-projector.ts        state snapshot projection helpers
-apps/web/server/utils/agent-event-bus.ts
-apps/web/server/utils/sse-agent-hub.ts
-apps/web/server/utils/extension-ui-context.ts
-apps/web/server/utils/permission-config.ts
+packages/web-ui/src/app.vue
+packages/web-ui/src/main.ts
+packages/web-ui/src/views/AgentWorkspaceView.vue
+packages/web-ui/src/views/LoginView.vue
+packages/web-ui/src/components/
+packages/web-ui/src/composables/
+packages/web-ui/src/assets/css/main.css
 ```
 
 ### Transport
@@ -236,16 +229,13 @@ raw Pi SDK objects.
 ## 3. Architecture
 
 ```txt
-Browser / Nuxt Frontend
+Browser / Vite/Vue Frontend
   ├─ HTTP client for actions and snapshots
   ├─ SSE event subscriber
   ├─ Session/sidebar state
   ├─ Transcript state
   ├─ Model/thinking controls
   └─ Approval response UI
-
-Nuxt/Nitro Server
-  └─ Legacy compatibility backend while migration is in progress
 
 Deno/Hono API Server
   ├─ HTTP agent routes
@@ -277,12 +267,6 @@ Protocol types live in:
 
 ```txt
 packages/protocol/mod.ts
-```
-
-Legacy mirror while Nuxt remains:
-
-```txt
-apps/web/types/protocol.ts
 ```
 
 ### HTTP DTOs
@@ -349,9 +333,9 @@ REST-only data must not be emitted as SSE result events:
 
 ### Included
 
-- Nuxt fullstack app as current compatibility baseline
-- Deno workspace scaffold
-- Hono backend package scaffold under `packages/api`
+- Deno workspace
+- Hono backend package under `packages/api`
+- Vite/Vue frontend package under `packages/web-ui`
 - Shared protocol package under `packages/protocol`
 - startup-specified `cwd`
 - server-side Pi SDK integration
@@ -432,11 +416,11 @@ above when it becomes an accepted implementation decision.
 After normal code edits:
 
 ```bash
-pnpm typecheck
+deno task check
 ```
 
-For protocol/backend changes, with a dev server already running:
+For protocol/backend changes:
 
 ```bash
-pnpm test:api
+deno task test
 ```

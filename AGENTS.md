@@ -7,16 +7,14 @@ Guidance for AI coding agents working in this repository.
 Agentaz is a local-first general purpose / coding agent with a browser UI built
 on top of pi-sdk.
 
-The repository is currently in a backend/frontend split migration:
+The repository is a Deno workspace with a backend/frontend split:
 
-- Current runnable app: Nuxt fullstack app under `apps/web`.
-- Migration target: Deno workspace with shared protocol under
-  `packages/protocol` and Hono backend under `packages/api`.
-- The old Nuxt server code remains as the compatibility baseline until the Hono
-  backend and frontend migration are fully wired.
+- Shared HTTP DTO and SSE protocol types live under `packages/protocol`.
+- The Hono backend lives under `packages/api`.
+- The Vite/Vue frontend lives under `packages/web-ui`.
 
 Docs should distinguish current implementation constraints from future product
-decisions and from in-progress migration scaffolding.
+decisions.
 
 Core architecture:
 
@@ -26,30 +24,27 @@ deno.json                         Deno workspace root
 packages
 ├── protocol/                     Shared HTTP DTO and SSE protocol types
 │   └── mod.ts
-└── api/                          Deno/Hono backend package
+├── api/                          Deno/Hono backend package
+│   ├── src/
+│   │   ├── main.ts               Hono app assembly and runtime startup
+│   │   ├── routes/               Hono route modules mounted under /api
+│   │   ├── auth/                 Better Auth encrypted stateless cookie auth
+│   │   ├── http/                 Hono request/error helpers
+│   │   ├── runtime/              Runtime composition, presence, events, SSE hub
+│   │   ├── pi/                   Pi SDK session workspace/controller
+│   │   ├── extensions/           Extension UI bridge and permission config
+│   │   └── errors.ts             Domain error classes
+│   └── test/                     Deno backend tests
+└── web-ui/                       Vite/Vue frontend package
     └── src/
-        ├── main.ts               Hono app assembly and runtime startup
-        ├── routes/               Hono route modules mounted under /api
-        ├── auth/                 Better Auth encrypted stateless cookie auth
-        ├── http/                 Hono request/error helpers
-        ├── runtime/              Runtime composition, presence, events, SSE hub
-        ├── pi/                   Pi SDK session workspace/controller
-        ├── extensions/           Extension UI bridge and permission config
-        └── errors.ts             Domain error classes
-
-apps/web
-├── app/                         Vue/Nuxt frontend
-├── server/                      Legacy Nitro backend kept during migration
-│   ├── api/agent/               HTTP endpoints for browser actions/snapshots
-│   ├── api/agent/events.get.ts  SSE endpoint for realtime server events
-│   └── utils/
-│       ├── agent-runtime.ts          process-wide runtime composition root
-│       ├── pi-session-workspace.ts   Pi SDK services and loaded-session working set
-│       ├── pi-session-controller.ts  per-loaded-session Pi operation controller
-│       ├── session-projector.ts      browser-facing state snapshots
-│       ├── client-presence.ts        browser focus/control presence
-│       └── sse-agent-hub.ts          SSE subscribers and heartbeat snapshots
-└── types/protocol.ts            HTTP DTOs and SSE event protocol types
+        ├── app.vue               Root app shell and route selection
+        ├── main.ts               Vue app bootstrap and global components
+        ├── views/                Login and agent workspace views
+        ├── components/           Workspace, chat, sidebar, and UI components
+        ├── composables/          API, SSE, session, routing, and UI state
+        ├── assets/css/           Tailwind v4 theme tokens and global CSS
+        ├── types/                Frontend-local TypeScript types
+        └── utils/                Transcript/session list helpers
 
 docs
 ├── plan.md                      confirmed product decisions and baseline
@@ -60,31 +55,22 @@ docs
 
 ## Common Commands
 
-Use Deno for the new packages:
+Use Deno from the repository root:
 
 ```bash
-deno task check # Deno workspace typecheck for packages/api
-deno task test  # Deno tests
-deno task serve # run the Hono API server on 127.0.0.1:8000
+deno task check        # Deno workspace typecheck for API and web UI
+deno task test         # Deno backend tests
+deno task serve        # run the Hono API server on 127.0.0.1:3000
+deno task dev:web-ui   # run the Vite/Vue dev server
+deno task build:web-ui # production frontend build; run only when needed
 ```
 
 If `deno` is not on PATH, use the local installation path for your environment.
 
-Use pnpm from the repository root for the legacy Nuxt app:
-
-```bash
-pnpm dev          # run Nuxt dev server
-pnpm lint         # ESLint; assumes Nuxt has already generated .nuxt/eslint.config.mjs
-pnpm typecheck    # TypeScript/Nuxt typecheck
-pnpm build        # production build; run only when explicitly needed
-pnpm test:api      # REST/SSE smoke test; requires dev server already running
-pnpm smoke:backend # backend smoke test; requires dev server already running
-```
-
-Do not run `pnpm build` by default because it is slower. Run build only when
-requested or when changes affect build/runtime packaging. Do not run `pnpm dev`
-or start the dev server. If needed, ask the user to run them. Do not start a
-Deno server unless the user asks for a runtime smoke test.
+Do not run `deno task build:web-ui` by default because it is slower. Run build
+only when requested or when changes affect build/runtime packaging. Do not run
+`deno task dev:web-ui` or start the dev server unless the user asks. Do not
+start a Deno API server unless the user asks for a runtime smoke test.
 
 ## Development Constraints
 
@@ -104,9 +90,7 @@ Deno server unless the user asks for a runtime smoke test.
 ## Code Style Expectations
 
 - TypeScript everywhere.
-- Keep protocol changes explicit in `packages/protocol/mod.ts`. While the legacy
-  Nuxt app remains, mirror compatible protocol changes in
-  `apps/web/types/protocol.ts`.
+- Keep protocol changes explicit in `packages/protocol/mod.ts`.
 - If adding/changing HTTP DTOs or SSE event shapes, update both frontend
   handling and backend emitters/routes.
 - Prefer small, focused modules under
@@ -115,9 +99,8 @@ Deno server unless the user asks for a runtime smoke test.
 - Hono route files should export route-local `Hono` apps;
   `packages/api/src/main.ts` assembles them and exports the app for
   `deno serve`.
-- If touching the legacy Nuxt backend, keep compatibility edits scoped under
-  `apps/web/server/` and avoid mixing old/new architecture changes in the same
-  commit unless needed.
+- Keep frontend changes scoped under `packages/web-ui/src/` unless docs,
+  protocol, or build configuration also need to change.
 - Keep frontend state simple until there is a strong reason to introduce a
   larger store.
 
@@ -134,7 +117,8 @@ becoming essays.
 
 - Use `deno fmt <file|directory>` for formatting.
 - Format changed files before each commit.
-- Only format files that are part of the current commit; do not bulk-format unrelated files.
+- Only format files that are part of the current commit; do not bulk-format
+  unrelated files.
 
 ## Development Guides
 
@@ -149,8 +133,9 @@ Use `docs/implementation/` for focused implementation notes when the task
 touches extension loading, session performance, or another documented
 investigation.
 
-> **Note**: `docs/implementation/` describes the legacy Nuxt/Nitro architecture.
-> Some content may be outdated; reference with caution.
+> **Note**: `docs/implementation/` mixes current focused notes with historical
+> investigations. Check each document's status before using paths or commands as
+> implementation guidance.
 
 ## Testing / Verification
 
@@ -163,26 +148,13 @@ deno task check
 deno task test
 ```
 
-For legacy Nuxt/frontend edits:
+For frontend-only edits:
 
 ```bash
-pnpm lint
-pnpm typecheck
+deno task check:web-ui
 ```
 
-`pnpm lint` does not run `nuxt prepare`; in a fresh checkout, run
-`pnpm typecheck` or another Nuxt prepare/type generation command first so
-`.nuxt/eslint.config.mjs` exists.
-
-For backend protocol changes, also consider:
-
-```bash
-# terminal 1
-pnpm dev
-
-# terminal 2
-pnpm smoke:backend
-```
+For backend protocol changes, run `deno task check` and `deno task test`.
 
 ## Documentation Updates
 
@@ -198,8 +170,6 @@ Update docs when changing product decisions or architecture:
   concepts.
 - DO NOT add project/cwd switching in the UI.
 - DO NOT remove the Pi permission-system integration.
-- DO NOT delete the legacy Nuxt server/frontend until the Hono backend and
-  frontend migration have replaced it.
 - DO NOT run broad formatting or rewrite unrelated files.
 - DO NOT overwrite existing working-tree changes. If the working tree already
   has large changes, or existing changes would affect the current

@@ -5,11 +5,9 @@ intentionally lightweight and should evolve as the UI becomes more complete.
 
 ## Scope
 
-The new frontend lives in `packages/web-ui` as a Vite/Vue SPA that talks to the
-Deno/Hono backend. The legacy Nuxt app under `apps/web` remains in the
-repository as the compatibility baseline during migration, but new frontend work
-should target `packages/web-ui` unless a task explicitly asks for legacy Nuxt
-behavior. The UI should feel like a simple ChatGPT-style coding assistant:
+The frontend lives in `packages/web-ui` as a Vite/Vue SPA that talks to the
+Deno/Hono backend. The UI should feel like a simple ChatGPT-style coding
+assistant:
 
 - one active chat surface
 - a sidebar for status and sessions
@@ -50,11 +48,15 @@ paths are:
 Unauthenticated app routes redirect to `/login?redirect=<original path>`.
 Successful login returns to a safe same-origin redirect target or `/`.
 
+In development, Vite proxies `/api` to `http://127.0.0.1:3000` by default.
+Override that with `VITE_AGENTAZ_API_TARGET` or `AGENTAZ_API_TARGET` when the
+API server runs elsewhere. `VITE_AGENTAZ_BASE_URL` may be used when the browser
+should call an explicit API base instead of the current origin/base path.
+
 ## Styling and Theme
 
-The new SPA uses shadcn-vue-style local components built on Reka UI. Do not add
-Nuxt UI to `packages/web-ui`; legacy `U*` components should not appear in the
-new package.
+The SPA uses shadcn-vue-style local components built on Reka UI. Do not add Nuxt
+UI or `U*` components to `packages/web-ui`.
 
 Tailwind v4 semantic tokens are defined in:
 
@@ -137,8 +139,8 @@ authentication:
 ```
 
 The browser relies on a same-origin session cookie for both HTTP APIs and the
-SSE request. In the current Nuxt app this is the `nuxt-auth-utils` cookie; the
-Deno/Hono migration package uses Better Auth encrypted stateless cookies.
+SSE request. The Deno/Hono backend uses a Better Auth encrypted stateless
+cookie.
 
 Protocol types live in:
 
@@ -151,7 +153,7 @@ When protocol shapes change:
 1. Update `packages/protocol/mod.ts`.
 2. Update backend HTTP routes and SSE emitters.
 3. Update frontend `apiFetch` calls and event handling.
-4. Consider updating `scripts/smoke-backend.mjs` if handshake or required
+4. Update Deno tests under `packages/api/test/` when handshake or required
    startup events change.
 
 Prompt submissions use protocol v8 turn reconciliation. The browser generates

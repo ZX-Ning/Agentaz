@@ -1,10 +1,11 @@
-# Implementation Notes (Legacy)
+# Implementation Notes
 
-> **Warning**: These documents describe the pre-migration Nuxt/Nitro
-> architecture and may be outdated. Reference with caution.
+> **Note**: This directory mixes current focused notes with historical
+> investigation records. Check each document's status before using paths or
+> commands as implementation guidance.
 
 This directory holds focused notes about specific implementation choices,
-investigations, and operational details from the legacy Nuxt backend era.
+investigations, and operational details.
 
 Use these files for details that are useful to maintainers but too narrow for
 the main product plan or backend/frontend guides. Keep canonical product

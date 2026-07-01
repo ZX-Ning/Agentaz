@@ -9,39 +9,34 @@ message to disappear briefly while the assistant streamed.
 
 ## Backend Smoke
 
-Prerequisite: the dev server is already running. Do not start it from the test
-runner.
+The backend smoke coverage is now part of the Deno API test suite and starts an
+in-process Hono server.
 
 ```bash
-PI_WEB_SMOKE_ADMIN_PASSWORD=test pnpm smoke:backend
+deno task test
 ```
 
 The smoke test covers:
 
 - unauthenticated HTTP and SSE rejection
 - login/logout with the local admin password
-- authenticated health and state reads
-- protocol version on state responses
-- session creation
-- history response shape, including `revision`
-- model and thinking-level endpoints
+- authenticated health reads
+- static SPA fallback when `STATIC_FILE_DIR` is set
 
 Expected result:
 
 ```txt
-[smoke] PASS
+ok | 0 failed
 ```
-
-If the command fails with `ECONNREFUSED`, the dev server is not reachable at
-`http://localhost:3000`. If the server is on another port, set
-`PI_WEB_BASE_URL`.
 
 ## Playwright First-Message Regression
 
-Use `playwright-cli` against the running dev server.
+Use `playwright-cli` against a running frontend. That can be the Vite dev server
+from `deno task dev:web-ui`, or the Hono server on `127.0.0.1:3000` when it is
+serving built assets through `STATIC_FILE_DIR`.
 
 ```bash
-playwright-cli open http://localhost:3000/
+playwright-cli open http://127.0.0.1:5173/
 ```
 
 Log in with the local admin password, then create a new session and send a
@@ -87,8 +82,8 @@ Expected transition pattern:
 [{ "visible": false }, { "visible": true }]
 ```
 
-There must be no later `{ "visible": false }` transition after the message
-first appears.
+There must be no later `{ "visible": false }` transition after the message first
+appears.
 
 ## SSE / History Probe
 
@@ -101,7 +96,7 @@ const OriginalEventSource = window.EventSource;
 window.EventSource = class extends OriginalEventSource {
     constructor(url, init) {
         super(url, init);
-        this.addEventListener("message", ev => {
+        this.addEventListener("message", (ev) => {
             const parsed = JSON.parse(ev.data);
             window.__agentazProbe.events.push({
                 t: Date.now(),
@@ -146,8 +141,7 @@ Expected HTTP behavior:
 
 - one `POST /api/agent/sessions/:sessionId/messages`
 - one `GET /api/agent/sessions/:sessionId/history` after `turn_completed`
-- no transcript history refresh triggered merely by `status` or
-  `state_snapshot`
+- no transcript history refresh triggered merely by `status` or `state_snapshot`
 
 ## Cleanup
 

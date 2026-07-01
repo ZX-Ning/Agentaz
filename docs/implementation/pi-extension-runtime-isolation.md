@@ -1,25 +1,29 @@
-# Pi Extension Runtime Isolation Plan
+# Pi Extension Runtime Isolation Plan (Historical)
 
-This document records the plan to fix recurring stale Pi extension context
-errors in Agentaz. It is intentionally detailed because the issue crosses
-Agentaz session ownership, Pi SDK service reuse, and
+This document records the completed plan that fixed recurring stale Pi extension
+context errors in Agentaz. It is intentionally detailed because the issue
+crossed Agentaz session ownership, Pi SDK service reuse, and
 `@gotgenes/pi-permission-system` timer lifecycle.
+
+The current implementation lives in `packages/api/src/pi/session-workspace.ts`
+and `packages/api/src/pi/session-controller.ts`. Treat the implementation prompt
+near the end of this document as historical context, not current instructions.
 
 ## Problem Summary
 
-Agentaz currently keeps Pi SDK services in a process-wide cached promise inside
-`PiSessionWorkspace`. Multiple loaded sessions then call
+At the time of the investigation, Agentaz kept Pi SDK services in a process-wide
+cached promise inside `PiSessionWorkspace`. Multiple loaded sessions then called
 `createAgentSessionFromServices()` with the same `AgentSessionServices`
 instance. This was introduced for performance: extension loading is expensive,
 and sharing services made subsequent session creation nearly instant.
 
 That optimization is not safe with the current Pi SDK extension runtime model.
 The shared services include a shared `resourceLoader`, and the resource loader's
-loaded extensions share one extension runtime object. Each `AgentSession` creates
-its own `ExtensionRunner`, but those runners are backed by the same extension
-runtime. When one session is disposed, the SDK invalidates that runtime/context.
-Other loaded sessions that still reference the same runtime can then hit stale
-context errors.
+loaded extensions share one extension runtime object. Each `AgentSession`
+creates its own `ExtensionRunner`, but those runners are backed by the same
+extension runtime. When one session is disposed, the SDK invalidates that
+runtime/context. Other loaded sessions that still reference the same runtime can
+then hit stale context errors.
 
 Observed errors:
 
@@ -67,8 +71,8 @@ The relevant SDK/extension behavior is:
   `extensionsResult.runtime` from the shared resource loader.
 - `AgentSession.dispose()` invalidates the extension runner/runtime so later
   accessors throw the stale context error.
-- `@gotgenes/pi-permission-system` starts a `ForwardingManager` interval when
-  it receives a UI-capable `ExtensionContext`.
+- `@gotgenes/pi-permission-system` starts a `ForwardingManager` interval when it
+  receives a UI-capable `ExtensionContext`.
 - The forwarding interval is stopped only when the extension receives
   `session_shutdown`; a direct `session.dispose()` does not emit that event.
 
@@ -211,17 +215,17 @@ await session.extensionRunner.emit({
 ```
 
 is sufficient for normal cleanup. Do not import private SDK internals. If the
-public `extensionRunner` type is not exposed cleanly, keep the call typed through
-the available SDK session type rather than reaching into dist paths.
+public `extensionRunner` type is not exposed cleanly, keep the call typed
+through the available SDK session type rather than reaching into dist paths.
 
-`dispose()` should be idempotent enough for current callers: a second call should
-not throw just because the controller was already cleaned up.
+`dispose()` should be idempotent enough for current callers: a second call
+should not throw just because the controller was already cleaned up.
 
 ### 4. Handle partial initialization failure
 
 `initializeSession()` currently assigns `this.sessionResult` before
-`bindExtensions()`. If `bindExtensions()` or later subscription setup fails,
-the controller can retain a partially initialized session.
+`bindExtensions()`. If `bindExtensions()` or later subscription setup fails, the
+controller can retain a partially initialized session.
 
 Add cleanup around initialization:
 
@@ -365,11 +369,11 @@ Recommended Agentaz behavior checks:
   permission-system extension stale.
 - The previously observed `[unhandledRejection] stale ctx` loop is gone in the
   dispose/eviction/revert paths.
-- `pnpm typecheck` and `pnpm lint` pass.
+- `deno task check` and `deno task test` pass.
 
 ## Implementation Prompt For Another Agent
 
-Use this prompt when handing the implementation to another coding agent:
+Historical prompt used when handing the implementation to another coding agent:
 
 ```txt
 You are working in /home/zxning/code/Agentaz. Read AGENTS.md first and obey it.

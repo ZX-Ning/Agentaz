@@ -11,9 +11,10 @@ This document records how Agentaz currently loads the Pi extensions it needs:
 Agentaz uses Pi-managed packages, not app-level npm dependencies, for these
 extensions.
 
-The extensions are not declared in `apps/web/package.json`. Instead, the backend
-ensures the configured Pi agent directory has global Pi package settings before
-creating Pi SDK services. This matches the Pi CLI default behavior.
+The backend ensures the configured Pi agent directory has global Pi package
+settings before creating Pi SDK services. This matches the Pi CLI default
+behavior and keeps runtime extension discovery in the Pi agent directory rather
+than the web app's source tree.
 
 Default required package sources:
 
@@ -86,17 +87,17 @@ and loads extension entrypoints from the packages' Pi manifests, for example:
 ```
 
 The SDK uses `jiti` to load TypeScript extension entrypoints, so these packages
-do not need to be compiled into Agentaz's Nitro output.
+do not need to be compiled into Agentaz's Hono server bundle.
 
 ## Why This Approach
 
 This matches Pi's native extension lifecycle:
 
 - Pi owns package installation and extension discovery.
-- TypeScript-source Pi packages work without extra Nitro bundling.
+- TypeScript-source Pi packages work without extra Hono server bundling.
 - Package, auth, model, and global extension config state follow the configured
   Pi agent directory.
-- Agentaz no longer relies on `apps/web/node_modules` for runtime extension
+- Agentaz does not rely on frontend package dependencies for runtime extension
   discovery.
 - Agentaz does not create project-local `<cwd>/.pi` files by default.
 
@@ -129,7 +130,7 @@ the extension package is not loaded, the config file has no effect.
 Minimum verification after changes:
 
 ```bash
-pnpm typecheck
+deno task check
 ```
 
 To verify extension loading with an isolated working directory:
@@ -138,7 +139,7 @@ To verify extension loading with an isolated working directory:
 mkdir -p _debug_workspace/workspace _debug_workspace/.pi/agent
 PI_WEB_CWD="$PWD/_debug_workspace/workspace" \
 PI_CODING_AGENT_DIR="$PWD/_debug_workspace/.pi/agent" \
-pnpm dev
+deno task serve
 ```
 
 To verify local preinstalled packages instead of npm installation:
@@ -147,7 +148,7 @@ To verify local preinstalled packages instead of npm installation:
 PI_WEB_CWD="$PWD/_debug_workspace/workspace" \
 PI_CODING_AGENT_DIR="$PWD/_debug_workspace/.pi/agent" \
 AGENTAZ_PI_NODE_MODULES_DIR="/path/to/node_modules" \
-pnpm dev
+deno task serve
 ```
 
 Expected global Pi agent settings:
@@ -174,7 +175,7 @@ _debug_workspace/.pi/agent/npm/node_modules/@gotgenes/pi-permission-system/src/i
 
 Agentaz previously had a partial bundled approach:
 
-- `@juicesharp/rpiv-todo` was listed in `apps/web/package.json`.
+- `@juicesharp/rpiv-todo` was listed in the old app package manifest.
 - `PiSessionWorkspace` resolved the app dependency with
   `require.resolve("@juicesharp/rpiv-todo/package.json")`.
 - The resolved package root was passed through
@@ -189,8 +190,8 @@ That was inconsistent:
 - The TODO extension depended on app `node_modules`.
 - The permission extension only had a config file and was not guaranteed to
   load.
-- Nitro production output did not reliably contain these dynamic extension
-  packages.
+- The old Nitro production output did not reliably contain these dynamic
+  extension packages.
 - Project-local package seeding created `<cwd>/.pi` even though the Pi CLI
   defaults to the global agent directory.
 
@@ -202,13 +203,12 @@ been removed. Agentaz now seeds required packages in `<agentDir>/settings.json`.
 An app-bundled extension strategy is still possible, but it is not the current
 baseline.
 
-That future plan would reintroduce the extension packages as app-level
-dependencies in `apps/web/package.json` and make the production server output
-self-contained.
+That future plan would rely on extension packages as app-level dependencies and
+make the production server output self-contained.
 
 Likely requirements:
 
-1. Add these dependencies back to `apps/web/package.json`:
+1. Add these dependencies to the server package manifest:
 
 ```json
 {
@@ -219,11 +219,11 @@ Likely requirements:
 }
 ```
 
-2. Configure Nitro or a postbuild step to copy the extension packages and their
-   runtime dependency closure into:
+2. Configure the server bundling or a postbuild step to copy the extension
+   packages and their runtime dependency closure into a known runtime directory:
 
 ```txt
-apps/web/.output/server/node_modules/
+build/server/node_modules/
 ```
 
 3. Pass app-bundled package roots to Pi through
