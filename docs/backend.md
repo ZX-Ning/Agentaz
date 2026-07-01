@@ -77,6 +77,7 @@ PI_WEB_APPROVAL_TIMEOUT_MS       defaults to 300000
 PI_WEB_MAX_LOADED_SESSIONS       defaults to 5
 AGENTAZ_ADMIN_PASSWORD_HASH      required base64(SHA3-256(password-string))
 AGENTAZ_SESSION_SECRET           optional stable Better Auth secret, 32+ chars
+AGENTAZ_PI_NODE_MODULES_DIR       optional preinstalled Pi extension node_modules root
 HOST / DENO_HOST                 used only for non-localhost exposure warnings
 ```
 
@@ -86,6 +87,10 @@ Shared runtime constraints:
 - `maxLoadedSessions` limits the in-memory working set. Loaded sessions stay
   resident across focus changes; when the cap is reached, the workspace evicts
   one idle, non-active session before loading another available session.
+- `AGENTAZ_PI_NODE_MODULES_DIR`, when set, points at a `node_modules` directory
+  containing the required Pi extension packages. Agentaz writes those local
+  package roots into Pi settings when present and falls back to the `npm:`
+  package sources when absent.
 - The web UI does not currently switch cwd.
 - Non-localhost bind still warns because the app exposes a powerful single-user
   coding agent surface.

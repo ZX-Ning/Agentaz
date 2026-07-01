@@ -1,18 +1,18 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
+import { dirname, join, resolve } from "node:path";
 
-/**
- * Pi SDK extension packages that Agentaz requires for correct operation.
- *
- * These are automatically added to the Pi agent's settings.json on first startup.
- * Each entry is an npm package specifier that the Pi SDK will resolve and load
- * as an extension:
- *   - @juicesharp/rpiv-todo: Task/todo list management extension.
- *   - @gotgenes/pi-permission-system: Permission gating for tool access.
- */
-const REQUIRED_PI_PACKAGE_SOURCES = [
-    "npm:@juicesharp/rpiv-todo",
-    "npm:@gotgenes/pi-permission-system",
+const REQUIRED_PI_NODE_MODULES_DIR_ENV = "AGENTAZ_PI_NODE_MODULES_DIR";
+
+/** Pi SDK extension packages that Agentaz requires for correct operation. */
+const REQUIRED_PI_PACKAGES = [
+    {
+        name: "@juicesharp/rpiv-todo",
+        npmSource: "npm:@juicesharp/rpiv-todo",
+    },
+    {
+        name: "@gotgenes/pi-permission-system",
+        npmSource: "npm:@gotgenes/pi-permission-system",
+    },
 ] as const;
 
 /**
@@ -24,56 +24,73 @@ type PiSettings = {
     [key: string]: unknown;
 };
 
+type RequiredPackageSource = {
+    /** Package name under node_modules. */
+    name: string;
+    /** Source that should be present in Pi settings. */
+    source: string;
+    /** npm fallback source for diagnostics and managed-source replacement. */
+    npmSource: string;
+    /** Local package root under AGENTAZ_PI_NODE_MODULES_DIR, when configured. */
+    localSource?: string;
+};
+
 /**
  * Ensures Agentaz's required Pi extension packages are listed in the global
  * Pi agent settings.json.
  *
- * This is idempotent and non-destructive:
- *   1. Reads the existing settings.json (treating a missing file as empty).
- *   2. Checks which required packages are missing from the packages array.
- *   3. If all are already present, returns without writing.
- *   4. Otherwise, appends only the missing packages and writes the file.
+ * Source selection:
+ *   - If AGENTAZ_PI_NODE_MODULES_DIR points at a node_modules directory and the
+ *     required package exists there, write that local package path.
+ *   - Otherwise write the package's npm: source so Pi can install it normally.
  *
- * Returns { settingsPath, added } — added is the list of packages that were
- * newly appended (empty when all packages were pre-configured).
+ * This is idempotent and non-destructive for unrelated packages. When the env
+ * var changes, this function replaces Agentaz-managed alternatives for the same
+ * required package (local path <-> npm:) to avoid loading duplicate extensions.
  *
- * Pi SDK package entries support both string and object forms; this function
- * normalizes them to extract the source for comparison but preserves the
- * original format when appending new string entries.
+ * Returns { settingsPath, added } — added is the list of package sources that
+ * were newly appended (empty when all packages were pre-configured).
  */
 export async function ensureRequiredPiPackages(agentDir: string) {
     const settingsPath = join(agentDir, "settings.json");
+    const requiredSources = await resolveRequiredPackageSources();
 
     // Read existing settings (or get empty object if file doesn't exist).
     const settings = await readPiSettings(settingsPath);
-
-    // Normalize existing package entries to extract their source identifiers.
     const packages = settings.packages ?? [];
+
+    const desired = new Set(requiredSources.map((entry) => entry.source));
+
+    // Remove only Agentaz-managed alternatives for these required packages when
+    // they are not the selected source. Preserve every unrelated user package.
+    const keptPackages = packages.filter((entry) => {
+        const source = getPackageSource(entry);
+        return !source || desired.has(source) ||
+            !isRequiredPackageAlternative(source, requiredSources);
+    });
+
     const configured = new Set(
-        packages
-            .map(
-                (
-                    entry,
-                ) => (typeof entry === "string" ? entry : entry.source),
-            )
+        keptPackages
+            .map((entry) => getPackageSource(entry))
             .filter((source): source is string => Boolean(source)),
     );
 
-    // Determine which required packages are missing.
-    const missing = REQUIRED_PI_PACKAGE_SOURCES.filter(
-        (source) => !configured.has(source),
-    );
+    const missing = requiredSources
+        .map((entry) => entry.source)
+        .filter((source) => !configured.has(source));
 
-    // All packages already configured — no write needed.
-    if (missing.length === 0) {
+    const nextPackages = [...keptPackages, ...missing];
+    const changed = missing.length > 0 ||
+        nextPackages.length !== packages.length ||
+        nextPackages.some((entry, index) => entry !== packages[index]);
+
+    if (!changed) {
         return { settingsPath, added: [] as string[] };
     }
 
-    // Merge missing packages into the existing packages array, preserving
-    // the original entries and appending only the new sources.
     const nextSettings: PiSettings = {
         ...settings,
-        packages: [...packages, ...missing],
+        packages: nextPackages,
     };
 
     // Ensure the agent directory exists before writing.
@@ -84,6 +101,91 @@ export async function ensureRequiredPiPackages(agentDir: string) {
     );
 
     return { settingsPath, added: [...missing] };
+}
+
+async function resolveRequiredPackageSources(): Promise<
+    RequiredPackageSource[]
+> {
+    const nodeModulesDir = process.env[REQUIRED_PI_NODE_MODULES_DIR_ENV]
+        ?.trim();
+    if (!nodeModulesDir) {
+        return REQUIRED_PI_PACKAGES.map((pkg) => ({
+            name: pkg.name,
+            source: pkg.npmSource,
+            npmSource: pkg.npmSource,
+        }));
+    }
+
+    const resolvedNodeModulesDir = resolve(nodeModulesDir);
+    return Promise.all(
+        REQUIRED_PI_PACKAGES.map(async (pkg) => {
+            const localSource = join(resolvedNodeModulesDir, pkg.name);
+            if (await isDirectory(localSource)) {
+                return {
+                    name: pkg.name,
+                    source: localSource,
+                    npmSource: pkg.npmSource,
+                    localSource,
+                };
+            }
+
+            console.warn(
+                `[agentaz-server] ${REQUIRED_PI_NODE_MODULES_DIR_ENV} is set, ` +
+                    `but ${pkg.name} was not found at ${localSource}; ` +
+                    `falling back to ${pkg.npmSource}`,
+            );
+            return {
+                name: pkg.name,
+                source: pkg.npmSource,
+                npmSource: pkg.npmSource,
+                localSource,
+            };
+        }),
+    );
+}
+
+function getPackageSource(
+    entry: string | { source?: string; [key: string]: unknown },
+) {
+    return typeof entry === "string" ? entry : entry.source;
+}
+
+function isRequiredPackageAlternative(
+    source: string,
+    requiredSources: RequiredPackageSource[],
+) {
+    return requiredSources.some((entry) =>
+        source === entry.npmSource || source === entry.localSource ||
+        isLocalPackageRootSource(source, entry.name)
+    );
+}
+
+function isLocalPackageRootSource(source: string, packageName: string) {
+    if (
+        source.startsWith("npm:") || source.startsWith("git:") ||
+        /^[a-z]+:\/\//i.test(source)
+    ) {
+        return false;
+    }
+
+    const normalizedSource = source.replaceAll("\\", "/").replace(/\/+$/, "");
+    return normalizedSource === packageName ||
+        normalizedSource.endsWith(`/${packageName}`);
+}
+
+async function isDirectory(path: string) {
+    try {
+        return (await stat(path)).isDirectory();
+    }
+    catch (error) {
+        if (
+            error && typeof error === "object" && "code" in error &&
+            error.code === "ENOENT"
+        ) {
+            return false;
+        }
+        throw error;
+    }
 }
 
 /**

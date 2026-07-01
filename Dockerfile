@@ -16,8 +16,9 @@ COPY --from=base /project/build /app
 
 WORKDIR /app
 
-ENV PI_CODING_AGENT_DIR="/root/.pi/agent"
+ENV PI_CODING_AGENT_DIR="/root/.agentaz/agent"
 ENV PI_WEB_CWD="/root/agentaz-workspace/"
 ENV STATIC_FILE_DIR="/app/dist"
+ENV AGENTAZ_PI_NODE_MODULES_DIR="/app/node_modules"
 
-ENTRYPOINT [ "deno", "serve", "-A", "main.js" , "--host", "0.0.0.0", "--port", "3000"]
+ENTRYPOINT [ "deno", "serve", "--host=0.0.0.0", "--port=3000", "-A", "main.js"]

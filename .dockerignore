@@ -13,3 +13,4 @@ coverage
 _debug*
 dist
 build
+Dockerfile
