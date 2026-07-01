@@ -1,4 +1,5 @@
 import { hashAdminPassword } from "../src/auth/auth.ts";
+import { fileURLToPath } from "node:url";
 
 const ADMIN_PASSWORD = "test-password";
 const SESSION_SECRET = "01234567890123456789012345678901";
@@ -12,6 +13,15 @@ Deno.test({
         sys: ["homedir"],
     },
     fn: runServerSmokeTest,
+});
+
+Deno.test({
+    name: "Static file serving falls back to index.html for SPA routes",
+    permissions: {
+        env: true,
+        read: true,
+    },
+    fn: runStaticFallbackTest,
 });
 
 async function runServerSmokeTest() {
@@ -96,6 +106,31 @@ async function runServerSmokeTest() {
     }
 }
 
+async function runStaticFallbackTest() {
+    const staticDir = fileURLToPath(new URL("../../web-ui", import.meta.url));
+    using _env = withStaticDirEnv(staticDir);
+
+    const { createApp } = await import("../src/main.ts");
+    const app = createApp();
+
+    const login = await app.fetch(
+        new Request("http://agentaz.test/login", {
+            headers: { accept: "text/html" },
+        }),
+    );
+    assertStatus(login, 200);
+    if (!await login.text().then((text) => text.includes("Agentaz"))) {
+        throw new Error("SPA route should return index.html");
+    }
+
+    const asset = await app.fetch(
+        new Request("http://agentaz.test/missing.js", {
+            headers: { accept: "*/*" },
+        }),
+    );
+    assertStatus(asset, 404);
+}
+
 async function requestJson(
     baseUrl: string,
     method: string,
@@ -157,6 +192,17 @@ function withAuthEnv() {
         [Symbol.dispose]() {
             restoreEnv("AGENTAZ_ADMIN_PASSWORD_HASH", previousHash);
             restoreEnv("AGENTAZ_SESSION_SECRET", previousSecret);
+        },
+    };
+}
+
+function withStaticDirEnv(staticDir: string) {
+    const previousStaticDir = Deno.env.get("STATIC_FILE_DIR");
+    Deno.env.set("STATIC_FILE_DIR", staticDir);
+
+    return {
+        [Symbol.dispose]() {
+            restoreEnv("STATIC_FILE_DIR", previousStaticDir);
         },
     };
 }
