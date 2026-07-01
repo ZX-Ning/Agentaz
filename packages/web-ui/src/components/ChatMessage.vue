@@ -1,16 +1,7 @@
 <script setup lang="ts">
-import { Comark } from "@comark/vue";
-import math, { Math as ComarkMath } from "@comark/vue/plugins/math";
-import security from "@comark/vue/plugins/security";
-import { computed, onBeforeUnmount, ref } from "vue";
+import { computed, defineAsyncComponent, onBeforeUnmount, ref } from "vue";
 import type { UiBlock, UiMessage } from "@agentaz/protocol";
 import { useToast } from "../composables/app-toast";
-
-type MarkdownNode = string | [
-  string | null,
-  Record<string, unknown>,
-  ...MarkdownNode[],
-];
 
 type ToolCallBlock = Extract<UiBlock, { type: "tool_call" }>;
 type ToolResultBlock = Extract<UiBlock, { type: "tool_result" }>;
@@ -42,47 +33,9 @@ const toast = useToast();
 const articleRef = ref<HTMLElement | null>(null);
 const collapsedStates = ref<Record<string, boolean>>({});
 const hasCopiedMarkdown = ref(false);
-const markdownOptions = { html: false };
-const markdownComponents = { math: ComarkMath };
-const markdownPlugins = [
-  math({ throwOnError: false }),
-  security({
-    allowDataImages: false,
-    allowedProtocols: ["http", "https", "mailto", "tel"],
-    blockedTags: ["iframe", "object", "script", "style"],
-  }),
-  plainMarkdownOnly(),
-];
-const allowedMarkdownTags = new Set([
-  "a",
-  "blockquote",
-  "br",
-  "code",
-  "del",
-  "em",
-  "h1",
-  "h2",
-  "h3",
-  "h4",
-  "h5",
-  "h6",
-  "hr",
-  "input",
-  "li",
-  "math",
-  "ol",
-  "p",
-  "pre",
-  "s",
-  "strong",
-  "table",
-  "tbody",
-  "td",
-  "th",
-  "thead",
-  "tr",
-  "ul",
-]);
+const MarkdownContent = defineAsyncComponent(() =>
+  import("./MarkdownContent.vue")
+);
 const renderedBlocks = computed<RenderBlock[]>(() => {
   const resultByCallId = new Map<string, ToolResultBlock>();
   const callIds = new Set<string>();
@@ -380,85 +333,6 @@ onBeforeUnmount(() => {
     window.clearTimeout(copyFeedbackTimer);
   }
 });
-
-function plainMarkdownOnly() {
-  return {
-    name: "agentaz-plain-markdown-only",
-    post(state: { tree: { nodes: MarkdownNode[] } }) {
-      state.tree.nodes = filterMarkdownNodes(state.tree.nodes);
-    },
-  };
-}
-
-function filterMarkdownNodes(nodes: MarkdownNode[]): MarkdownNode[] {
-  return nodes.flatMap((node) => {
-    if (typeof node === "string") {
-      return [node];
-    }
-
-    const [tag, attributes, ...children] = node;
-    if (tag === null) {
-      return [];
-    }
-
-    const filteredChildren = filterMarkdownNodes(children);
-    if (!allowedMarkdownTags.has(tag.toLowerCase())) {
-      return filteredChildren;
-    }
-
-    return [
-      [tag, filterMarkdownAttributes(tag, attributes), ...filteredChildren],
-    ];
-  });
-}
-
-function filterMarkdownAttributes(
-  tag: string,
-  attributes: Record<string, unknown>,
-) {
-  const filtered: Record<string, unknown> = {};
-  if (attributes.$) {
-    filtered.$ = attributes.$;
-  }
-
-  if (tag === "a") {
-    if (typeof attributes.href === "string") {
-      filtered.href = attributes.href;
-    }
-    if (typeof attributes.title === "string") {
-      filtered.title = attributes.title;
-    }
-  }
-
-  if (tag === "code" || tag === "pre") {
-    if (typeof attributes.class === "string") {
-      filtered.class = attributes.class;
-    }
-  }
-
-  if (tag === "math") {
-    if (typeof attributes.class === "string") {
-      filtered.class = attributes.class;
-    }
-    if (typeof attributes.content === "string") {
-      filtered.content = attributes.content;
-    }
-  }
-
-  if (tag === "input") {
-    if (attributes.type === "checkbox") {
-      filtered.type = attributes.type;
-    }
-    if (typeof attributes.checked === "boolean") {
-      filtered.checked = attributes.checked;
-    }
-    if (typeof attributes.disabled === "boolean") {
-      filtered.disabled = attributes.disabled;
-    }
-  }
-
-  return filtered;
-}
 </script>
 
 <template>
@@ -543,14 +417,7 @@ function filterMarkdownAttributes(
               class="min-w-0 text-sm leading-relaxed text-foreground/90 wrap-break-word"
             >
               <Suspense>
-                <Comark
-                  :markdown="block.text"
-                  :options="markdownOptions"
-                  :plugins="markdownPlugins"
-                  :components="markdownComponents"
-                  streaming
-                  class="agentaz-markdown max-w-full [&>*:first-child]:mt-0 [&>*:last-child]:mb-0 [&_.math.block]:my-2 [&_.math.block]:max-w-full [&_.math.block]:overflow-x-auto [&_a]:wrap-break-word [&_code]:wrap-break-word [&_li]:my-0.5 [&_ol]:my-2 [&_ol]:pl-5 [&_p]:my-2 [&_pre]:my-2 [&_pre]:max-w-full [&_pre]:overflow-x-auto [&_pre]:whitespace-pre-wrap [&_pre]:wrap-break-word [&_ul]:my-2 [&_ul]:pl-5"
-                />
+                <MarkdownContent :markdown="block.text" />
                 <template #fallback>
                   <div
                     class="agentaz-markdown max-w-full whitespace-pre-wrap wrap-break-word"
