@@ -4,9 +4,7 @@ import { Toaster } from "vue-sonner";
 import { useRoute, useRouter } from "./composables/app-route";
 import { useUserSession } from "./composables/app-session";
 
-const LoginView = defineAsyncComponent(() =>
-  import("./views/LoginView.vue")
-);
+const LoginView = defineAsyncComponent(() => import("./views/LoginView.vue"));
 
 const AgentWorkspaceView = defineAsyncComponent(() =>
   import("./views/AgentWorkspaceView.vue")

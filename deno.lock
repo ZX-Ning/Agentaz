@@ -4,6 +4,7 @@
     "jsr:@hono/hono@^4.12.0": "4.12.27",
     "npm:@comark/vue@*": "0.4.0_katex@0.16.47_shiki@4.3.0_vue@3.5.39__typescript@6.0.3",
     "npm:@comark/vue@0.4": "0.4.0_katex@0.16.47_shiki@4.3.0_vue@3.5.39__typescript@6.0.3",
+    "npm:@comark/vue@0.4.0": "0.4.0_katex@0.16.47_shiki@4.3.0_vue@3.5.39__typescript@6.0.3",
     "npm:@earendil-works/pi-coding-agent@~0.80.2": "0.80.2_zod@4.4.3",
     "npm:@fontsource-variable/ibm-plex-sans@^5.2.8": "5.2.8",
     "npm:@gotgenes/pi-permission-system@18": "18.0.0_@earendil-works+pi-coding-agent@0.80.2__zod@4.4.3_zod@4.4.3",

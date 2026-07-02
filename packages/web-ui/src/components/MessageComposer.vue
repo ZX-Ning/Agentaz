@@ -186,9 +186,9 @@ onBeforeUnmount(() => {
     />
 
     <div
-      class="flex min-h-10 items-center justify-between gap-1.5 border-t border-border px-2 py-1 sm:min-h-11 sm:gap-2 sm:px-2.5 sm:py-1.5"
+      class="grid min-h-10 grid-cols-[minmax(0,1fr)_auto] items-center gap-1.5 border-t border-border px-2 py-1 sm:min-h-11 sm:gap-2 sm:px-2.5 sm:py-1.5"
     >
-      <div class="flex min-w-0 flex-1 items-center gap-1">
+      <div class="flex min-w-0 flex-wrap items-center gap-1">
         <Popover
           :open="isModelMenuOpen"
           :content="{
@@ -198,7 +198,7 @@ onBeforeUnmount(() => {
             collisionPadding: 12,
           }"
           :modal="false"
-          class="min-w-0 flex-1 sm:flex-[1_1_16rem] sm:max-w-96"
+          class="min-w-40 flex-[1_1_12rem] sm:flex-[1_1_16rem] sm:max-w-96"
           :ui="{
             content:
               'w-[min(30rem,calc(100vw-2rem))] overflow-hidden rounded-lg border border-border bg-popover p-0 text-popover-foreground shadow-xl shadow-foreground/10 dark:shadow-foreground/10',
@@ -258,23 +258,20 @@ onBeforeUnmount(() => {
             </div>
           </template>
 
-          <Button
+          <button
             type="button"
-            color="neutral"
-            variant="ghost"
-            trailing-icon="i-lucide-chevron-down"
             :disabled="
               props.modelOptions.length === 0 ||
               !props.isConnected ||
               props.isSubmitting
             "
-            class="w-full min-w-0 justify-start bg-transparent px-2 py-1 text-xs font-normal text-foreground hover:bg-accent hover:text-accent-foreground disabled:opacity-60"
-            :ui="{
-              label: 'min-w-0 truncate whitespace-nowrap font-normal',
-            }"
+            class="inline-flex h-8 w-full min-w-0 items-center justify-between gap-2 rounded-md bg-transparent px-2 text-xs font-normal text-foreground outline-none hover:bg-accent hover:text-accent-foreground focus-visible:ring-2 focus-visible:ring-ring/35 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {{ selectedModelLabel }}
-          </Button>
+            <span class="min-w-0 truncate whitespace-nowrap font-normal">
+              {{ selectedModelLabel }}
+            </span>
+            <AppIcon name="i-lucide-chevron-down" class="size-3.5 opacity-70" />
+          </button>
         </Popover>
 
         <AppSelect
@@ -287,14 +284,10 @@ onBeforeUnmount(() => {
             !props.isConnected ||
             props.isSubmitting
           "
-          color="neutral"
-          variant="ghost"
-          size="sm"
-          class="w-20 shrink-0 text-xs font-normal text-foreground sm:w-28"
+          class="min-w-40 flex-[1_1_12rem] sm:flex-[1_1_16rem] sm:max-w-96"
           :ui="{
-            base: 'bg-transparent text-xs font-normal text-foreground hover:bg-accent hover:text-accent-foreground focus-visible:ring-ring/35 disabled:opacity-60',
-            content: 'bg-popover text-popover-foreground border-border',
-            item: 'text-xs font-normal text-foreground hover:bg-accent hover:text-accent-foreground data-[state=checked]:bg-accent data-[state=checked]:text-accent-foreground',
+            trigger: 'w-full font-normal disabled:opacity-60',
+            item: 'data-[state=checked]:bg-accent data-[state=checked]:text-accent-foreground',
           }"
           @update:model-value="emit('thinking-select', $event)"
         />
@@ -317,7 +310,7 @@ onBeforeUnmount(() => {
           (props.isSubmitting && !props.isStreaming) ||
           (!props.isStreaming && !props.promptText.trim())
         "
-        class="shrink-0 bg-primary px-2.5 py-1.5 text-xs font-normal text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+        class="self-center bg-primary px-2.5 py-1.5 text-xs font-normal text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
       >
         <span
           class="hidden sm:inline">{{ props.isStreaming ? "Stop" : "Send" }}</span>

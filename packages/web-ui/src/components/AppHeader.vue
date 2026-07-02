@@ -35,7 +35,7 @@ const isStatusMenuOpen = ref(false);
 const isContextMenuOpen = ref(false);
 const isMobileActionsOpen = ref(false);
 const colorMode = useColorMode();
-const isDark = computed(() => colorMode.value === "dark");
+const { isDark, toggle: toggleTheme } = colorMode;
 const statusColor = computed(() => {
   if (props.status === "connected") {
     return "success";
@@ -60,10 +60,6 @@ const statusLabel = computed(() => {
   }
   return "Disconnected";
 });
-
-function toggleTheme() {
-  colorMode.preference = isDark.value ? "light" : "dark";
-}
 
 function toggleAutoStickToBottom() {
   emit("update:autoStickToBottom", !props.autoStickToBottom);

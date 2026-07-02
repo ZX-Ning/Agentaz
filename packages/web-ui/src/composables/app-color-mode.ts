@@ -14,6 +14,13 @@ export function initColorMode() {
 }
 
 export function useColorMode() {
+    const isDark = computed(() => state.preference === "dark");
+    const setPreference = (value: string) => {
+        state.preference = value;
+        localStorage.setItem(storageKey, value);
+        applyColorMode(value);
+    };
+
     return {
         get value() {
             return state.preference;
@@ -22,10 +29,11 @@ export function useColorMode() {
             return state.preference;
         },
         set preference(value: string) {
-            state.preference = value;
-            localStorage.setItem(storageKey, value);
-            applyColorMode(value);
+            setPreference(value);
         },
-        isDark: computed(() => state.preference === "dark"),
+        isDark,
+        toggle() {
+            setPreference(isDark.value ? "light" : "dark");
+        },
     };
 }

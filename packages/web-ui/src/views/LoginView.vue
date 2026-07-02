@@ -12,11 +12,11 @@ const { fetch: refreshUserSession } = useUserSession();
 const route = useRoute();
 const router = useRouter();
 const colorMode = useColorMode();
+const { isDark, toggle: toggleTheme } = colorMode;
 
 const password = ref("");
 const isLoggingIn = ref(false);
 const loginError = ref<string | null>(null);
-const isDark = computed(() => colorMode.value === "dark");
 const safeLoginRedirect = computed(() => {
   const rawRedirect = route.query.redirect;
   const redirect = Array.isArray(rawRedirect) ? rawRedirect[0] : rawRedirect;
@@ -30,10 +30,6 @@ const safeLoginRedirect = computed(() => {
   }
   return "/";
 });
-
-function toggleTheme() {
-  colorMode.preference = isDark.value ? "light" : "dark";
-}
 
 async function login() {
   const body: AuthLoginRequest = { password: password.value };

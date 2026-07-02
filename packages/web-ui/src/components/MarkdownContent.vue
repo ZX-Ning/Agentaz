@@ -247,6 +247,8 @@ function filterShikiStyle(style: string) {
       .test(
         declaration,
       ) ||
+    /^--shiki-dark:\s*(?:#[\da-fA-F]{3,8}|rgb\([^)]+\)|rgba\([^)]+\)|oklch\([^)]+\))$/
+      .test(declaration) ||
     /^font-style:\s*(?:normal|italic)$/.test(declaration) ||
     /^font-weight:\s*(?:[1-9]00|normal|bold)$/.test(declaration) ||
     /^text-decoration:\s*(?:none|underline|line-through)$/.test(declaration)
