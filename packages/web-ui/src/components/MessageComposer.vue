@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref } from "vue";
+import { computed, nextTick, onBeforeUnmount, ref } from "vue";
+import type { ComponentPublicInstance } from "vue";
 import type { ThinkingLevel } from "@agentaz/protocol";
 
 type ModelOption = {
@@ -38,6 +39,7 @@ const composerHeight = ref<number | null>(null);
 const isResizing = ref(false);
 const isModelMenuOpen = ref(false);
 const modelSearch = ref("");
+const selectedModelOptionRef = ref<HTMLElement | null>(null);
 const dragStartY = ref(0);
 const dragStartHeight = ref(0);
 const minHeight = 48;
@@ -71,14 +73,21 @@ const filteredModelOptions = computed(() => {
   });
 });
 
-const visibleModelOptions = computed(() =>
-  filteredModelOptions.value.slice(0, maxVisibleModels)
-);
+const isModelSearchActive = computed(() => modelSearch.value.trim() !== "");
+const visibleModelOptions = computed(() => {
+  if (!isModelSearchActive.value) {
+    return props.modelOptions;
+  }
+
+  return filteredModelOptions.value.slice(0, maxVisibleModels);
+});
 const hiddenModelCount = computed(() =>
-  Math.max(
-    0,
-    filteredModelOptions.value.length - visibleModelOptions.value.length,
-  )
+  isModelSearchActive.value
+    ? Math.max(
+      0,
+      filteredModelOptions.value.length - visibleModelOptions.value.length,
+    )
+    : 0
 );
 const shouldBlockSubmit = computed(
   () => props.isSubmitting && !props.isStreaming,
@@ -147,7 +156,27 @@ function onModelMenuOpenChange(open: boolean) {
   isModelMenuOpen.value = open;
   if (open) {
     modelSearch.value = "";
+    selectedModelOptionRef.value = null;
+    nextTick(scrollSelectedModelIntoView);
   }
+}
+
+function scrollSelectedModelIntoView() {
+  selectedModelOptionRef.value?.scrollIntoView({
+    block: "center",
+  });
+}
+
+function setModelOptionRef(
+  element: Element | ComponentPublicInstance | null,
+  value: string,
+) {
+  if (value !== props.selectedModelKey) {
+    return;
+  }
+  selectedModelOptionRef.value = element instanceof HTMLElement
+    ? element
+    : null;
 }
 
 function selectModel(value: string) {
@@ -220,6 +249,7 @@ onBeforeUnmount(() => {
               <button
                 v-for="option in visibleModelOptions"
                 :key="option.value"
+                :ref="(element) => setModelOptionRef(element, option.value)"
                 type="button"
                 class="flex w-full min-w-0 items-center gap-2 rounded-md px-3 py-2 text-left text-xs font-normal text-foreground hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground focus-visible:outline-none"
                 @click="selectModel(option.value)"

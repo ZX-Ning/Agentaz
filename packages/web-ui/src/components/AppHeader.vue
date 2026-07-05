@@ -164,38 +164,40 @@ const isCompactDisabled = computed(
         @clear-queue="emit('clearQueue')"
       />
 
-      <Button
-        type="button"
-        color="neutral"
-        variant="ghost"
-        icon="i-lucide-arrow-down-to-line"
-        size="sm"
-        :aria-pressed="autoStickToBottom"
-        aria-label="Keep transcript at bottom"
-        class="hidden text-foreground hover:bg-accent hover:text-accent-foreground sm:inline-flex"
-        :class="
-          autoStickToBottom ? 'bg-accent shadow-inner shadow-primary' : ''
-        "
-        @click="toggleAutoStickToBottom"
-      />
+      <div class="hidden items-center gap-1 lg:flex lg:gap-2">
+        <Button
+          type="button"
+          color="neutral"
+          variant="ghost"
+          icon="i-lucide-arrow-down-to-line"
+          size="sm"
+          :aria-pressed="autoStickToBottom"
+          aria-label="Keep transcript at bottom"
+          class="text-foreground hover:bg-accent hover:text-accent-foreground"
+          :class="
+            autoStickToBottom ? 'bg-accent shadow-inner shadow-primary' : ''
+          "
+          @click="toggleAutoStickToBottom"
+        />
 
-      <Button
-        color="neutral"
-        variant="ghost"
-        :icon="isDark ? 'i-lucide-sun' : 'i-lucide-moon'"
-        size="sm"
-        class="hidden text-foreground hover:bg-accent hover:text-accent-foreground sm:inline-flex"
-        @click="toggleTheme"
-      />
+        <Button
+          color="neutral"
+          variant="ghost"
+          :icon="isDark ? 'i-lucide-sun' : 'i-lucide-moon'"
+          size="sm"
+          class="text-foreground hover:bg-accent hover:text-accent-foreground"
+          @click="toggleTheme"
+        />
 
-      <Button
-        color="neutral"
-        variant="ghost"
-        icon="i-lucide-log-out"
-        size="sm"
-        class="hidden text-foreground hover:bg-accent hover:text-accent-foreground sm:inline-flex"
-        @click="emit('logout')"
-      />
+        <Button
+          color="neutral"
+          variant="ghost"
+          icon="i-lucide-log-out"
+          size="sm"
+          class="text-foreground hover:bg-accent hover:text-accent-foreground"
+          @click="emit('logout')"
+        />
+      </div>
 
       <Popover
         :open="isMobileActionsOpen"
@@ -206,7 +208,7 @@ const isCompactDisabled = computed(
           collisionPadding: 12,
         }"
         :modal="false"
-        class="sm:hidden"
+        class="lg:hidden"
         :ui="{
           content:
             'w-72 overflow-hidden rounded-lg border border-border bg-popover p-1 text-popover-foreground shadow-xl shadow-foreground/10 dark:shadow-foreground/10',
