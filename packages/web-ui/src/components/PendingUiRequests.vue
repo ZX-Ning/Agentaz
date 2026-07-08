@@ -8,6 +8,22 @@ defineProps<{
 const emit = defineEmits<{
   (event: "respond", request: PendingUiRequest, value?: string | boolean): void;
 }>();
+
+const messagePreviewLimit = 1200;
+
+/** Keeps approval prompts readable when a tool asks to run a very long command. */
+function messagePreview(message: string) {
+  if (message.length <= messagePreviewLimit) {
+    return message;
+  }
+  return `${message.slice(0, messagePreviewLimit)}\n... truncated ${
+    message.length - messagePreviewLimit
+  } characters`;
+}
+
+function isLongMessage(message: string) {
+  return message.length > messagePreviewLimit;
+}
 </script>
 
 <template>
@@ -24,12 +40,23 @@ const emit = defineEmits<{
       class="space-y-2 rounded-lg border border-border p-3 text-sm"
     >
       <div class="font-medium">{{ request.title }}</div>
-      <p
+      <div
         v-if="request.type === 'ui_confirm_request' && request.message"
-        class="whitespace-pre-wrap text-xs text-muted-foreground"
+        class="max-h-48 overflow-auto rounded-md border border-border bg-muted/50 p-2 font-mono text-[11px] leading-5 whitespace-pre-wrap break-words text-muted-foreground"
       >
-        {{ request.message }}
-      </p>
+        {{ messagePreview(request.message) }}
+      </div>
+      <details
+        v-if="request.type === 'ui_confirm_request' && isLongMessage(request.message)"
+        class="text-xs text-muted-foreground"
+      >
+        <summary class="cursor-pointer select-none text-card-foreground">
+          Show full request
+        </summary>
+        <pre
+          class="mt-2 max-h-72 overflow-auto rounded-md border border-border bg-muted/50 p-2 font-mono text-[11px] leading-5 whitespace-pre-wrap break-words text-muted-foreground"
+        >{{ request.message }}</pre>
+      </details>
       <p
         v-if="request.type === 'ui_input_request' && request.placeholder"
         class="text-xs text-muted-foreground"
