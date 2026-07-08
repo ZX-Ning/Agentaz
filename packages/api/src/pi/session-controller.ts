@@ -1,11 +1,17 @@
 import {
+    type AgentSessionEvent,
     type AgentSessionServices,
     type AuthStorage,
+    type CompactionEntry,
     type CompactionResult,
     createAgentSessionFromServices,
     type CreateAgentSessionResult,
+    type ExtensionUIContext,
     type ModelRegistry,
+    type SessionEntry,
+    type SessionInfo,
     SessionManager,
+    type SessionMessageEntry,
 } from "@earendil-works/pi-coding-agent";
 import type {
     ImagePayload,
@@ -49,9 +55,45 @@ export interface PiSessionControllerHost {
  * automatically when the session becomes idle (via applyPendingSettingsIfIdle).
  */
 type PendingSettings = {
-    model?: any;
+    model?: PiModel;
     thinkingLevel?: ThinkingLevel;
 };
+
+type PiModel = NonNullable<
+    ReturnType<ReturnType<typeof ModelRegistry.create>["find"]>
+>;
+
+type LooseRecord = Record<string, unknown>;
+
+type SessionTranscriptEntry = SessionMessageEntry | CompactionEntry;
+type PersistedMessage = LooseRecord & {
+    id?: string;
+    role?: unknown;
+    content?: unknown;
+    createdAt?: unknown;
+    timestamp?: unknown;
+};
+type HistoryItem = PersistedMessage | CompactionEntry;
+type PiImagePayload = {
+    type: "image";
+    data: string;
+    mimeType: string;
+};
+type SessionSummaryInfo =
+    & SessionInfo
+    & Partial<{
+        file: string;
+        sessionFile: string;
+        sessionId: string;
+        createdAt: unknown;
+        updatedAt: unknown;
+        mtimeMs: unknown;
+        preview: string;
+    }>;
+type LegacyToolSessionEvent = LooseRecord & {
+    type: "tool_start" | "tool_update" | "tool_end";
+};
+type SessionControllerEvent = AgentSessionEvent | LegacyToolSessionEvent;
 
 /**
  * Runtime location of a tool call block in the canonical transcript projection.
@@ -200,7 +242,7 @@ export class PiSessionController {
      * session file already exists. The SessionManager is opened directly from
      * the file path, and the controller is initialized from that manager.
      */
-    static async open(options: {
+    static open(options: {
         cwd: string;
         agentDir: string;
         authStorage: ReturnType<typeof AuthStorage.create>;
@@ -655,25 +697,25 @@ export class PiSessionController {
         }
         const branchEntries = this.requireSessionManager()
             .getBranch()
-            .filter((entry: any) => entry.id);
+            .filter((entry): entry is SessionEntry => Boolean(entry.id));
         const entryIdByMessageId = new Map<string, string>();
         const entryIdByMessageIndex = new Map<number, string>();
         const rewindEntryIdByMessageId = new Map<string, string>();
         const rewindEntryIdByMessageIndex = new Map<number, string>();
         const transcriptEntries = branchEntries.filter(
-            (entry: any) =>
+            (entry): entry is SessionTranscriptEntry =>
                 entry.type === "message" || entry.type === "compaction",
         );
 
         const historyItems = transcriptEntries.map(
-            (entry: any, index: number) => {
+            (entry, index): HistoryItem => {
                 if (entry.type === "compaction") {
                     return entry;
                 }
 
-                const message = entry.message;
+                const message = asRecord(entry.message) as PersistedMessage;
                 const branchIndex = branchEntries.findIndex(
-                    (branchEntry: any) => branchEntry.id === entry.id,
+                    (branchEntry) => branchEntry.id === entry.id,
                 );
                 const rewindEntryId = branchEntries[branchIndex - 1]?.id;
                 if (message?.id) {
@@ -696,7 +738,7 @@ export class PiSessionController {
         this.cachedHistory = {
             sessionId: this.sessionId,
             revision: this.transcriptRevision,
-            messages: normalizeMessages(historyItems as any[], {
+            messages: normalizeMessages(historyItems, {
                 entryIdByMessageId,
                 entryIdByMessageIndex,
                 rewindEntryIdByMessageId,
@@ -713,7 +755,7 @@ export class PiSessionController {
      * first fork/revert picker is a linear current-history picker, so abandoned
      * branches stay server-side until there is an explicit tree UI.
      */
-    getEntries(): any[] {
+    getEntries(): SessionEntry[] {
         return this.requireSessionManager().getBranch();
     }
 
@@ -828,11 +870,9 @@ export class PiSessionController {
         );
 
         try {
-            // Bind extensions with the UI context and an error handler.
-            // The uiContext is cast to any because the Pi SDK's ExtensionUIContext
-            // interface isn't fully imported at the type level.
+            // Bind extensions with the browser-backed UI context and an error handler.
             await session.bindExtensions({
-                uiContext: this.uiContext as any,
+                uiContext: this.uiContext as ExtensionUIContext,
                 onError: (error) => {
                     console.error("[agentaz-server] extension error", error);
                     this.host.emit({
@@ -848,9 +888,9 @@ export class PiSessionController {
 
             // Subscribe to all session events for transcript streaming.
             // The unsubscribe function is stored for cleanup on dispose.
-            this.unsubscribe = session.subscribe((event) =>
-                this.onSessionEvent(event as any)
-            );
+            this.unsubscribe = session.subscribe((event) => {
+                this.onSessionEvent(event);
+            });
         }
         catch (error) {
             // If bindExtensions or subscribe fails after extensions were partially
@@ -919,7 +959,7 @@ export class PiSessionController {
      *   - thinking_level_changed: Update the frontend status.
      *   - session_info_changed: Notify the workspace to refresh persisted metadata.
      */
-    private onSessionEvent(event: any) {
+    private onSessionEvent(event: SessionControllerEvent) {
         try {
             const sessionId = this.sessionId;
             switch (event.type) {
@@ -1021,17 +1061,20 @@ export class PiSessionController {
      * normalize by checking for assistantMessageEvent first (newer shape),
      * then fall back to messageEvent for backward compatibility.
      */
-    private forwardMessageUpdate(sessionId: string, event: any) {
-        const messageEvent = event.assistantMessageEvent ??
-            event.messageEvent ?? event;
+    private forwardMessageUpdate(sessionId: string, event: unknown) {
+        const eventRecord = asRecord(event);
+        const messageEvent = asRecord(
+            eventRecord.assistantMessageEvent ?? eventRecord.messageEvent ??
+                event,
+        );
 
         // Text delta: append to the current text block in the transcript.
         if (messageEvent.type === "text_delta") {
             this.appendAssistantBlockDelta(
                 sessionId,
-                event.messageId,
+                stringOrUndefined(eventRecord.messageId),
                 "text",
-                messageEvent.delta ?? "",
+                stringOrEmpty(messageEvent.delta),
             );
         }
 
@@ -1039,9 +1082,9 @@ export class PiSessionController {
         if (messageEvent.type === "thinking_delta") {
             this.appendAssistantBlockDelta(
                 sessionId,
-                event.messageId,
+                stringOrUndefined(eventRecord.messageId),
                 "thinking",
-                messageEvent.delta ?? "",
+                stringOrEmpty(messageEvent.delta),
             );
         }
     }
@@ -1085,9 +1128,10 @@ export class PiSessionController {
      */
     private upsertToolCallBlock(
         sessionId: string,
-        event: any,
+        event: unknown,
         status: Extract<UiBlock, { type: "tool_call" }>["status"],
     ) {
+        const eventRecord = asRecord(event);
         // Determine the tool call id. Events from different providers use
         // different shapes — toolCallId handles extraction from known fields.
         const toolCallId = this.toolCallId(
@@ -1116,9 +1160,9 @@ export class PiSessionController {
             id: location.callBlockId,
             type: "tool_call",
             toolCallId,
-            toolName: event.toolName ??
-                event.name ??
-                event.tool ??
+            toolName: stringOrUndefined(eventRecord.toolName) ??
+                stringOrUndefined(eventRecord.name) ??
+                stringOrUndefined(eventRecord.tool) ??
                 existing?.toolName ??
                 "tool",
             input: extractToolInput(event) ?? existing?.input,
@@ -1152,15 +1196,15 @@ export class PiSessionController {
      * Tools that do not emit partial results (read, write, edit, etc.) never reach
      * this method, so their behavior is unchanged.
      */
-    private streamToolResultDelta(sessionId: string, event: any) {
-        const partialResult = event.partialResult;
+    private streamToolResultDelta(sessionId: string, event: unknown) {
+        const partialResult = asRecord(event).partialResult;
         if (!partialResult) {
             return;
         }
 
         const toolCallId = this.toolCallId(event, "update");
         const location = this.ensureToolBlockLocation(sessionId, toolCallId);
-        const fullText = flattenText(partialResult.content ?? []);
+        const fullText = flattenText(asRecord(partialResult).content ?? []);
 
         const emitted = this.toolResultEmittedLength.get(toolCallId);
 
@@ -1212,8 +1256,9 @@ export class PiSessionController {
      *   2. Create a tool_result block with summarized output.
      *   3. Clean up anonymous tool call tracking if needed.
      */
-    private completeToolCallBlock(sessionId: string, event: any) {
-        const isError = Boolean(event.isError ?? event.error);
+    private completeToolCallBlock(sessionId: string, event: unknown) {
+        const eventRecord = asRecord(event);
+        const isError = Boolean(eventRecord.isError ?? eventRecord.error);
 
         // Update the tool_call block to its final status.
         this.upsertToolCallBlock(
@@ -1233,8 +1278,11 @@ export class PiSessionController {
         // Truncate long results to 500 chars for browser display.
         // Extract .content from AgentToolResult objects (same shape as partialResult)
         // so that flattenText sees the text array rather than the wrapper object.
-        const rawResult = event.result ?? event.output ?? event.error;
-        const summary = summarizeToolResult(rawResult?.content ?? rawResult);
+        const rawResult = eventRecord.result ?? eventRecord.output ??
+            eventRecord.error;
+        const summary = summarizeToolResult(
+            asRecord(rawResult).content ?? rawResult,
+        );
 
         const resultBlock: UiBlock = {
             id: location.resultBlockId,
@@ -1403,7 +1451,7 @@ export class PiSessionController {
      * identifier. If no id is found, generates a synthetic anonymous id for
      * the duration of the tool execution.
      */
-    private toolCallId(event: any, phase: "start" | "update" | "end") {
+    private toolCallId(event: unknown, phase: "start" | "update" | "end") {
         const explicit = extractToolCallId(event);
         if (explicit) {
             return explicit;
@@ -1557,7 +1605,7 @@ export class PiSessionController {
  * into a flat list of UiBlock objects with stable ids.
  */
 export function normalizeMessages(
-    messages: any[],
+    messages: Array<HistoryItem>,
     options: {
         entryIdByMessageId?: Map<string, string>;
         entryIdByMessageIndex?: Map<number, string>;
@@ -1569,7 +1617,7 @@ export function normalizeMessages(
     let lastAssistant: UiMessage | undefined;
 
     messages.forEach((message, index) => {
-        if (message?.type === "compaction") {
+        if (isCompactionEntry(message)) {
             normalized.push(normalizeCompactionEntry(message, index));
             lastAssistant = undefined;
             return;
@@ -1590,19 +1638,26 @@ export function normalizeMessages(
 
         // Regular message: determine id, role, and blocks once, then either push
         // a new message or merge assistant blocks into the current assistant turn.
-        const messageId = message.id ?? `history-${index}`;
-        const role = normalizeRole(message.role);
+        const messageRecord = asRecord(message) as PersistedMessage;
+        const messageId = messageRecord.id ?? `history-${index}`;
+        const role = normalizeRole(messageRecord.role);
         const uiMessage: UiMessage = {
             id: messageId,
-            entryId: options.entryIdByMessageId?.get(String(message.id)) ??
-                options.entryIdByMessageIndex?.get(index),
+            entryId:
+                options.entryIdByMessageId?.get(String(messageRecord.id)) ??
+                    options.entryIdByMessageIndex?.get(index),
             rewindEntryId: options.rewindEntryIdByMessageId?.get(
-                String(message.id),
+                String(messageRecord.id),
             ) ??
                 options.rewindEntryIdByMessageIndex?.get(index),
             role,
-            blocks: normalizeContent(message.content ?? message, messageId),
-            createdAt: message.createdAt ?? message.timestamp,
+            blocks: normalizeContent(
+                messageRecord.content ?? message,
+                messageId,
+            ),
+            createdAt: toTimestamp(
+                messageRecord.createdAt ?? messageRecord.timestamp,
+            ),
         };
 
         // Streaming presents consecutive Pi SDK assistant messages as one
@@ -1628,8 +1683,15 @@ export function normalizeMessages(
     return normalized;
 }
 
+function isCompactionEntry(value: HistoryItem): value is CompactionEntry {
+    return asRecord(value).type === "compaction";
+}
+
 /** Converts a Pi compaction entry into a durable transcript marker. */
-function normalizeCompactionEntry(entry: any, index: number): UiMessage {
+function normalizeCompactionEntry(
+    entry: CompactionEntry,
+    index: number,
+): UiMessage {
     const messageId = `compaction-${entry.id ?? index}`;
     const tokensBefore = typeof entry.tokensBefore === "number"
         ? entry.tokensBefore.toLocaleString()
@@ -1651,21 +1713,26 @@ function normalizeCompactionEntry(entry: any, index: number): UiMessage {
 }
 
 /** Checks if a message is a tool result (role = "toolResult" or "tool"). */
-function isToolResultMessage(message: any) {
-    return message?.role === "toolResult" || message?.role === "tool";
+function isToolResultMessage(message: unknown) {
+    const record = asRecord(message);
+    return record.role === "toolResult" || record.role === "tool";
 }
 
 /** Creates a synthetic assistant message to host orphan tool results. */
 function createSyntheticAssistantMessage(
-    message: any,
+    message: unknown,
     index: number,
 ): UiMessage {
-    const messageId = `history-tool-host-${message.id ?? index}`;
+    const record = asRecord(message);
+    const messageId = `history-tool-host-${
+        stringOrUndefined(record.id) ?? index
+    }`;
     return {
         id: messageId,
         role: "assistant",
         blocks: [],
-        createdAt: message.createdAt ?? message.timestamp,
+        createdAt: numberOrUndefined(record.createdAt) ??
+            numberOrUndefined(record.timestamp),
     };
 }
 
@@ -1675,12 +1742,14 @@ function createSyntheticAssistantMessage(
  */
 function appendToolResultToMessage(
     message: UiMessage,
-    toolResult: any,
+    toolResult: unknown,
     index: number,
 ) {
+    const toolResultRecord = asRecord(toolResult);
     const toolCallId = extractToolCallId(toolResult) ?? `tool-${index}`;
-    const toolName = toolResult.toolName ?? toolResult.name ??
-        toolResult.tool ?? "tool";
+    const toolName = stringOrUndefined(toolResultRecord.toolName) ??
+        stringOrUndefined(toolResultRecord.name) ??
+        stringOrUndefined(toolResultRecord.tool) ?? "tool";
     const callBlockId = `${message.id}:tool:${toolCallId}:call`;
     const resultBlockId = `${message.id}:tool:${toolCallId}:result`;
 
@@ -1691,7 +1760,7 @@ function appendToolResultToMessage(
         existingCall.id = callBlockId;
         existingCall.toolName = existingCall.toolName || toolName;
         existingCall.input ??= extractToolInput(toolResult);
-        existingCall.status = toolResult.isError ? "error" : "completed";
+        existingCall.status = toolResultRecord.isError ? "error" : "completed";
     }
     else {
         // No existing call block — create one.
@@ -1701,7 +1770,7 @@ function appendToolResultToMessage(
             toolCallId,
             toolName,
             input: extractToolInput(toolResult),
-            status: toolResult.isError ? "error" : "completed",
+            status: toolResultRecord.isError ? "error" : "completed",
         });
     }
 
@@ -1711,7 +1780,8 @@ function appendToolResultToMessage(
         type: "tool_result",
         toolCallId,
         content: normalizeToolResultContent(toolResult),
-        isError: toolResult.isError ?? Boolean(toolResult.error),
+        isError: booleanOrUndefined(toolResultRecord.isError) ??
+            Boolean(toolResultRecord.error),
     };
     const existingIndex = message.blocks.findIndex(
         (block) => block.id === resultBlockId,
@@ -1725,11 +1795,12 @@ function appendToolResultToMessage(
 }
 
 /** Normalizes tool result content into a displayable string. */
-function normalizeToolResultContent(toolResult: any) {
-    const content = toolResult.content ??
-        toolResult.result ??
-        toolResult.output ??
-        toolResult.error ??
+function normalizeToolResultContent(toolResult: unknown) {
+    const record = asRecord(toolResult);
+    const content = record.content ??
+        record.result ??
+        record.output ??
+        record.error ??
         toolResult;
     return flattenText(content);
 }
@@ -1786,7 +1857,7 @@ function normalizeContent(content: unknown, messageId: string): UiBlock[] {
  * unrecognized shapes.
  */
 function normalizeContentPart(
-    part: any,
+    part: unknown,
     messageId: string,
     index: number,
 ): UiBlock | null {
@@ -1795,22 +1866,25 @@ function normalizeContentPart(
         return { id: `${messageId}:text:${index}`, type: "text", text: part };
     }
 
-    const type = part?.type;
+    const record = asRecord(part);
+    const type = record.type;
 
     if (type === "text") {
         return {
-            id: part.id ?? `${messageId}:text:${index}`,
+            id: stringOrUndefined(record.id) ?? `${messageId}:text:${index}`,
             type: "text",
-            text: part.text ?? "",
+            text: stringOrEmpty(record.text),
         };
     }
 
     if (type === "thinking") {
         return {
-            id: part.id ?? `${messageId}:thinking:${index}`,
+            id: stringOrUndefined(record.id) ??
+                `${messageId}:thinking:${index}`,
             type: "thinking",
-            text: part.thinking ?? part.text ?? "",
-            collapsed: part.collapsed ?? true,
+            text: stringOrUndefined(record.thinking) ??
+                stringOrEmpty(record.text),
+            collapsed: booleanOrUndefined(record.collapsed) ?? true,
         };
     }
 
@@ -1821,9 +1895,11 @@ function normalizeContentPart(
             id: `${messageId}:tool:${toolCallId}:call`,
             type: "tool_call",
             toolCallId,
-            toolName: part.toolName ?? part.name ?? part.tool ?? "",
+            toolName: stringOrUndefined(record.toolName) ??
+                stringOrUndefined(record.name) ??
+                stringOrUndefined(record.tool) ?? "",
             input: extractToolInput(part),
-            status: part.status ?? "completed",
+            status: normalizeToolStatus(record.status),
         };
     }
 
@@ -1833,19 +1909,19 @@ function normalizeContentPart(
             id: `${messageId}:tool:${toolCallId}:result`,
             type: "tool_result",
             toolCallId,
-            content: typeof part.content === "string"
-                ? part.content
-                : flattenText(part.content),
-            isError: part.isError ?? false,
+            content: typeof record.content === "string"
+                ? record.content
+                : flattenText(record.content),
+            isError: booleanOrUndefined(record.isError) ?? false,
         };
     }
 
     // Fallback: if the part has a text property, treat it as text.
-    if (part?.text) {
+    if (typeof record.text === "string" && record.text.length > 0) {
         return {
-            id: part.id ?? `${messageId}:text:${index}`,
+            id: stringOrUndefined(record.id) ?? `${messageId}:text:${index}`,
             type: "text",
-            text: part.text,
+            text: record.text,
         };
     }
 
@@ -1856,24 +1932,57 @@ function normalizeContentPart(
 // Utility helpers exported for use by pi-session-workspace and other modules
 // ──────────────────────────────────────────────────────────────────────────
 
+function asRecord(value: unknown): LooseRecord {
+    return value && typeof value === "object" ? value as LooseRecord : {};
+}
+
+function stringOrUndefined(value: unknown): string | undefined {
+    return typeof value === "string" ? value : undefined;
+}
+
+function stringOrEmpty(value: unknown): string {
+    return typeof value === "string" ? value : "";
+}
+
+function numberOrUndefined(value: unknown): number | undefined {
+    return typeof value === "number" ? value : undefined;
+}
+
+function booleanOrUndefined(value: unknown): boolean | undefined {
+    return typeof value === "boolean" ? value : undefined;
+}
+
+function normalizeToolStatus(
+    value: unknown,
+): Extract<UiBlock, { type: "tool_call" }>["status"] {
+    return value === "pending" || value === "running" ||
+            value === "completed" || value === "error" || value === "blocked"
+        ? value
+        : "completed";
+}
+
 /**
  * Extracts a tool call id from any value by probing known field names.
  * Pi SDK events and messages from different providers use different field
  * shapes — this function checks them all.
  */
-export function extractToolCallId(value: any): string | undefined {
-    const id = value?.toolCallId ??
-        value?.tool_call_id ??
-        value?.callID ??
-        value?.callId ??
-        value?.toolUseId ??
-        value?.tool_use_id ??
-        value?.toolCall?.id ??
-        value?.toolCall?.toolCallId ??
-        value?.call?.id ??
-        value?.execution?.toolCallId ??
-        value?.execution?.id ??
-        value?.id;
+export function extractToolCallId(value: unknown): string | undefined {
+    const record = asRecord(value);
+    const toolCall = asRecord(record.toolCall);
+    const call = asRecord(record.call);
+    const execution = asRecord(record.execution);
+    const id = record.toolCallId ??
+        record.tool_call_id ??
+        record.callID ??
+        record.callId ??
+        record.toolUseId ??
+        record.tool_use_id ??
+        toolCall.id ??
+        toolCall.toolCallId ??
+        call.id ??
+        execution.toolCallId ??
+        execution.id ??
+        record.id;
     return id === undefined || id === null || id === ""
         ? undefined
         : String(id);
@@ -1882,14 +1991,16 @@ export function extractToolCallId(value: any): string | undefined {
 /**
  * Extracts tool input/arguments from any value by probing known field names.
  */
-export function extractToolInput(value: any): unknown {
+export function extractToolInput(value: unknown): unknown {
+    const record = asRecord(value);
+    const toolCall = asRecord(record.toolCall);
     return (
-        value?.input ??
-            value?.args ??
-            value?.params ??
-            value?.arguments ??
-            value?.toolInput ??
-            value?.toolCall?.arguments
+        record.input ??
+            record.args ??
+            record.params ??
+            record.arguments ??
+            record.toolInput ??
+            toolCall.arguments
     );
 }
 
@@ -1931,19 +2042,18 @@ export function flattenText(content: unknown): string {
 }
 
 /** Converts ImagePayload to Pi SDK image format (base64 media). */
-export function toPiImages(images?: ImagePayload[]): any[] | undefined {
+export function toPiImages(
+    images?: ImagePayload[],
+): PiImagePayload[] | undefined {
     return images?.map((image) => ({
         type: "image",
-        source: {
-            type: "base64",
-            mediaType: image.mediaType,
-            data: image.data,
-        },
+        data: image.data,
+        mimeType: image.mediaType,
     }));
 }
 
 /** Converts Pi SDK session info to the UI session summary format. */
-export function toUiSessionSummary(info: any): UiSessionSummary {
+export function toUiSessionSummary(info: SessionSummaryInfo): UiSessionSummary {
     return {
         file: info.path ?? info.file ?? info.sessionFile,
         sessionId: info.id ?? info.sessionId,
@@ -1957,7 +2067,7 @@ export function toUiSessionSummary(info: any): UiSessionSummary {
 }
 
 /** Converts Pi SDK model info to the UI model format. */
-export function toUiModel(model: any): UiModel {
+export function toUiModel(model: PiModel): UiModel {
     return {
         provider: model.provider,
         id: model.id,
@@ -1974,7 +2084,7 @@ export function normalizeThinkingLevel(level: unknown): ThinkingLevel {
 }
 
 /** Returns supported thinking levels for a model based on its reasoning capability. */
-export function supportedThinkingLevels(model: any): ThinkingLevel[] {
+export function supportedThinkingLevels(model: PiModel): ThinkingLevel[] {
     if (!model?.reasoning) {
         return ["off"];
     }
@@ -2008,7 +2118,7 @@ export function summarizeSessionManager(
 }
 
 /** Finds the text of the first user message in session entries. */
-export function firstUserMessage(entries: any[]) {
+export function firstUserMessage(entries: SessionEntry[]) {
     for (const entry of entries) {
         const message = entry?.type === "message" ? entry.message : undefined;
         if (message?.role !== "user") {
@@ -2065,7 +2175,7 @@ export function normalizeContextUsage(
 
 /** Summarizes cumulative usage stats from the current persisted branch. */
 export function summarizeUsageStatsFromEntries(
-    entries: any[],
+    entries: SessionEntry[],
 ): UiSessionUsageStats {
     let userMessages = 0;
     let assistantMessages = 0;
@@ -2082,22 +2192,23 @@ export function summarizeUsageStatsFromEntries(
             continue;
         }
 
-        const message = entry.message;
-        if (message?.role === "user") {
+        const message = asRecord(entry.message);
+        const role = message.role;
+        if (role === "user") {
             userMessages += 1;
         }
-        else if (message?.role === "assistant") {
+        else if (role === "assistant") {
             assistantMessages += 1;
             toolCalls += countToolCalls(message.content);
 
-            const usage = message.usage;
-            input += numberOrZero(usage?.input);
-            output += numberOrZero(usage?.output);
-            cacheRead += numberOrZero(usage?.cacheRead);
-            cacheWrite += numberOrZero(usage?.cacheWrite);
-            cost += numberOrZero(usage?.cost?.total);
+            const usage = asRecord(message.usage);
+            input += numberOrZero(usage.input);
+            output += numberOrZero(usage.output);
+            cacheRead += numberOrZero(usage.cacheRead);
+            cacheWrite += numberOrZero(usage.cacheWrite);
+            cost += numberOrZero(asRecord(usage.cost).total);
         }
-        else if (message?.role === "toolResult" || message?.role === "tool") {
+        else if (role === "toolResult" || role === "tool") {
             toolResults += 1;
         }
     }
@@ -2124,9 +2235,10 @@ function countToolCalls(content: unknown) {
     if (!Array.isArray(content)) {
         return 0;
     }
-    return content.filter(
-        (part: any) => part?.type === "toolCall" || part?.type === "tool_call",
-    ).length;
+    return content.filter((part) => {
+        const type = asRecord(part).type;
+        return type === "toolCall" || type === "tool_call";
+    }).length;
 }
 
 /** Returns finite numbers only; malformed historical usage counts as zero. */

@@ -841,13 +841,17 @@ export class PiSessionWorkspace {
             .filter((entry) => entry.type === "message")
             .map((entry, index) => {
                 const message = entry.message;
+                const content = message && typeof message === "object" &&
+                        "content" in message
+                    ? message.content
+                    : undefined;
                 return {
                     id: entry.id,
                     type: entry.type,
                     role: isUiEntryRole(message?.role)
                         ? message.role
                         : undefined,
-                    summary: summarizeEntryContent(message?.content),
+                    summary: summarizeEntryContent(content),
                     timestamp: entry.timestamp,
                     index,
                 };

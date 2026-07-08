@@ -103,17 +103,19 @@ export async function ensureRequiredPiPackages(agentDir: string) {
     return { settingsPath, added: [...missing] };
 }
 
-async function resolveRequiredPackageSources(): Promise<
+function resolveRequiredPackageSources(): Promise<
     RequiredPackageSource[]
 > {
     const nodeModulesDir = process.env[REQUIRED_PI_NODE_MODULES_DIR_ENV]
         ?.trim();
     if (!nodeModulesDir) {
-        return REQUIRED_PI_PACKAGES.map((pkg) => ({
-            name: pkg.name,
-            source: pkg.npmSource,
-            npmSource: pkg.npmSource,
-        }));
+        return Promise.resolve(
+            REQUIRED_PI_PACKAGES.map((pkg) => ({
+                name: pkg.name,
+                source: pkg.npmSource,
+                npmSource: pkg.npmSource,
+            })),
+        );
     }
 
     const resolvedNodeModulesDir = resolve(nodeModulesDir);

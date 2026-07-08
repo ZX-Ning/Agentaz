@@ -371,7 +371,7 @@ agentRoutes.post(
         await withRequestSessionControl(
             c,
             sessionId,
-            async (lease) =>
+            (lease) =>
                 lease.runtime.workspace.resolveUiRequest(
                     sessionId,
                     requestId,

@@ -1,5 +1,7 @@
 import type {
+    ExtensionUIContext,
     ExtensionUIDialogOptions,
+    ExtensionWidgetOptions,
     TerminalInputHandler,
     WorkingIndicatorOptions,
 } from "@earendil-works/pi-coding-agent";
@@ -25,6 +27,13 @@ type RegisteredWidget = UiExtensionWidget & {
     dispose?: () => void;
     render?: () => string[];
 };
+
+type RenderableWidget = {
+    dispose?: () => void;
+    render?: (width: number) => unknown;
+};
+
+type WidgetFactory = (tui: unknown, theme: unknown) => RenderableWidget;
 
 const DEFAULT_WIDGET_PLACEMENT: UiExtensionWidget["placement"] = "aboveEditor";
 const DEFAULT_WIDGET_WIDTH = 88;
@@ -69,7 +78,7 @@ export class WebExtensionUIContext {
     }
 
     /** Shows a single-choice prompt in the browser and resolves with the selected option. */
-    async select(
+    select(
         title: string,
         options: string[],
         _opts?: ExtensionUIDialogOptions,
@@ -85,7 +94,7 @@ export class WebExtensionUIContext {
     }
 
     /** Shows a confirmation prompt in the browser and resolves to false if it times out. */
-    async confirm(
+    confirm(
         title: string,
         message: string,
         _opts?: ExtensionUIDialogOptions,
@@ -105,7 +114,7 @@ export class WebExtensionUIContext {
     }
 
     /** Shows a text input prompt in the browser and resolves with the submitted value. */
-    async input(
+    input(
         title: string,
         placeholder?: string,
         _opts?: ExtensionUIDialogOptions,
@@ -170,8 +179,8 @@ export class WebExtensionUIContext {
     /** Renders extension widgets as plain text lines in the browser. */
     setWidget(
         key: string,
-        content: string[] | ((tui: any, theme: any) => any) | undefined,
-        options?: { placement?: UiExtensionWidget["placement"] },
+        content: string[] | WidgetFactory | undefined,
+        options?: ExtensionWidgetOptions,
     ): void {
         this.widgets.get(key)?.dispose?.();
         this.widgets.delete(key);
@@ -191,8 +200,8 @@ export class WebExtensionUIContext {
             return;
         }
 
-        // eslint-disable-next-line prefer-const -- requestRender may run while content constructs the component.
-        let component: any;
+        // deno-lint-ignore prefer-const -- requestRender may run while content constructs the component.
+        let component: RenderableWidget | undefined;
         const emitWidget = () => {
             try {
                 const rendered = component?.render?.(DEFAULT_WIDGET_WIDTH);
@@ -216,10 +225,80 @@ export class WebExtensionUIContext {
             placement,
             lines: [],
             dispose: component?.dispose?.bind(component),
-            render: () => component?.render?.(DEFAULT_WIDGET_WIDTH) ?? [],
+            render: () =>
+                toWidgetLines(
+                    component?.render?.(DEFAULT_WIDGET_WIDTH),
+                ),
         });
         emitWidget();
     }
+
+    /** Footer replacement is TUI-only; ignored by the browser bridge. */
+    setFooter(..._args: Parameters<ExtensionUIContext["setFooter"]>): void {}
+    /** Header replacement is TUI-only; ignored by the browser bridge. */
+    setHeader(..._args: Parameters<ExtensionUIContext["setHeader"]>): void {}
+    /** Terminal title is TUI-only; ignored by the browser bridge. */
+    setTitle(_title: string): void {}
+    /** Focused custom components are TUI-only; resolve with undefined in web mode. */
+    custom<T>(
+        ..._args: Parameters<ExtensionUIContext["custom"]>
+    ): Promise<T> {
+        return Promise.resolve(undefined as T);
+    }
+    /** Browser mode has no Pi editor surface to mutate directly. */
+    pasteToEditor(_text: string): void {}
+    /** Browser mode has no Pi editor surface to mutate directly. */
+    setEditorText(_text: string): void {}
+    /** Browser mode has no Pi editor surface to read directly. */
+    getEditorText(): string {
+        return "";
+    }
+    /** Multi-line TUI editor is unavailable in browser mode. */
+    editor(
+        _title: string,
+        prefill?: string,
+    ): Promise<string | undefined> {
+        return Promise.resolve(prefill);
+    }
+    /** Autocomplete providers are TUI-only; ignored by the browser bridge. */
+    addAutocompleteProvider(
+        ..._args: Parameters<ExtensionUIContext["addAutocompleteProvider"]>
+    ): void {}
+    /** Custom editor components are TUI-only; ignored by the browser bridge. */
+    setEditorComponent(
+        ..._args: Parameters<ExtensionUIContext["setEditorComponent"]>
+    ): void {}
+    /** Browser mode always uses its own editor. */
+    getEditorComponent(): ReturnType<ExtensionUIContext["getEditorComponent"]> {
+        return undefined;
+    }
+    /** Minimal plain theme for extension widget renderers. */
+    get theme(): ExtensionUIContext["theme"] {
+        return plainTheme() as unknown as ExtensionUIContext["theme"];
+    }
+    /** Browser mode does not expose Pi TUI themes. */
+    getAllThemes(): ReturnType<ExtensionUIContext["getAllThemes"]> {
+        return [];
+    }
+    /** Browser mode does not expose Pi TUI themes. */
+    getTheme(_name: string): ReturnType<ExtensionUIContext["getTheme"]> {
+        return undefined;
+    }
+    /** Browser mode does not switch Pi TUI themes. */
+    setTheme(
+        ..._args: Parameters<ExtensionUIContext["setTheme"]>
+    ): ReturnType<ExtensionUIContext["setTheme"]> {
+        return {
+            success: false,
+            error: "themes are not available in web mode",
+        };
+    }
+    /** Tool expansion is owned by the browser UI. */
+    getToolsExpanded(): boolean {
+        return false;
+    }
+    /** Tool expansion is owned by the browser UI. */
+    setToolsExpanded(_expanded: boolean): void {}
 
     private request<T>(
         kind: PendingRequest["kind"],
@@ -294,4 +373,10 @@ function plainTheme() {
         getThinkingBorderColor: () => passthrough,
         getBashModeBorderColor: () => passthrough,
     };
+}
+
+function toWidgetLines(value: unknown): string[] {
+    return Array.isArray(value)
+        ? value.filter((line): line is string => typeof line === "string")
+        : [];
 }

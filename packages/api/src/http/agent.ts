@@ -58,7 +58,7 @@ export async function withRequestSessionControl<T>(
     sessionId: string,
     run: (
         lease: ReturnType<typeof acquireRequestSessionControl>,
-    ) => Promise<T>,
+    ) => T | Promise<T>,
 ) {
     const lease = acquireRequestSessionControl(c, sessionId);
     try {
