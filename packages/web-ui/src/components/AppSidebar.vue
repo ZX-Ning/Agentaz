@@ -70,11 +70,11 @@ function sessionMenuItems(session: SessionListItem) {
   />
 
   <aside
-    class="fixed inset-y-0 left-0 z-50 flex w-80 shrink-0 flex-col border-r border-sidebar-border bg-sidebar p-4 text-sidebar-foreground shadow-2xl transition-transform duration-300 ease-in-out lg:static lg:z-0 lg:shadow-none lg:transition-all"
+    class="fixed inset-y-0 left-0 z-50 flex w-80 shrink-0 flex-col border-sidebar-border bg-sidebar p-4 text-sidebar-foreground transition-transform duration-300 ease-in-out lg:static lg:z-0 lg:transition-all"
     :class="
       open
-        ? 'translate-x-0 lg:translate-x-0 lg:w-80 lg:opacity-100'
-        : '-translate-x-full lg:translate-x-0 lg:w-0 lg:overflow-hidden lg:border-r-0 lg:p-0 lg:opacity-0'
+        ? 'translate-x-0 border-r shadow-2xl shadow-foreground/10 dark:shadow-foreground/10 lg:translate-x-0 lg:w-80 lg:shadow-none lg:opacity-100'
+        : '-translate-x-full border-r-0 shadow-none lg:translate-x-0 lg:w-0 lg:overflow-hidden lg:p-0 lg:opacity-0'
     "
   >
     <div class="mb-4 flex items-center justify-between px-2 pt-1">
