@@ -14,6 +14,24 @@ import type { AgentazContext } from "./agentaz-state.ts";
 import { apiFetch, type ApiFetchOptions } from "./app-fetch.ts";
 import { useToast } from "./app-toast.ts";
 
+type LooseRecord = Record<string, unknown>;
+
+function asRecord(value: unknown): LooseRecord | undefined {
+    return value && typeof value === "object"
+        ? value as LooseRecord
+        : undefined;
+}
+
+function stringField(record: LooseRecord | undefined, key: string) {
+    const value = record?.[key];
+    return typeof value === "string" ? value : undefined;
+}
+
+function numberField(record: LooseRecord | undefined, key: string) {
+    const value = record?.[key];
+    return typeof value === "number" ? value : undefined;
+}
+
 /**
  * HTTP/state-application layer for the Agentaz controller.
  *
@@ -50,17 +68,22 @@ export function createAgentazApi(
             });
         }
         catch (error) {
-            const data = (error as any)?.data?.data ?? (error as any)?.data;
-            const statusCode = (error as any)?.statusCode ??
-                (error as any)?.response?.status;
-            const message = data?.message ??
+            const errorRecord = asRecord(error);
+            const outerData = asRecord(errorRecord?.data);
+            const data = asRecord(outerData?.data) ?? outerData;
+            const response = asRecord(errorRecord?.response);
+            const statusCode = numberField(errorRecord, "statusCode") ??
+                numberField(response, "status");
+            const message = stringField(data, "message") ??
                 (error instanceof Error ? error.message : String(error));
             ctx.lastError.value = message;
             if (statusCode === 401) {
-                window.dispatchEvent(new CustomEvent("agentaz-auth-expired"));
+                globalThis.dispatchEvent(
+                    new CustomEvent("agentaz-auth-expired"),
+                );
             }
             toast.add({
-                title: data?.code ?? "agent_http_error",
+                title: stringField(data, "code") ?? "agent_http_error",
                 description: message,
                 color: "error",
             });

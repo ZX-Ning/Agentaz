@@ -12,7 +12,7 @@ const route = reactive<RouteLocation>(readLocation());
 let isListening = false;
 
 function readLocation(): RouteLocation {
-    const url = new URL(window.location.href);
+    const url = new URL(globalThis.location.href);
     const query: Record<string, string | string[]> = {};
     for (const [key, value] of url.searchParams) {
         const current = query[key];
@@ -41,7 +41,7 @@ function ensureListener() {
     if (isListening) {
         return;
     }
-    window.addEventListener("popstate", syncRoute);
+    globalThis.addEventListener("popstate", syncRoute);
     isListening = true;
 }
 
@@ -62,12 +62,12 @@ export function useRoute() {
 export function useRouter() {
     ensureListener();
     return {
-        async push(target: RouteTarget) {
-            history.pushState({}, "", targetToPath(target));
+        push(target: RouteTarget) {
+            globalThis.history.pushState({}, "", targetToPath(target));
             syncRoute();
         },
-        async replace(target: RouteTarget) {
-            history.replaceState({}, "", targetToPath(target));
+        replace(target: RouteTarget) {
+            globalThis.history.replaceState({}, "", targetToPath(target));
             syncRoute();
         },
     };
