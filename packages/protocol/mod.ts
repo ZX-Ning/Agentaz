@@ -530,6 +530,50 @@ export type AgentStateResponse = {
     capabilities: AgentCapabilities;
 };
 
+/** Permission action used by pi-permission-system policy rules. */
+export type PermissionState = "allow" | "ask" | "deny";
+
+/** Pattern-map value that denies with an optional message shown to the agent. */
+export type PermissionDenyRule = {
+    action: "deny";
+    reason?: string;
+};
+
+/** Value accepted in a pattern-specific permission rule. */
+export type PermissionRuleValue = PermissionState | PermissionDenyRule;
+
+/** Per-surface policy: catch-all action or ordered wildcard pattern map. */
+export type PermissionSurfacePolicy =
+    | PermissionState
+    | Record<string, PermissionRuleValue>;
+
+/** Project-level pi-permission-system configuration managed by Agentaz. */
+export type PermissionSystemConfig = {
+    $schema?: string;
+    debugLog?: boolean;
+    permissionReviewLog?: boolean;
+    yoloMode?: boolean;
+    toolInputPreviewMaxLength?: number;
+    toolTextSummaryMaxLength?: number;
+    piInfrastructureReadPaths?: string[];
+    permission: Record<string, PermissionSurfacePolicy>;
+};
+
+/** Response for current-project permission config endpoints. */
+export type PermissionConfigResponse = {
+    scope: "project";
+    cwd: string;
+    configPath: string;
+    /** False when no project override exists and the returned config is a template. */
+    exists: boolean;
+    config: PermissionSystemConfig;
+};
+
+/** Request used to replace the current project's permission config. */
+export type PermissionConfigSetRequest = {
+    config: PermissionSystemConfig;
+};
+
 /**
  * HTTP response carrying normalized history for one loaded session.
  * Returned by GET /api/agent/sessions/:sessionId/history.

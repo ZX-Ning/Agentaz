@@ -6,6 +6,7 @@ import type {
     MessageSubmitRequest,
     MessageSubmitResponse,
     ModelSetRequest,
+    PermissionConfigSetRequest,
     SessionCreateRequest,
     SessionDeleteRequest,
     SessionEntriesResponse,
@@ -78,6 +79,31 @@ agentRoutes.get("/agent/state", async (c) => {
     await refreshProjectionData(runtime.workspace);
     return c.json(
         getAgentState(runtime.workspace, runtime.presence, requestClientId(c)),
+    );
+});
+
+agentRoutes.get("/agent/permissions/config", async (c) => {
+    return c.json(
+        await getAgentRuntime().workspace.getProjectPermissionConfig(),
+    );
+});
+
+agentRoutes.put("/agent/permissions/config", async (c) => {
+    const body = await readJsonBody<PermissionConfigSetRequest>(c);
+    if (!body.config) {
+        throw new BadRequestError("Permission config is required.");
+    }
+
+    return c.json(
+        await getAgentRuntime().workspace.setProjectPermissionConfig(
+            body.config,
+        ),
+    );
+});
+
+agentRoutes.post("/agent/permissions/config/reset", async (c) => {
+    return c.json(
+        await getAgentRuntime().workspace.resetProjectPermissionConfig(),
     );
 });
 

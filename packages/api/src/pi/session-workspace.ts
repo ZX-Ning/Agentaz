@@ -12,6 +12,8 @@ import type {
     MessageSubmitRequest,
     MessageSubmitResponse,
     ModelStateResponse,
+    PermissionConfigResponse,
+    PermissionSystemConfig,
     ServerEvent,
     SessionEntriesResponse,
     SessionEntryInfo,
@@ -40,6 +42,11 @@ import {
     toUiSessionSummary,
 } from "./session-controller.ts";
 import { ensureRequiredPiPackages } from "./required-packages.ts";
+import {
+    readProjectPermissionConfig,
+    resetProjectPermissionConfig,
+    writeProjectPermissionConfig,
+} from "../extensions/permission-config.ts";
 
 /** Startup options for the process-wide Pi session workspace. */
 export type PiSessionWorkspaceOptions = {
@@ -198,6 +205,23 @@ export class PiSessionWorkspace {
     /** Returns whether a session is currently loaded in the working set. */
     hasSession(sessionId: string) {
         return this.sessions.has(sessionId);
+    }
+
+    /** Reads this workspace's project-level permission-system config. */
+    getProjectPermissionConfig(): Promise<PermissionConfigResponse> {
+        return readProjectPermissionConfig(this.options.cwd);
+    }
+
+    /** Replaces this workspace's project-level permission-system config. */
+    setProjectPermissionConfig(
+        config: PermissionSystemConfig,
+    ): Promise<PermissionConfigResponse> {
+        return writeProjectPermissionConfig(this.options.cwd, config);
+    }
+
+    /** Removes this workspace's project-level override and returns fallback data. */
+    resetProjectPermissionConfig(): Promise<PermissionConfigResponse> {
+        return resetProjectPermissionConfig(this.options.cwd);
     }
 
     /**

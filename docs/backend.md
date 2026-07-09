@@ -126,6 +126,9 @@ Browser-initiated actions and snapshots use HTTP:
 ```txt
 GET    /api/agent/state
 GET    /api/agent/models
+GET    /api/agent/permissions/config
+PUT    /api/agent/permissions/config
+POST   /api/agent/permissions/config/reset
 POST   /api/agent/sessions
 PATCH  /api/agent/sessions/metadata
 POST   /api/agent/sessions/delete
@@ -335,13 +338,37 @@ projection when reloading sessions over HTTP.
 Dangerous tool approvals use `@gotgenes/pi-permission-system`.
 
 `permission-config.ts` creates global permission config under the Pi agent
-directory:
+directory for first-run compatibility:
 
 ```txt
 <agentDir>/extensions/pi-permission-system/config.json
 ```
 
 `agentDir` comes from `PI_CODING_AGENT_DIR` or the Pi SDK default.
+
+The browser-facing permission settings API manages the current workspace's
+project-level permission config:
+
+```txt
+<cwd>/.pi/extensions/pi-permission-system/config.json
+```
+
+`GET /api/agent/permissions/config` returns that project config when it exists,
+or an Agentaz default template with `exists: false` when the project has no
+override. `PUT /api/agent/permissions/config` validates and atomically replaces
+the project config. `POST /api/agent/permissions/config/reset` removes the
+project override so permission-system falls back to lower-priority defaults.
+
+Permission-system merges policy in this order:
+
+```txt
+global → project → per-agent frontmatter
+```
+
+Agentaz's API writes the project layer. It overrides global defaults for the
+configured startup `cwd`, but per-agent frontmatter can still override it.
+Changes apply to future permission checks; in-flight tool calls and pending
+approval prompts are not retroactively changed.
 
 `WebExtensionUIContext` bridges extension UI prompts to the browser by emitting
 protocol events and waiting for browser responses. It also renders extension
