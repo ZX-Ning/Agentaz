@@ -28,7 +28,7 @@ const emit = defineEmits<{
     event: "update:isSidebarOpen" | "update:autoStickToBottom",
     value: boolean,
   ): void;
-  (event: "clearQueue" | "compactContext" | "logout"): void;
+  (event: "clearQueue" | "compactContext" | "logout" | "openPermissions"): void;
 }>();
 
 const isStatusMenuOpen = ref(false);
@@ -74,6 +74,11 @@ function handleMobileThemeToggle() {
 function handleMobileClearQueue() {
   isMobileActionsOpen.value = false;
   emit("clearQueue");
+}
+
+function handleMobileOpenPermissions() {
+  isMobileActionsOpen.value = false;
+  emit("openPermissions");
 }
 
 function handleMobileLogout() {
@@ -187,6 +192,16 @@ const isCompactDisabled = computed(
           size="sm"
           class="text-foreground hover:bg-accent hover:text-accent-foreground"
           @click="toggleTheme"
+        />
+
+        <Button
+          color="neutral"
+          variant="ghost"
+          icon="i-lucide-shield-check"
+          size="sm"
+          class="text-foreground hover:bg-accent hover:text-accent-foreground"
+          aria-label="Open permission settings"
+          @click="emit('openPermissions')"
         />
 
         <Button
@@ -332,6 +347,15 @@ const isCompactDisabled = computed(
                 class="size-4"
               />
               <span>{{ isDark ? "Light mode" : "Dark mode" }}</span>
+            </button>
+
+            <button
+              type="button"
+              class="flex min-h-10 w-full items-center gap-2 rounded-md px-3 text-left text-sm text-foreground hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/35"
+              @click="handleMobileOpenPermissions"
+            >
+              <AppIcon name="i-lucide-shield-check" class="size-4" />
+              <span>Permissions</span>
             </button>
 
             <button

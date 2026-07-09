@@ -13,6 +13,7 @@ import { createAgentazActions } from "../composables/agentaz-actions";
 import { createAgentazApi } from "../composables/agentaz-api";
 import { createAgentazEvents } from "../composables/agentaz-events";
 import { createAgentazModels } from "../composables/agentaz-models";
+import { createAgentazPermissions } from "../composables/agentaz-permissions";
 import { createAgentazMutations } from "../composables/agentaz-mutations";
 import {
   createAgentazRouteApply,
@@ -27,6 +28,7 @@ import AppSidebar from "./AppSidebar.vue";
 import ChatMessage from "./ChatMessage.vue";
 import ExtensionWidgets from "./ExtensionWidgets.vue";
 import MessageComposer from "./MessageComposer.vue";
+import PermissionSettingsDialog from "./PermissionSettingsDialog.vue";
 import PendingUiRequests from "./PendingUiRequests.vue";
 
 const emit = defineEmits<{
@@ -50,6 +52,7 @@ const agentazSessions = createAgentazSessions(
   },
 );
 const agentazModels = createAgentazModels(agentaz, agentazApi);
+const agentazPermissions = createAgentazPermissions(agentazApi);
 const agentazEvents = createAgentazEvents(
   agentaz,
   agentazApi,
@@ -124,6 +127,7 @@ const { handleModelSelect, handleThinkingSelect } = agentazModels;
 const isSidebarOpen = ref(false);
 const isAutoStickToBottomEnabled = ref(false);
 const isCompactingContext = ref(false);
+const isPermissionDialogOpen = ref(false);
 const transcriptScrollRef = ref<HTMLElement | null>(null);
 const revertTargetMessage = ref<
   null | {
@@ -505,6 +509,7 @@ watch(pageTitle, (title) => setDocumentTitle(title), { immediate: true });
         @clear-queue="clearActiveQueue"
         @compact-context="handleCompactContext"
         @logout="emit('logout')"
+        @open-permissions="isPermissionDialogOpen = true"
       />
 
       <div
@@ -638,5 +643,10 @@ watch(pageTitle, (title) => setDocumentTitle(title), { immediate: true });
         </div>
       </template>
     </Dialog>
+
+    <PermissionSettingsDialog
+      v-model:open="isPermissionDialogOpen"
+      :permissions="agentazPermissions"
+    />
   </div>
 </template>

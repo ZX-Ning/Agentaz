@@ -178,6 +178,7 @@ GET /api/agent/models
 GET /api/agent/sessions/:sessionId/history
 GET /api/agent/sessions/:sessionId/entries
 GET /api/agent/sessions/:sessionId/models
+GET /api/agent/permissions/config
 ```
 
 Important HTTP mutations include:
@@ -185,7 +186,14 @@ Important HTTP mutations include:
 ```txt
 POST /api/agent/sessions/:sessionId/fork
 POST /api/agent/sessions/:sessionId/revert
+PUT  /api/agent/permissions/config
+POST /api/agent/permissions/config/reset
 ```
+
+Project permission settings live in `PermissionSettingsDialog.vue` and call the
+project-level permission config API through `agentaz-permissions.ts`. The first
+UI version intentionally edits only common tool actions and runtime flags while
+preserving unknown/custom config fields for future pattern/raw-editor support.
 
 ## Frontend State Model
 
