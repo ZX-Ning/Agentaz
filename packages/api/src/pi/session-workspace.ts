@@ -58,6 +58,60 @@ export type PiSessionWorkspaceOptions = {
     maxLoadedSessions: number;
 };
 
+/** Controller surface owned and orchestrated by PiSessionWorkspace. */
+export type WorkspaceSessionController = Pick<
+    PiSessionController,
+    | "sessionId"
+    | "sessionFile"
+    | "toLoadedSession"
+    | "rename"
+    | "isBusy"
+    | "dispose"
+    | "getHistory"
+    | "compact"
+    | "getEntries"
+    | "getSessionManager"
+    | "historyRevision"
+    | "seedHistoryRevision"
+    | "getModelState"
+    | "setModel"
+    | "setThinkingLevel"
+    | "prompt"
+    | "steer"
+    | "followUp"
+    | "abort"
+    | "clearQueue"
+    | "resolveConfirm"
+    | "resolveInput"
+    | "resolveSelect"
+>;
+
+type CreateControllerOptions = Parameters<typeof PiSessionController.create>[0];
+type OpenControllerOptions = Parameters<typeof PiSessionController.open>[0];
+
+/** Replaceable SDK boundary used by tests without loading Pi extensions. */
+export type PiSessionWorkspaceDependencies = {
+    agentDir: string;
+    ensureRequiredPackages: typeof ensureRequiredPiPackages;
+    listPersistedSessions(cwd: string): Promise<UiSessionSummary[]>;
+    controllerFactory: {
+        create(
+            options: CreateControllerOptions,
+        ): Promise<WorkspaceSessionController>;
+        open(options: OpenControllerOptions): WorkspaceSessionController;
+    };
+};
+
+function defaultWorkspaceDependencies(): PiSessionWorkspaceDependencies {
+    return {
+        agentDir: getAgentDir(),
+        ensureRequiredPackages: ensureRequiredPiPackages,
+        listPersistedSessions: async (cwd) =>
+            (await SessionManager.list(cwd)).map(toUiSessionSummary),
+        controllerFactory: PiSessionController,
+    };
+}
+
 /**
  * Process singleton Pi session workspace owned by AgentRuntime.
  * Owns shared Pi backing stores + loaded-session working set.
@@ -70,16 +124,11 @@ export type PiSessionWorkspaceOptions = {
  */
 export class PiSessionWorkspace {
     /** Pi agent home directory (defaults to ~/.pi or PI_CODING_AGENT_DIR). */
-    private agentDir = getAgentDir();
+    private agentDir: string;
     /** Shared auth storage for API keys and credentials. */
-    private authStorage = AuthStorage.create(
-        join(this.agentDir, "auth.json"),
-    );
+    private authStorage: ReturnType<typeof AuthStorage.create>;
     /** Shared model registry backed by models.json in the agent directory. */
-    private modelRegistry = ModelRegistry.create(
-        this.authStorage,
-        join(this.agentDir, "models.json"),
-    );
+    private modelRegistry: ReturnType<typeof ModelRegistry.create>;
     /**
      * Lazily-initialized promise that ensures required Pi packages are
      * configured in the agent's settings.json. This is shared across all
@@ -92,7 +141,7 @@ export class PiSessionWorkspace {
      */
     private requiredPackagesPromise?: Promise<void>;
     /** The loaded session working set indexed by sessionId. */
-    private sessions = new Map<string, PiSessionController>();
+    private sessions = new Map<string, WorkspaceSessionController>();
     /** Last known history revision for sessions that may be reopened later. */
     private historyRevisionBySessionId = new Map<string, number>();
     /** Snapshot of persisted session metadata from the working directory. */
@@ -108,7 +157,17 @@ export class PiSessionWorkspace {
          */
         private readonly getProtectedSessionIds: () => Iterable<string> =
             () => [],
+        private readonly dependencies = defaultWorkspaceDependencies(),
     ) {
+        this.agentDir = dependencies.agentDir;
+        this.authStorage = AuthStorage.create(
+            join(this.agentDir, "auth.json"),
+        );
+        this.modelRegistry = ModelRegistry.create(
+            this.authStorage,
+            join(this.agentDir, "models.json"),
+        );
+
         // Prewarm required Pi packages in the background so the first session
         // creation doesn't block on package installation. Extension services
         // are created per-controller — not shared.
@@ -141,7 +200,9 @@ export class PiSessionWorkspace {
     private ensureRequiredPackages() {
         this.requiredPackagesPromise ??= (async () => {
             try {
-                const result = await ensureRequiredPiPackages(this.agentDir);
+                const result = await this.dependencies.ensureRequiredPackages(
+                    this.agentDir,
+                );
                 if (result.added.length > 0) {
                     console.log(
                         "[agentaz-server] added required Pi packages to Pi agent settings",
@@ -248,7 +309,7 @@ export class PiSessionWorkspace {
         await this.releaseOneAvailableSessionIfAtCapacity();
         this.assertCanLoadAnotherSession();
 
-        const controller = await PiSessionController.create({
+        const controller = await this.dependencies.controllerFactory.create({
             cwd: this.options.cwd,
             agentDir: this.agentDir,
             authStorage: this.authStorage,
@@ -288,7 +349,7 @@ export class PiSessionWorkspace {
         await this.releaseOneAvailableSessionIfAtCapacity();
         this.assertCanLoadAnotherSession();
 
-        const controller = await PiSessionController.open({
+        const controller = await this.dependencies.controllerFactory.open({
             cwd: this.options.cwd,
             agentDir: this.agentDir,
             authStorage: this.authStorage,
@@ -627,7 +688,7 @@ export class PiSessionWorkspace {
 
         // Attach settlement handlers to the async task.
         // We don't await — the HTTP response returns immediately.
-        task.catch((error) => {
+        void task.catch((error) => {
             console.error("[agentaz-server] message task failed", error);
             this.emitServerEvent({
                 type: "error",
@@ -645,6 +706,13 @@ export class PiSessionWorkspace {
                 // Always release the control lease, even if refresh fails.
                 onSettled?.();
             }
+        }).catch((error) => {
+            // The HTTP request has already returned; do not leak refresh failures
+            // as unhandled rejections from this background settlement chain.
+            console.error(
+                "[agentaz-server] failed to refresh session metadata",
+                error,
+            );
         });
 
         // Emit immediately so the frontend shows the session as busy.
@@ -720,8 +788,7 @@ export class PiSessionWorkspace {
 
     /** Reads persisted session metadata from the working directory. */
     private async listPersistedSessions(): Promise<UiSessionSummary[]> {
-        const sessions = await SessionManager.list(this.options.cwd);
-        return sessions.map(toUiSessionSummary);
+        return await this.dependencies.listPersistedSessions(this.options.cwd);
     }
 
     /** Finds a loaded controller by normalized session file path. */
@@ -821,7 +888,7 @@ export class PiSessionWorkspace {
     }
 
     /** Restores the last known revision for a controller reopened by session id. */
-    private seedHistoryRevision(controller: PiSessionController) {
+    private seedHistoryRevision(controller: WorkspaceSessionController) {
         const revision = this.historyRevisionBySessionId.get(
             controller.sessionId,
         );
@@ -832,7 +899,7 @@ export class PiSessionWorkspace {
 
     /** Saves a controller revision before disposal/reload can reset it. */
     private rememberHistoryRevision(
-        controller: PiSessionController,
+        controller: WorkspaceSessionController,
         revision = controller.historyRevision(),
     ) {
         const current = this.historyRevisionBySessionId.get(
@@ -847,7 +914,7 @@ export class PiSessionWorkspace {
     }
 
     /** Throws unless the loaded controller can be safely forked or reverted. */
-    private assertForkRevertReady(controller: PiSessionController) {
+    private assertForkRevertReady(controller: WorkspaceSessionController) {
         if (controller.isBusy()) {
             throw new SessionBusyError();
         }
@@ -858,7 +925,7 @@ export class PiSessionWorkspace {
 
     /** Returns the selectable current-branch message entries for a controller. */
     private selectableEntries(
-        controller: PiSessionController,
+        controller: WorkspaceSessionController,
     ): SessionEntryInfo[] {
         return controller
             .getEntries()
@@ -884,7 +951,7 @@ export class PiSessionWorkspace {
 
     /** Ensures an entry id belongs to the current branch. */
     private requireCurrentBranchEntry(
-        controller: PiSessionController,
+        controller: WorkspaceSessionController,
         entryId: string,
     ) {
         if (
