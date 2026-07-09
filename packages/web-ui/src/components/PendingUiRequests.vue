@@ -1,9 +1,15 @@
 <script setup lang="ts">
 import type { PendingUiRequest } from "@agentaz/protocol";
 
-defineProps<{
-  requests: PendingUiRequest[];
-}>();
+withDefaults(
+  defineProps<{
+    requests: PendingUiRequest[];
+    embedded?: boolean;
+  }>(),
+  {
+    embedded: false,
+  },
+);
 
 const emit = defineEmits<{
   (event: "respond", request: PendingUiRequest, value?: string | boolean): void;
@@ -24,30 +30,64 @@ function messagePreview(message: string) {
 function isLongMessage(message: string) {
   return message.length > messagePreviewLimit;
 }
+
+/** Temporarily hides permission options whose follow-up text input is not supported. */
+function visibleOptions(options: string[]) {
+  return options.filter((option) => !/^No,\s*provide reason$/i.test(option));
+}
+
+function optionLabel(option: string) {
+  if (option === "Yes") {
+    return "Allow once";
+  }
+  if (/^Yes,\s*allow\b.+\bfor this session$/i.test(option)) {
+    return "Allow for session";
+  }
+  if (option === "No") {
+    return "Deny";
+  }
+  if (/^No,\s*provide reason$/i.test(option)) {
+    return "Deny with reason";
+  }
+  return option;
+}
 </script>
 
 <template>
   <section
     v-if="requests.length"
-    class="space-y-3 rounded-lg border border-border bg-card p-4"
+    class="space-y-3 rounded-lg border border-border"
+    :class="embedded ? 'bg-background/60 p-3' : 'bg-card p-4'"
   >
-    <div class="text-sm font-semibold text-card-foreground">
+    <div
+      class="font-semibold text-card-foreground"
+      :class="embedded ? 'text-xs' : 'text-sm'"
+    >
       Pending UI requests
     </div>
     <div
       v-for="request in requests"
       :key="request.requestId"
-      class="space-y-2 rounded-lg border border-border p-3 text-sm"
+      class="space-y-2 rounded-lg border border-border text-sm"
+      :class="embedded ? 'bg-card/70 p-2.5' : 'p-3'"
     >
-      <div class="font-medium">{{ request.title }}</div>
+      <div class="font-medium">
+        {{ embedded ? "Allow this tool action?" : request.title }}
+      </div>
       <div
-        v-if="request.type === 'ui_confirm_request' && request.message"
+        v-if="
+          !embedded && request.type === 'ui_confirm_request' && request.message
+        "
         class="max-h-48 overflow-auto rounded-md border border-border bg-muted/50 p-2 font-mono text-[11px] leading-5 whitespace-pre-wrap break-words text-muted-foreground"
       >
         {{ messagePreview(request.message) }}
       </div>
       <details
-        v-if="request.type === 'ui_confirm_request' && isLongMessage(request.message)"
+        v-if="
+          !embedded &&
+          request.type === 'ui_confirm_request' &&
+          isLongMessage(request.message)
+        "
         class="text-xs text-muted-foreground"
       >
         <summary class="cursor-pointer select-none text-card-foreground">
@@ -63,7 +103,7 @@ function isLongMessage(message: string) {
       >
         {{ request.placeholder }}
       </p>
-      <div class="text-xs text-muted-foreground">
+      <div v-if="!embedded" class="text-xs text-muted-foreground">
         {{ request.type }} · {{ request.requestId }}
       </div>
       <div
@@ -71,14 +111,14 @@ function isLongMessage(message: string) {
         class="flex flex-wrap gap-2"
       >
         <Button
-          v-for="option in request.options"
+          v-for="option in visibleOptions(request.options)"
           :key="option"
           size="xs"
           color="neutral"
           variant="soft"
           @click="emit('respond', request, option)"
         >
-          {{ option }}
+          {{ embedded ? optionLabel(option) : option }}
         </Button>
         <Button
           size="xs"

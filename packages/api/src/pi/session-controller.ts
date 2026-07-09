@@ -175,6 +175,11 @@ export class PiSessionController {
     private transcript = new Map<string, UiMessage>();
     /** Maps tool call ids to their location in the transcript. */
     private toolBlocks = new Map<string, ToolBlockLocation>();
+    /** Last active tool location used to anchor extension UI prompts. */
+    private currentToolRequestAnchor?: {
+        messageId: string;
+        toolCallId: string;
+    };
     /** Synthetic id for anonymous tool calls that lack explicit toolCallId fields. */
     private anonymousToolCallId?: string;
     /** Counter for generating unique anonymous tool call ids. */
@@ -866,6 +871,7 @@ export class PiSessionController {
             session.sessionId,
             this.host.emit,
             this.approvalTimeoutMs,
+            () => this.currentToolRequestAnchor,
             () => this.sendStatus(),
         );
 
@@ -1021,6 +1027,7 @@ export class PiSessionController {
                     this.currentThinkingBlockId = undefined;
                     this.toolBlocks.clear();
                     this.toolResultEmittedLength.clear();
+                    this.currentToolRequestAnchor = undefined;
                     this.anonymousToolCallId = undefined;
                     void this.applyPendingSettingsIfIdle();
                     this.invalidateHistoryCache();
@@ -1141,6 +1148,10 @@ export class PiSessionController {
 
         // Ensure we have a location mapping for this tool call.
         const location = this.ensureToolBlockLocation(sessionId, toolCallId);
+        this.currentToolRequestAnchor = {
+            messageId: location.messageId,
+            toolCallId,
+        };
         const message = this.ensureAssistantMessage(
             sessionId,
             location.messageId,

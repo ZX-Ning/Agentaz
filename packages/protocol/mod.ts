@@ -141,6 +141,10 @@ export type PendingUiRequest =
         options: string[];
         /** Timeout in milliseconds before auto-resolving. */
         timeoutMs: number;
+        /** Transcript message that owns the tool prompting for this request. */
+        messageId?: string;
+        /** Tool call that prompted this request, when known. */
+        toolCallId?: string;
     }
     | {
         /** Extension is requesting text input from the user. */
@@ -151,6 +155,10 @@ export type PendingUiRequest =
         /** Optional placeholder text for the input field. */
         placeholder?: string;
         timeoutMs: number;
+        /** Transcript message that owns the tool prompting for this request. */
+        messageId?: string;
+        /** Tool call that prompted this request, when known. */
+        toolCallId?: string;
     }
     | {
         /** Extension is requesting a yes/no confirmation from the user. */
@@ -161,6 +169,10 @@ export type PendingUiRequest =
         /** Detailed message explaining what is being confirmed. */
         message: string;
         timeoutMs: number;
+        /** Transcript message that owns the tool prompting for this request. */
+        messageId?: string;
+        /** Tool call that prompted this request, when known. */
+        toolCallId?: string;
     };
 
 /**

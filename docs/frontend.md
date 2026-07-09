@@ -287,15 +287,17 @@ Future behavior:
 ## Approval UI
 
 Dangerous tool approvals are routed through backend extension UI events.
-Frontend should eventually handle:
+Frontend handles:
 
 - `ui_confirm_request`
 - `ui_select_request`
 - `ui_input_request`
 - matching HTTP response submissions
 
-Approval UI should be prominent, modal or docked near the composer, and must
-clearly show the action being approved.
+Approval UI should render under the corresponding tool call when the request
+includes `messageId` and `toolCallId`. Requests without a transcript/tool anchor
+fall back to the composer-adjacent pending request area so no approval is
+hidden. All approval cards must clearly show the action being approved.
 
 ## Extension Widgets
 

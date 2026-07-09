@@ -14,6 +14,9 @@ import type {
 /** Emits a normalized server event to browser realtime subscribers. */
 type SendEvent = (event: ServerEvent) => void;
 
+/** Optional transcript anchor for rendering extension prompts near a tool call. */
+type RequestAnchor = Pick<PendingUiRequest, "messageId" | "toolCallId">;
+
 /** Tracks one outstanding browser-backed extension UI request until it resolves or times out. */
 type PendingRequest = {
     kind: "select" | "input" | "confirm";
@@ -51,6 +54,7 @@ export class WebExtensionUIContext {
         private readonly sessionId: string,
         private readonly send: SendEvent,
         private readonly timeoutMs: number,
+        private readonly getRequestAnchor?: () => RequestAnchor | undefined,
         private readonly onPendingChange?: () => void,
     ) {}
 
@@ -305,7 +309,11 @@ export class WebExtensionUIContext {
         event: PendingUiRequest,
         fallback?: T,
     ): Promise<T> {
-        const requestId = event.requestId;
+        const anchoredEvent = {
+            ...event,
+            ...this.getRequestAnchor?.(),
+        } as PendingUiRequest;
+        const requestId = anchoredEvent.requestId;
 
         return new Promise<T>((resolve) => {
             const timer = setTimeout(() => {
@@ -314,12 +322,12 @@ export class WebExtensionUIContext {
 
             this.pending.set(requestId, {
                 kind,
-                event,
+                event: anchoredEvent,
                 resolve: resolve as (value: unknown) => void,
                 timer,
             });
             this.onPendingChange?.();
-            this.send(event);
+            this.send(anchoredEvent);
         });
     }
 

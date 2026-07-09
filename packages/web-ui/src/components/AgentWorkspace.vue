@@ -7,6 +7,7 @@ import {
   ref,
   watch,
 } from "vue";
+import type { PendingUiRequest, UiMessage } from "@agentaz/protocol";
 import type { SessionListItem } from "../types/sessions";
 import { createAgentazActions } from "../composables/agentaz-actions";
 import { createAgentazApi } from "../composables/agentaz-api";
@@ -168,6 +169,22 @@ const canForkRevertActiveSession = computed(
     !isActiveDraftSession.value &&
     !activeLoadedSession.value?.isWorking,
 );
+const anchoredPendingUiRequests = computed(() =>
+  activePendingUiRequests.value.filter(
+    (request) => request.messageId && request.toolCallId,
+  )
+);
+const unanchoredPendingUiRequests = computed(() =>
+  activePendingUiRequests.value.filter(
+    (request) => !request.messageId || !request.toolCallId,
+  )
+);
+
+function pendingUiRequestsForMessage(message: UiMessage): PendingUiRequest[] {
+  return anchoredPendingUiRequests.value.filter(
+    (request) => request.messageId === message.id,
+  );
+}
 const isInitialSessionListLoading = computed(
   () =>
     !hello.value &&
@@ -519,8 +536,10 @@ watch(pageTitle, (title) => setDocumentTitle(title), { immediate: true });
             :can-fork-revert="canForkRevertActiveSession"
             :is-forking="isMessageOperationPending('fork', message.id)"
             :is-reverting="isMessageOperationPending('revert', message.id)"
+            :pending-ui-requests="pendingUiRequestsForMessage(message)"
             @fork="handleForkMessage"
             @revert="openRevertConfirmation"
+            @respond="respondToUiRequest"
           />
 
           <div
@@ -541,7 +560,7 @@ watch(pageTitle, (title) => setDocumentTitle(title), { immediate: true });
       >
         <div class="mx-auto w-full max-w-3xl">
           <PendingUiRequests
-            :requests="activePendingUiRequests"
+            :requests="unanchoredPendingUiRequests"
             @respond="respondToUiRequest"
           />
         </div>

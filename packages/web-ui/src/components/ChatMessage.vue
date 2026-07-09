@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, defineAsyncComponent, onBeforeUnmount, ref } from "vue";
-import type { UiBlock, UiMessage } from "@agentaz/protocol";
+import type { PendingUiRequest, UiBlock, UiMessage } from "@agentaz/protocol";
 import { useToast } from "../composables/app-toast";
+import PendingUiRequests from "./PendingUiRequests.vue";
 
 type ToolCallBlock = Extract<UiBlock, { type: "tool_call" }>;
 type ToolResultBlock = Extract<UiBlock, { type: "tool_result" }>;
@@ -23,10 +24,12 @@ const props = defineProps<{
   canForkRevert?: boolean;
   isForking?: boolean;
   isReverting?: boolean;
+  pendingUiRequests?: PendingUiRequest[];
 }>();
 
 const emit = defineEmits<{
   (event: "fork" | "revert", message: UiMessage): void;
+  (event: "respond", request: PendingUiRequest, value?: string | boolean): void;
 }>();
 
 const toast = useToast();
@@ -115,6 +118,25 @@ function toggleBlock(key: string) {
 
 function toolCardKey(block: Extract<RenderBlock, { type: "tool" }>) {
   return `${block.id}:combined`;
+}
+
+function requestsForTool(toolCallId: string) {
+  return (props.pendingUiRequests ?? []).filter(
+    (request) =>
+      request.messageId === props.message.id &&
+      request.toolCallId === toolCallId,
+  );
+}
+
+function hasPendingRequestsForTool(toolCallId: string) {
+  return requestsForTool(toolCallId).length > 0;
+}
+
+function isToolCollapsed(block: Extract<RenderBlock, { type: "tool" }>) {
+  if (hasPendingRequestsForTool(block.toolCallId)) {
+    return false;
+  }
+  return isBlockCollapsed(toolCardKey(block), true);
 }
 
 function toolStatusLabel(status: ToolCallBlock["status"]) {
@@ -506,7 +528,7 @@ onBeforeUnmount(() => {
               </span>
               <AppIcon
                 :name="
-                  isBlockCollapsed(toolCardKey(block), true)
+                  isToolCollapsed(block)
                     ? 'i-lucide-chevron-right'
                     : 'i-lucide-chevron-down'
                 "
@@ -514,7 +536,7 @@ onBeforeUnmount(() => {
               />
             </button>
             <div
-              v-show="!isBlockCollapsed(toolCardKey(block), true)"
+              v-show="!isToolCollapsed(block)"
               class="border-t border-border/30 p-3 space-y-3"
             >
               <section class="space-y-1.5">
@@ -558,6 +580,12 @@ onBeforeUnmount(() => {
                 >{{ formatToolResult(block.result, block.status) }}</pre>
               </section>
             </div>
+            <PendingUiRequests
+              embedded
+              class="m-3 mt-0"
+              :requests="requestsForTool(block.toolCallId)"
+              @respond="(request, value) => emit('respond', request, value)"
+            />
           </div>
         </div>
 

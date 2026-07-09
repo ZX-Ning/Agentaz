@@ -346,7 +346,10 @@ directory:
 `WebExtensionUIContext` bridges extension UI prompts to the browser by emitting
 protocol events and waiting for browser responses. It also renders extension
 widgets as plain text lines for browser display, currently used by
-`@juicesharp/rpiv-todo`.
+`@juicesharp/rpiv-todo`. When a prompt is created during a known tool call, the
+controller adds optional `messageId` and `toolCallId` fields so the browser can
+render the approval next to that tool. Prompts without an anchor remain valid
+and render in the frontend fallback area.
 
 Expected approval behavior:
 
