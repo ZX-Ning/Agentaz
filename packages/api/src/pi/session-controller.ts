@@ -63,6 +63,11 @@ type PiModel = NonNullable<
     ReturnType<ReturnType<typeof ModelRegistry.create>["find"]>
 >;
 
+/** Compares model identity without relying on SDK object reference stability. */
+function modelsMatch(left: PiModel | undefined, right: PiModel) {
+    return left?.provider === right.provider && left.id === right.id;
+}
+
 type LooseRecord = Record<string, unknown>;
 
 type SessionTranscriptEntry = SessionMessageEntry | CompactionEntry;
@@ -942,11 +947,51 @@ export class PiSessionController {
         this.pendingSettings = {};
 
         if (model) {
-            await session.setModel(model);
+            try {
+                await session.setModel(model);
+            }
+            catch (error) {
+                // setModel can fail before mutation (e.g. missing auth) or after
+                // mutation (e.g. an extension hook). Retry only when the target
+                // was not applied, and never overwrite a newer pending request.
+                if (
+                    !modelsMatch(session.model, model) &&
+                    !this.pendingSettings.model
+                ) {
+                    this.pendingSettings.model = model;
+                }
+                this.emitPendingSettingsError("model", error);
+            }
         }
         if (thinkingLevel) {
-            session.setThinkingLevel(thinkingLevel);
+            try {
+                session.setThinkingLevel(thinkingLevel);
+            }
+            catch (error) {
+                if (
+                    session.thinkingLevel !== thinkingLevel &&
+                    !this.pendingSettings.thinkingLevel
+                ) {
+                    this.pendingSettings.thinkingLevel = thinkingLevel;
+                }
+                this.emitPendingSettingsError("thinking level", error);
+            }
         }
+    }
+
+    /** Reports a deferred setting failure without rejecting the event callback. */
+    private emitPendingSettingsError(setting: string, error: unknown) {
+        const detail = error instanceof Error ? error.message : String(error);
+        console.error(
+            `[agentaz-server] failed to apply pending ${setting}`,
+            error,
+        );
+        this.host.emit({
+            type: "error",
+            code: "settings_apply_failed",
+            message: `Failed to apply pending ${setting}: ${detail}`,
+            recoverable: true,
+        });
     }
 
     /**
