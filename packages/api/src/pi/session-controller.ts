@@ -176,9 +176,9 @@ export class PiSessionController {
     private currentTextBlockId?: string;
     /** Tracked thinking block id within the current assistant message. */
     private currentThinkingBlockId?: string;
-    /** Full transcript indexed by message id (live streaming + cached responses). */
-    private transcript = new Map<string, UiMessage>();
-    /** Maps tool call ids to their location in the transcript. */
+    /** Mutable browser projection for the active agent turn; cleared at agent_end. */
+    private liveTurnMessages = new Map<string, UiMessage>();
+    /** Maps tool call ids to their location in the active live projection. */
     private toolBlocks = new Map<string, ToolBlockLocation>();
     /** Last active tool location used to anchor extension UI prompts. */
     private currentToolRequestAnchor?: {
@@ -805,7 +805,6 @@ export class PiSessionController {
             blocks: [{ id: `${messageId}:text`, type: "text", text }],
             createdAt: Date.now(),
         };
-        this.transcript.set(messageId, userMessage);
         this.invalidateHistoryCache();
         this.host.emit({
             type: "turn_started",
@@ -1066,7 +1065,10 @@ export class PiSessionController {
                     this.sendStatus();
                     // Flush the final state of the current assistant message.
                     this.flushCurrentAssistantMessage(sessionId);
-                    // Reset transcript state for the next agent turn.
+                    // Persisted history is authoritative after turn_completed;
+                    // retain no completed live projection in this controller.
+                    this.liveTurnMessages.clear();
+                    // Reset live-turn state for the next agent turn.
                     this.currentAssistantMessageId = crypto.randomUUID();
                     this.currentTextBlockId = undefined;
                     this.currentThinkingBlockId = undefined;
@@ -1379,7 +1381,7 @@ export class PiSessionController {
         sessionId: string,
         messageId = this.currentAssistantMessageId,
     ) {
-        let message = this.transcript.get(messageId);
+        let message = this.liveTurnMessages.get(messageId);
         if (!message) {
             message = {
                 id: messageId,
@@ -1387,7 +1389,7 @@ export class PiSessionController {
                 blocks: [],
                 createdAt: Date.now(),
             };
-            this.transcript.set(messageId, message);
+            this.liveTurnMessages.set(messageId, message);
             this.host.emit({ type: "message_upsert", sessionId, message });
         }
         return message;
@@ -1543,7 +1545,9 @@ export class PiSessionController {
      * Called at agent_end to ensure the browser has the complete message.
      */
     private flushCurrentAssistantMessage(sessionId: string) {
-        const message = this.transcript.get(this.currentAssistantMessageId);
+        const message = this.liveTurnMessages.get(
+            this.currentAssistantMessageId,
+        );
         if (message) {
             this.host.emit({ type: "message_upsert", sessionId, message });
         }

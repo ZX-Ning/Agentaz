@@ -229,7 +229,9 @@ to `LOCAL_CLIENT_ID` only for non-browser or pre-SSE callers.
 `PiSessionController` owns browser-facing operations for one loaded Pi session.
 It projects one browser-facing assistant `UiMessage` per agent turn, including
 consecutive Pi SDK assistant messages and tool result blocks, so live streaming
-and HTTP history reload use the same grouping.
+and HTTP history reload use the same grouping. Its mutable live projection keeps
+only the active agent turn and is cleared after the final `agent_end` upsert;
+complete history is rebuilt from the `SessionManager` branch.
 
 The workspace shares only process-wide backing objects that are not extension
 runtimes (`AuthStorage`, `ModelRegistry`, working directory). Each loaded
