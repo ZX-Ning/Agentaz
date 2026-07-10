@@ -120,9 +120,9 @@ Deno.test({
             [controller],
             () => [],
             2,
-            async () => {
+            () => {
                 listCalls += 1;
-                return [];
+                return Promise.resolve([]);
             },
         );
         await workspace.createLoadedSession();

@@ -1,5 +1,5 @@
 import { hashAdminPassword } from "../src/auth/auth.ts";
-import { fileURLToPath } from "node:url";
+import { assertEquals, assertMatch, assertStringIncludes } from "@std/assert";
 import {
     DEFAULT_API_BODY_LIMIT_BYTES,
     LOGIN_BODY_LIMIT_BYTES,
@@ -8,39 +8,197 @@ import {
 
 const ADMIN_PASSWORD = "test-password";
 const SESSION_SECRET = "01234567890123456789012345678901";
+const TEST_PERMISSIONS = {
+    env: true,
+    read: true,
+    write: true,
+    net: ["127.0.0.1"],
+    sys: ["homedir"],
+};
+
+let baseUrl = "";
+let shutdownServer: (() => Promise<void>) | undefined;
+let authEnv: ReturnType<typeof withAuthEnv> | undefined;
+let staticDirEnv: Awaited<ReturnType<typeof withStaticDirEnv>> | undefined;
+
+/** Begins the hook-managed server lifetime shared by every test in this file. */
+Deno.test.beforeAll(async () => {
+    authEnv = withAuthEnv();
+
+    try {
+        staticDirEnv = await withStaticDirEnv();
+
+        const { app } = await import("../src/main.ts");
+        const server = Deno.serve(
+            {
+                hostname: "127.0.0.1",
+                port: 0,
+                onListen: () => {},
+            },
+            app.fetch,
+        );
+        baseUrl = `http://${server.addr.hostname}:${server.addr.port}`;
+        shutdownServer = () => server.shutdown();
+    }
+    catch (error) {
+        await disposeTestEnv();
+        throw error;
+    }
+});
+
+/** Ends the hook-managed server lifetime, restoring env even when shutdown fails. */
+Deno.test.afterAll(async () => {
+    try {
+        await shutdownServer?.();
+    }
+    finally {
+        await disposeTestEnv();
+    }
+});
 
 /**
- * Purpose: Verify the production app assembly enforces the same admin session
- * boundary for normal HTTP and long-lived SSE endpoints, including logout.
- * Expect: Protected routes reject anonymous requests and accept a valid cookie lifecycle.
- * Method: Start createApp().fetch on an ephemeral localhost port, probe anonymous
- * health/SSE, log in, replay the cookie to health, log out, and retry protected access.
+ * Purpose: Verify anonymous callers cannot cross the production API boundary.
+ * Expect: Protected HTTP and SSE routes return 401; public session reports logged out.
+ * Method: Request health, agent events, and session through the shared server without a cookie.
  */
 Deno.test({
-    name: "Deno server smoke test covers auth, health, and SSE protection",
-    permissions: {
-        env: true,
-        read: true,
-        net: ["127.0.0.1"],
-        sys: ["homedir"],
+    name:
+        "Production server protects HTTP and SSE routes from anonymous access",
+    permissions: TEST_PERMISSIONS,
+    async fn() {
+        const unauthenticatedHealth = await requestJson(
+            baseUrl,
+            "GET",
+            "/api/health",
+        );
+        assertEquals(unauthenticatedHealth.response.status, 401);
+
+        const unauthenticatedSse = await fetch(
+            `${baseUrl}/api/agent/events`,
+        );
+        assertEquals(unauthenticatedSse.status, 401);
+        await unauthenticatedSse.body?.cancel();
+
+        const anonymousSession = await requestJson(
+            baseUrl,
+            "GET",
+            "/api/_auth/session",
+        );
+        assertEquals(anonymousSession.response.status, 200);
+        assertEquals(anonymousSession.payload?.loggedIn, false);
     },
-    fn: runServerSmokeTest,
+});
+
+Deno.test({
+    name: "Production server rejects an invalid admin password",
+    permissions: TEST_PERMISSIONS,
+    async fn() {
+        const rejectedLogin = await requestJson(
+            baseUrl,
+            "POST",
+            "/api/auth/login",
+            { password: "wrong" },
+        );
+        assertEquals(rejectedLogin.response.status, 401);
+    },
+});
+
+/**
+ * Purpose: Verify the production cookie represents the complete admin session lifecycle.
+ * Expect: Login sets an admin session accepted by protected routes; logout invalidates it.
+ * Method: Replay the login cookie through session and health, then replay its cleared value.
+ */
+Deno.test({
+    name: "Production server supports the admin session lifecycle",
+    permissions: TEST_PERMISSIONS,
+    async fn() {
+        const login = await requestJson(
+            baseUrl,
+            "POST",
+            "/api/auth/login",
+            { password: ADMIN_PASSWORD },
+        );
+        assertEquals(login.response.status, 200);
+        assertEquals(login.payload?.user?.id, "admin");
+
+        const cookie = cookieHeader(login.response);
+        assertMatch(cookie, /better-auth\.session_token=/);
+
+        const authenticatedSession = await requestJson(
+            baseUrl,
+            "GET",
+            "/api/_auth/session",
+            undefined,
+            cookie,
+        );
+        assertEquals(authenticatedSession.response.status, 200);
+        assertEquals(authenticatedSession.payload?.loggedIn, true);
+        assertEquals(authenticatedSession.payload?.user?.id, "admin");
+
+        const health = await requestJson(
+            baseUrl,
+            "GET",
+            "/api/health",
+            undefined,
+            cookie,
+        );
+        assertEquals(health.response.status, 200);
+        assertEquals(health.payload?.ok, true);
+        assertEquals(health.payload?.service, "pi-web-agent");
+
+        const logout = await requestJson(
+            baseUrl,
+            "POST",
+            "/api/auth/logout",
+            undefined,
+            cookie,
+        );
+        assertEquals(logout.response.status, 200);
+
+        const clearedCookie = cookieHeader(logout.response);
+        const loggedOutHealth = await requestJson(
+            baseUrl,
+            "GET",
+            "/api/health",
+            undefined,
+            clearedCookie,
+        );
+        assertEquals(loggedOutHealth.response.status, 401);
+
+        const loggedOutSession = await requestJson(
+            baseUrl,
+            "GET",
+            "/api/_auth/session",
+            undefined,
+            clearedCookie,
+        );
+        assertEquals(loggedOutSession.response.status, 200);
+        assertEquals(loggedOutSession.payload?.loggedIn, false);
+    },
 });
 
 /**
  * Purpose: Verify SPA history fallback serves the application shell only for
  * browser document navigation and never converts missing asset requests into HTML.
  * Expect: Browser document routes return index.html while unknown assets return 404.
- * Method: Point STATIC_FILE_DIR at web-ui, request /login with text/html Accept,
+ * Method: Serve a temporary index.html, request /login with text/html Accept,
  * then request a missing JavaScript asset with a wildcard Accept header.
  */
 Deno.test({
     name: "Static file serving falls back to index.html for SPA routes",
-    permissions: {
-        env: true,
-        read: true,
+    permissions: TEST_PERMISSIONS,
+    async fn() {
+        const login = await fetch(`${baseUrl}/login`, {
+            headers: { accept: "text/html" },
+        });
+        assertEquals(login.status, 200);
+        assertStringIncludes(await login.text(), "Agentaz test shell");
+
+        const asset = await fetch(`${baseUrl}/missing.js`, {
+            headers: { accept: "*/*" },
+        });
+        assertEquals(asset.status, 404);
     },
-    fn: runStaticFallbackTest,
 });
 
 /**
@@ -53,180 +211,58 @@ Deno.test({
 Deno.test({
     name:
         "API request body limits reject declared and streamed oversized bodies",
-    permissions: {
-        env: true,
-        read: true,
-    },
-    fn: runBodyLimitTest,
-});
-
-async function runServerSmokeTest() {
-    using _env = withAuthEnv();
-    const { createApp } = await import("../src/main.ts");
-    const server = Deno.serve(
-        {
-            hostname: "127.0.0.1",
-            port: 0,
-            onListen: () => {},
-        },
-        createApp().fetch,
-    );
-    const baseUrl = `http://${server.addr.hostname}:${server.addr.port}`;
-
-    try {
-        const unauthenticatedHealth = await requestJson(
-            baseUrl,
-            "GET",
-            "/api/health",
-        );
-        assertStatus(unauthenticatedHealth.response, 401);
-
-        const unauthenticatedSse = await fetch(
-            `${baseUrl}/api/agent/events`,
-        );
-        assertStatus(unauthenticatedSse, 401);
-        await unauthenticatedSse.body?.cancel();
-
-        const login = await requestJson(
-            baseUrl,
-            "POST",
-            "/api/auth/login",
-            { password: ADMIN_PASSWORD },
-        );
-        assertStatus(login.response, 200);
-        if (login.payload?.user?.id !== "admin") {
-            throw new Error("login should return the admin user");
-        }
-
-        const cookie = cookieHeader(login.response);
-        if (!cookie.includes("better-auth.session_token=")) {
-            throw new Error("login should set an encrypted session cookie");
-        }
-
-        const health = await requestJson(
-            baseUrl,
-            "GET",
-            "/api/health",
-            undefined,
-            cookie,
-        );
-        assertStatus(health.response, 200);
-        if (
-            health.payload?.ok !== true ||
-            health.payload?.service !== "pi-web-agent"
-        ) {
-            throw new Error("health should return the service payload");
-        }
-
-        const logout = await requestJson(
-            baseUrl,
-            "POST",
-            "/api/auth/logout",
-            undefined,
-            cookie,
-        );
-        assertStatus(logout.response, 200);
-
-        const clearedCookie = cookieHeader(logout.response);
-        const loggedOutHealth = await requestJson(
-            baseUrl,
-            "GET",
-            "/api/health",
-            undefined,
-            clearedCookie,
-        );
-        assertStatus(loggedOutHealth.response, 401);
-    }
-    finally {
-        await server.shutdown();
-    }
-}
-
-async function runStaticFallbackTest() {
-    const staticDir = fileURLToPath(new URL("../../web-ui", import.meta.url));
-    using _env = withStaticDirEnv(staticDir);
-
-    const { createApp } = await import("../src/main.ts");
-    const app = createApp();
-
-    const login = await app.fetch(
-        new Request("http://agentaz.test/login", {
-            headers: { accept: "text/html" },
-        }),
-    );
-    assertStatus(login, 200);
-    if (!await login.text().then((text) => text.includes("Agentaz"))) {
-        throw new Error("SPA route should return index.html");
-    }
-
-    const asset = await app.fetch(
-        new Request("http://agentaz.test/missing.js", {
-            headers: { accept: "*/*" },
-        }),
-    );
-    assertStatus(asset, 404);
-}
-
-async function runBodyLimitTest() {
-    using _env = withAuthEnv();
-    const { createApp } = await import("../src/main.ts");
-    const app = createApp();
-
-    const oversizedLogin = await app.request("/api/auth/login", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ password: "x".repeat(LOGIN_BODY_LIMIT_BYTES) }),
-    });
-    await assertPayloadTooLarge(oversizedLogin, LOGIN_BODY_LIMIT_BYTES);
-
-    // No Content-Length: exercise the middleware's streamed-body accounting.
-    const oversizedStream = byteStream(DEFAULT_API_BODY_LIMIT_BYTES + 1);
-    const oversizedApi = await app.fetch(
-        new Request("http://agentaz.test/api/agent/permissions/config", {
-            method: "PUT",
+    permissions: TEST_PERMISSIONS,
+    async fn() {
+        const oversizedLogin = await fetch(`${baseUrl}/api/auth/login`, {
+            method: "POST",
             headers: { "content-type": "application/json" },
-            body: oversizedStream,
-        }),
-    );
-    await assertPayloadTooLarge(oversizedApi, DEFAULT_API_BODY_LIMIT_BYTES);
+            body: JSON.stringify({
+                password: "x".repeat(LOGIN_BODY_LIMIT_BYTES),
+            }),
+        });
+        await assertPayloadTooLarge(oversizedLogin, LOGIN_BODY_LIMIT_BYTES);
 
-    // Message requests intentionally use the larger image-capable ceiling.
-    const acceptedByMessageLimit = await app.fetch(
-        new Request(
-            "http://agentaz.test/api/agent/sessions/session-a/messages",
+        // No Content-Length: exercise the middleware's streamed-body accounting.
+        const oversizedStream = byteStream(DEFAULT_API_BODY_LIMIT_BYTES + 1);
+        const oversizedApi = await fetch(
+            `${baseUrl}/api/agent/permissions/config`,
+            {
+                method: "PUT",
+                headers: { "content-type": "application/json" },
+                body: oversizedStream,
+            },
+        );
+        await assertPayloadTooLarge(oversizedApi, DEFAULT_API_BODY_LIMIT_BYTES);
+
+        // Message requests intentionally use the larger image-capable ceiling.
+        const messageUrl = `${baseUrl}/api/agent/sessions/session-a/messages`;
+        const acceptedByMessageLimit = await fetch(
+            messageUrl,
             {
                 method: "POST",
                 headers: { "content-type": "application/json" },
                 body: byteStream(DEFAULT_API_BODY_LIMIT_BYTES + 1),
             },
-        ),
-    );
-    assertStatus(acceptedByMessageLimit, 401);
+        );
+        assertEquals(acceptedByMessageLimit.status, 401);
 
-    const oversizedMessage = await app.request(
-        "/api/agent/sessions/session-a/messages",
-        {
+        const oversizedMessage = await fetch(messageUrl, {
             method: "POST",
-            headers: {
-                "content-length": String(MESSAGE_BODY_LIMIT_BYTES + 1),
-                "content-type": "application/json",
-            },
-            body: "{}",
-        },
-    );
-    await assertPayloadTooLarge(oversizedMessage, MESSAGE_BODY_LIMIT_BYTES);
-}
+            headers: { "content-type": "application/json" },
+            body: new Uint8Array(MESSAGE_BODY_LIMIT_BYTES + 1),
+        });
+        await assertPayloadTooLarge(oversizedMessage, MESSAGE_BODY_LIMIT_BYTES);
+    },
+});
 
 async function assertPayloadTooLarge(response: Response, maxSize: number) {
-    assertStatus(response, 413);
+    assertEquals(response.status, 413);
     const payload = await response.json();
-    if (
-        payload.code !== "payload_too_large" ||
-        payload.message !== `Request body exceeds the ${maxSize}-byte limit.` ||
-        payload.recoverable !== true
-    ) {
-        throw new Error("body limit should return the structured API error");
-    }
+    assertEquals(payload, {
+        code: "payload_too_large",
+        message: `Request body exceeds the ${maxSize}-byte limit.`,
+        recoverable: true,
+    });
 }
 
 function byteStream(size: number) {
@@ -265,14 +301,6 @@ async function requestJson(
     };
 }
 
-function assertStatus(response: Response, expected: number) {
-    if (response.status !== expected) {
-        throw new Error(
-            `expected HTTP ${expected}, got ${response.status}`,
-        );
-    }
-}
-
 function cookieHeader(response: Response) {
     const getSetCookie = (response.headers as Headers & {
         getSetCookie?: () => string[];
@@ -303,15 +331,42 @@ function withAuthEnv() {
     };
 }
 
-function withStaticDirEnv(staticDir: string) {
+async function withStaticDirEnv() {
     const previousStaticDir = Deno.env.get("STATIC_FILE_DIR");
-    Deno.env.set("STATIC_FILE_DIR", staticDir);
+    const staticDir = await Deno.makeTempDir({ prefix: "agentaz-static-" });
+
+    try {
+        await Deno.writeTextFile(
+            `${staticDir}/index.html`,
+            "<!doctype html><title>Agentaz test shell</title>",
+        );
+        Deno.env.set("STATIC_FILE_DIR", staticDir);
+    }
+    catch (error) {
+        await Deno.remove(staticDir, { recursive: true });
+        throw error;
+    }
 
     return {
-        [Symbol.dispose]() {
+        async [Symbol.asyncDispose]() {
             restoreEnv("STATIC_FILE_DIR", previousStaticDir);
+            await Deno.remove(staticDir, { recursive: true });
         },
     };
+}
+
+async function disposeTestEnv() {
+    const currentStaticDirEnv = staticDirEnv;
+    const currentAuthEnv = authEnv;
+    staticDirEnv = undefined;
+    authEnv = undefined;
+
+    try {
+        await currentStaticDirEnv?.[Symbol.asyncDispose]();
+    }
+    finally {
+        currentAuthEnv?.[Symbol.dispose]();
+    }
 }
 
 function restoreEnv(name: string, value: string | undefined) {

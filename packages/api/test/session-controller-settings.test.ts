@@ -72,7 +72,6 @@ Deno.test("deferred model failure preserves a newer pending request", async () =
     const firstModel = { provider: "test", id: "first" };
     const newerModel = { provider: "test", id: "newer" };
     const events: ServerEvent[] = [];
-    let controller: SettingsTestController;
     const session = {
         sessionId: "session-a",
         isStreaming: false,
@@ -85,7 +84,11 @@ Deno.test("deferred model failure preserves a newer pending request", async () =
         },
         setThinkingLevel: () => {},
     };
-    controller = settingsController(session, { model: firstModel }, events);
+    const controller = settingsController(
+        session,
+        { model: firstModel },
+        events,
+    );
 
     await controller.applyPendingSettingsIfIdle();
 
@@ -111,7 +114,7 @@ Deno.test("deferred model is not requeued when it applied before rejection", asy
         pendingMessageCount: 0,
         model: { provider: "test", id: "current" },
         thinkingLevel: "off" as ThinkingLevel,
-        async setModel(model: TestModel) {
+        setModel(model: TestModel) {
             this.model = model;
             throw new Error("model hook failed");
         },

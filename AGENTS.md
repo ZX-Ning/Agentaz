@@ -156,6 +156,8 @@ deno task check:web-ui
 
 For backend protocol changes, run `deno task check` and `deno task test`.
 
+For linting, run `deno lint` or `deno link <file|dir>` for all edited files.
+
 ## Documentation Updates
 
 Update docs when changing product decisions or architecture:

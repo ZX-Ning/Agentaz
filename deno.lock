@@ -2,6 +2,8 @@
   "version": "5",
   "specifiers": {
     "jsr:@hono/hono@^4.12.0": "4.12.27",
+    "jsr:@std/assert@^1.0.19": "1.0.19",
+    "jsr:@std/internal@^1.0.12": "1.0.14",
     "npm:@comark/vue@*": "0.4.0_katex@0.16.47_shiki@4.3.0_vue@3.5.39__typescript@6.0.3",
     "npm:@comark/vue@0.4": "0.4.0_katex@0.16.47_shiki@4.3.0_vue@3.5.39__typescript@6.0.3",
     "npm:@comark/vue@0.4.0": "0.4.0_katex@0.16.47_shiki@4.3.0_vue@3.5.39__typescript@6.0.3",
@@ -30,6 +32,15 @@
   "jsr": {
     "@hono/hono@4.12.27": {
       "integrity": "3acc640592008e43f7048e8e53275203e0da84fbcd50201121195da7560583dc"
+    },
+    "@std/assert@1.0.19": {
+      "integrity": "eaada96ee120cb980bc47e040f82814d786fe8162ecc53c91d8df60b8755991e",
+      "dependencies": [
+        "jsr:@std/internal"
+      ]
+    },
+    "@std/internal@1.0.14": {
+      "integrity": "291516b3d4c35024d6ffbc0a9df5bf4c64116e05b50012cf846710152d2ffdf7"
     }
   },
   "npm": {
@@ -2526,6 +2537,7 @@
       "packages/api": {
         "dependencies": [
           "jsr:@hono/hono@^4.12.0",
+          "jsr:@std/assert@^1.0.19",
           "npm:better-auth@^1.6.23"
         ],
         "packageJson": {
