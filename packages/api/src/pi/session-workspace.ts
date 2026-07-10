@@ -346,6 +346,11 @@ export class PiSessionWorkspace {
             return loaded;
         }
 
+        // Only normal persisted sessions for this cwd may cross the SDK boundary.
+        // SessionManager.open() accepts arbitrary paths and may rewrite malformed
+        // files, so validate before eviction or any other observable mutation.
+        await this.requirePersistedSessionFile(normalizedSessionFile);
+
         await this.releaseOneAvailableSessionIfAtCapacity();
         this.assertCanLoadAnotherSession();
 

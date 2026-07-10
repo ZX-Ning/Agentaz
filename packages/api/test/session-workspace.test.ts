@@ -5,7 +5,10 @@ import {
     type PiSessionWorkspaceDependencies,
     type WorkspaceSessionController,
 } from "../src/pi/session-workspace.ts";
-import { SessionLimitReachedError } from "../src/errors.ts";
+import {
+    PersistedSessionNotFoundError,
+    SessionLimitReachedError,
+} from "../src/errors.ts";
 
 Deno.test({
     name: "workspace evicts the first idle unprotected session at capacity",
@@ -199,6 +202,38 @@ Deno.test({
 });
 
 Deno.test({
+    name: "workspace rejects out-of-scope session files before eviction",
+    permissions: { env: true, read: true, sys: ["homedir"] },
+    async fn() {
+        const loaded = fakeController("session-a");
+        const unexpected = fakeController("unexpected");
+        const workspace = createWorkspace(
+            new AgentEventBus(),
+            [loaded, unexpected],
+            () => [],
+            1,
+            () =>
+                Promise.resolve([
+                    persistedSession("/tmp/session-a.jsonl", "session-a"),
+                ]),
+        );
+        await workspace.createLoadedSession();
+
+        await assert.rejects(
+            () => workspace.openLoadedSession("/tmp/outside.jsonl"),
+            PersistedSessionNotFoundError,
+        );
+
+        assert.deepEqual(
+            workspace.loadedSessions().map((session) => session.sessionId),
+            ["session-a"],
+        );
+        assert.equal(stateOf(loaded).disposeCalls, 0);
+        assert.equal(stateOf(unexpected).seededRevisions.length, 0);
+    },
+});
+
+Deno.test({
     name: "workspace preserves history revision across eviction and reopen",
     permissions: { env: true, read: true, sys: ["homedir"] },
     async fn() {
@@ -210,6 +245,10 @@ Deno.test({
             [original, replacement, reopened],
             () => [],
             1,
+            () =>
+                Promise.resolve([
+                    persistedSession("/tmp/session-a.jsonl", "session-a"),
+                ]),
         );
 
         await workspace.createLoadedSession();
@@ -221,6 +260,16 @@ Deno.test({
         assert.equal(stateOf(replacement).disposeCalls, 1);
     },
 });
+
+function persistedSession(file: string, sessionId: string) {
+    return {
+        file,
+        sessionId,
+        name: sessionId,
+        createdAt: 0,
+        updatedAt: 0,
+    };
+}
 
 function createWorkspace(
     eventBus: AgentEventBus,
