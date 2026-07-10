@@ -9,6 +9,13 @@ import {
 const ADMIN_PASSWORD = "test-password";
 const SESSION_SECRET = "01234567890123456789012345678901";
 
+/**
+ * Purpose: Verify the production app assembly enforces the same admin session
+ * boundary for normal HTTP and long-lived SSE endpoints, including logout.
+ * Expect: Protected routes reject anonymous requests and accept a valid cookie lifecycle.
+ * Method: Start createApp().fetch on an ephemeral localhost port, probe anonymous
+ * health/SSE, log in, replay the cookie to health, log out, and retry protected access.
+ */
 Deno.test({
     name: "Deno server smoke test covers auth, health, and SSE protection",
     permissions: {
@@ -20,6 +27,13 @@ Deno.test({
     fn: runServerSmokeTest,
 });
 
+/**
+ * Purpose: Verify SPA history fallback serves the application shell only for
+ * browser document navigation and never converts missing asset requests into HTML.
+ * Expect: Browser document routes return index.html while unknown assets return 404.
+ * Method: Point STATIC_FILE_DIR at web-ui, request /login with text/html Accept,
+ * then request a missing JavaScript asset with a wildcard Accept header.
+ */
 Deno.test({
     name: "Static file serving falls back to index.html for SPA routes",
     permissions: {
@@ -29,6 +43,13 @@ Deno.test({
     fn: runStaticFallbackTest,
 });
 
+/**
+ * Purpose: Verify each request class enforces its configured memory ceiling before
+ * authentication/JSON parsing and that streamed bodies cannot bypass Content-Length checks.
+ * Expect: Oversized login, normal, and message bodies return structured 413 responses.
+ * Method: Oversize login and normal API bodies using declared and chunked streams,
+ * prove message bodies exceed the normal tier, then exceed the dedicated message tier.
+ */
 Deno.test({
     name:
         "API request body limits reject declared and streamed oversized bodies",

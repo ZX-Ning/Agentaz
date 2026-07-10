@@ -4,6 +4,13 @@ import {
 } from "../src/runtime/client-presence.ts";
 import { SessionControlConflictError } from "../src/errors.ts";
 
+/**
+ * Purpose: Verify ClientPresence independently tracks per-client focus and
+ * re-entrant mutation ownership, then releases ownership without disturbing focus.
+ * Expect: Focus is readable, an acquired lease has an owner, and release removes it.
+ * Method: Focus LOCAL_CLIENT_ID on one session, acquire its control lease, assert
+ * both lookup directions, release once, and confirm the owner entry is removed.
+ */
 Deno.test("ClientPresence tracks focus and control leases", () => {
     const presence = new ClientPresence();
 
@@ -23,6 +30,13 @@ Deno.test("ClientPresence tracks focus and control leases", () => {
     }
 });
 
+/**
+ * Purpose: Verify the single-owner invariant prevents simultaneous mutations from
+ * different browser tabs while an existing control lease is active.
+ * Expect: A second owner receives SessionControlConflictError.
+ * Method: Acquire session-a for client-a, attempt the same acquisition for
+ * client-b, and require the typed conflict error rather than a generic failure.
+ */
 Deno.test("ClientPresence rejects conflicting control owners", () => {
     const presence = new ClientPresence();
 

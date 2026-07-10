@@ -11,6 +11,13 @@ import { HttpError, jsonError } from "../src/http/errors.ts";
 const ADMIN_PASSWORD = "test-password";
 const SESSION_SECRET = "01234567890123456789012345678901";
 
+/**
+ * Purpose: Verify the encrypted stateless admin cookie is the only credential
+ * accepted by protected routes, including session introspection after login.
+ * Expect: Anonymous health fails; login, session lookup, and authenticated health succeed.
+ * Method: Build a minimal Hono app with the production auth middleware, probe
+ * health anonymously, log in, replay the Set-Cookie value, then inspect session and health.
+ */
 Deno.test({
     name: "Better Auth encrypted cookie session protects API routes",
     permissions: {
@@ -59,6 +66,13 @@ Deno.test({
     },
 });
 
+/**
+ * Purpose: Verify failed authentication creates no session and logout invalidates
+ * a previously valid stateless cookie from the browser's perspective.
+ * Expect: A wrong password returns 401 and the cleared cookie reports logged out.
+ * Method: Submit a wrong password, obtain a real cookie with the correct password,
+ * call logout, then query the session endpoint using the returned clearing cookie.
+ */
 Deno.test({
     name:
         "Better Auth encrypted cookie session rejects bad password and clears on logout",

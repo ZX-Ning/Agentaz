@@ -17,6 +17,13 @@ import {
 
 type HistoryItems = Parameters<typeof normalizeMessages>[0];
 
+/**
+ * Purpose: Verify persisted provider messages with mixed content become the complete
+ * browser protocol shape required for rendering and fork/revert anchoring.
+ * Expect: Text, thinking, and tool blocks retain content, IDs, timestamps, and entry metadata.
+ * Method: Supply user text plus assistant text/thinking/tool-call parts with explicit
+ * message-to-entry maps, normalize them, then inspect every message and block field.
+ */
 Deno.test("normalizeMessages preserves mixed content and history metadata", () => {
     const messages = normalizeMessages(
         [
@@ -87,6 +94,13 @@ Deno.test("normalizeMessages preserves mixed content and history metadata", () =
     ]);
 });
 
+/**
+ * Purpose: Verify reload preserves the live UI invariant that multiple Pi assistant
+ * messages and their tool result form one ordered browser-visible turn.
+ * Expect: Assistant/tool-result/assistant entries merge into ordered completed tool blocks.
+ * Method: Normalize user → assistant tool call → toolResult → assistant text, then
+ * assert one assistant message owns the completed call/result and trailing text blocks.
+ */
 Deno.test("normalizeMessages groups assistant turns across tool results", () => {
     const messages = normalizeMessages([
         { id: "user", role: "user", content: "do it" },
@@ -137,6 +151,13 @@ Deno.test("normalizeMessages groups assistant turns across tool results", () => 
     ]);
 });
 
+/**
+ * Purpose: Verify incomplete/legacy JSONL containing a tool result without its
+ * assistant call still projects into valid, visible, and diagnosable UI blocks.
+ * Expect: A synthetic assistant host contains matching error call and result blocks.
+ * Method: Feed one error tool entry using alternate call/name fields, then assert
+ * creation of a timestamped synthetic assistant with matching call/result IDs.
+ */
 Deno.test("normalizeMessages creates a host for orphan error tool results", () => {
     const [message] = normalizeMessages([{
         id: "result-1",
@@ -170,6 +191,13 @@ Deno.test("normalizeMessages creates a host for orphan error tool results", () =
     ]);
 });
 
+/**
+ * Purpose: Verify compaction and non-assistant messages terminate assistant grouping,
+ * preventing persisted turns across context or role boundaries from sharing a bubble.
+ * Expect: Compaction, user, and unknown/system entries reset assistant grouping.
+ * Method: Normalize assistant → compaction → assistant → unknown-role entries and
+ * inspect message count, compaction text, surviving assistant ID, and system fallback.
+ */
 Deno.test("normalizeMessages treats compaction and user messages as turn boundaries", () => {
     const messages = normalizeMessages([
         { id: "a", role: "assistant", content: "before" },
@@ -197,6 +225,13 @@ Deno.test("normalizeMessages treats compaction and user messages as turn boundar
     );
 });
 
+/**
+ * Purpose: Verify compatibility helpers absorb known provider/SDK field variants so
+ * event forwarding does not leak camelCase, snake_case, or nested transport differences.
+ * Expect: IDs, inputs, flattened text, result truncation, and images use stable forms.
+ * Method: Table-drive tool IDs and inputs across alternate shapes, then exercise text
+ * flattening, 500-character result summarization, and browser-to-Pi image conversion.
+ */
 Deno.test("tool and content helpers normalize provider variants", () => {
     const idCases: Array<[unknown, string | undefined]> = [
         [{ tool_call_id: "snake" }, "snake"],
@@ -220,6 +255,13 @@ Deno.test("tool and content helpers normalize provider variants", () => {
     ]);
 });
 
+/**
+ * Purpose: Verify malformed model/timestamp data and regenerated block IDs cannot
+ * produce unsupported UI state or duplicate logical tool blocks.
+ * Expect: Invalid values normalize predictably and equivalent tool calls match by call ID.
+ * Method: Normalize valid/invalid thinking levels, derive capability lists for two
+ * model shapes, convert timestamps, and compare tool blocks sharing a toolCallId.
+ */
 Deno.test("model, timestamp, and block helpers enforce stable defaults", () => {
     assert.equal(normalizeThinkingLevel("high"), "high");
     assert.equal(normalizeThinkingLevel("invalid"), "off");
@@ -262,6 +304,13 @@ Deno.test("model, timestamp, and block helpers enforce stable defaults", () => {
     assert.equal(areSameToolBlock(callA, result), false);
 });
 
+/**
+ * Purpose: Verify sidebar usage totals remain finite and accurate when persisted SDK
+ * messages contain partial usage data, malformed numbers, and multiple tool-call shapes.
+ * Expect: Valid counts/tokens/cost are summed while malformed cache-write usage becomes zero.
+ * Method: Build three SessionEntries with mixed tool block spellings and NaN cache
+ * writes, summarize the branch, then assert every count, token bucket, and cost total.
+ */
 Deno.test("summarizeUsageStatsFromEntries ignores malformed usage", () => {
     const entries = [
         messageEntry("user", "hello"),

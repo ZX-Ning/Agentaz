@@ -15,6 +15,13 @@ type SettingsTestController = {
     };
 };
 
+/**
+ * Purpose: Verify independently deferred model/thinking settings cannot cause one
+ * failed SDK operation to discard or block the other requested setting.
+ * Expect: Model remains pending, thinking applies, and one recoverable error is emitted.
+ * Method: Seed both pending values, reject setModel before it mutates the fake
+ * session, run the private idle apply path, then inspect pending state, thinking, and SSE.
+ */
 Deno.test("deferred model failure stays pending and does not block thinking", async () => {
     using errors = captureConsoleErrors();
     const targetModel = { provider: "test", id: "target" };
@@ -53,6 +60,13 @@ Deno.test("deferred model failure stays pending and does not block thinking", as
     }]);
 });
 
+/**
+ * Purpose: Verify asynchronous failure recovery preserves last-write-wins semantics
+ * when the user selects another model while an older deferred apply is in flight.
+ * Expect: The newer model remains pending after the older apply rejects.
+ * Method: Start with model A pending, write model B from inside the fake asynchronous
+ * setModel call, reject model A, then assert recovery leaves B rather than restoring A.
+ */
 Deno.test("deferred model failure preserves a newer pending request", async () => {
     using errors = captureConsoleErrors();
     const firstModel = { provider: "test", id: "first" };
@@ -80,6 +94,13 @@ Deno.test("deferred model failure preserves a newer pending request", async () =
     assert.equal(events.length, 1);
 });
 
+/**
+ * Purpose: Avoid duplicate session entries and retry loops when the SDK mutates its
+ * model successfully but a later extension/model-select hook rejects.
+ * Expect: The target model is active and no pending model is restored.
+ * Method: Make setModel assign the target before throwing, run deferred apply, and
+ * compare live model identity with pending state and the emitted recoverable error.
+ */
 Deno.test("deferred model is not requeued when it applied before rejection", async () => {
     using errors = captureConsoleErrors();
     const targetModel = { provider: "test", id: "target" };

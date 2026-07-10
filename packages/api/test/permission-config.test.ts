@@ -8,6 +8,13 @@ import {
 } from "../src/extensions/permission-config.ts";
 import { BadRequestError } from "../src/errors.ts";
 
+/**
+ * Purpose: Verify the project permission file lifecycle preserves nested command
+ * rules while absent and reset states fall back to safe runtime defaults.
+ * Expect: Defaults load when absent, writes round-trip, and reset removes the file.
+ * Method: Read from an empty temp cwd, write mixed scalar/object bash rules,
+ * inspect raw JSON and normalized reload output, reset, then assert file deletion.
+ */
 Deno.test({
     name: "project permission config read/write/reset lifecycle",
     permissions: { read: true, write: true },
@@ -59,6 +66,13 @@ Deno.test({
     },
 });
 
+/**
+ * Purpose: Verify invalid action vocabulary cannot enter the permission runtime
+ * through otherwise structurally valid project configuration.
+ * Expect: Normalization throws BadRequestError for an unknown action.
+ * Method: Pass a minimal bash rule using "sometimes" to normalizePermissionConfig
+ * and require the public BadRequestError classification.
+ */
 Deno.test("permission config validation rejects invalid actions", () => {
     assertThrows(
         () =>
@@ -69,6 +83,13 @@ Deno.test("permission config validation rejects invalid actions", () => {
     );
 });
 
+/**
+ * Purpose: Verify callers may provide a sparse override without omitting schema,
+ * audit logging, infrastructure paths, or other fields required by the runtime.
+ * Expect: Explicit values survive while schema, logging, and path defaults are populated.
+ * Method: Normalize only permission.read="allow", compare inherited fields with
+ * defaultPermissionConfig, and confirm the explicit override remains unchanged.
+ */
 Deno.test("permission config normalization fills runtime defaults", () => {
     const normalized = normalizePermissionConfig({
         permission: { read: "allow" },

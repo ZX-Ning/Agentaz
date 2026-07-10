@@ -13,6 +13,13 @@ import {
     SessionLimitReachedError,
 } from "../src/errors.ts";
 
+/**
+ * Purpose: Verify the loaded-session cache enforces capacity without disrupting the
+ * focused/protected controller and publishes enough state for clients to recover.
+ * Expect: The protected session survives, the eligible session is disposed, and removal emits.
+ * Method: Insert protected A and evictable B into a two-slot workspace, create C,
+ * then inspect insertion order, disposal counts, and the session_removed fallback event.
+ */
 Deno.test({
     name: "workspace evicts the first idle unprotected session at capacity",
     permissions: { env: true, read: true, sys: ["homedir"] },
@@ -50,6 +57,13 @@ Deno.test({
     },
 });
 
+/**
+ * Purpose: Verify cache pressure cannot interrupt a focused session or an active agent
+ * workflow when no safe eviction candidate exists.
+ * Expect: Loading past capacity throws and neither protected nor busy controllers are disposed.
+ * Method: Fill separate one-slot workspaces with a protected controller and a busy
+ * controller, request another session in each, and inspect typed errors/disposal counts.
+ */
 Deno.test({
     name: "workspace refuses to evict protected or busy sessions",
     permissions: { env: true, read: true, sys: ["homedir"] },
@@ -84,6 +98,13 @@ Deno.test({
     },
 });
 
+/**
+ * Purpose: Verify the HTTP-facing workspace contract remains fire-and-forget while
+ * metadata refresh and control-lease release stay coupled to actual task settlement.
+ * Expect: Acceptance returns immediately; metadata refresh and settlement occur after resolution.
+ * Method: Submit a prompt backed by a deferred promise, assert the immediate acceptance
+ * payload and zero refreshes, resolve it, then await settlement and inspect refresh/calls.
+ */
 Deno.test({
     name: "workspace returns prompt acceptance before task settlement",
     permissions: { env: true, read: true, sys: ["homedir"] },
@@ -128,6 +149,13 @@ Deno.test({
     },
 });
 
+/**
+ * Purpose: Verify both agent-task and post-task metadata failures are isolated after the
+ * HTTP response, while the control lease's settlement callback remains guaranteed.
+ * Expect: A recoverable message_failed event emits and settlement runs despite refresh failure.
+ * Method: Reject prompt and listPersistedSessions independently, await the settlement
+ * callback, drain one microtask, then inspect server events and captured console errors.
+ */
 Deno.test({
     name: "workspace reports failed messages and always settles control",
     permissions: { env: true, read: true, sys: ["homedir"] },
@@ -172,6 +200,13 @@ Deno.test({
     },
 });
 
+/**
+ * Purpose: Verify follow-up mode selects the correct controller API and that process
+ * teardown releases every loaded controller regardless of prior message activity.
+ * Expect: Follow-up reaches the target, settlement fires, and every controller is disposed.
+ * Method: Load two controllers, submit follow_up to the first, await settlement,
+ * inspect response/call routing, invoke disposeAll, then verify both disposals and empty state.
+ */
 Deno.test({
     name: "workspace dispatches queued messages and disposes all sessions",
     permissions: { env: true, read: true, sys: ["homedir"] },
@@ -204,6 +239,13 @@ Deno.test({
     },
 });
 
+/**
+ * Purpose: Verify the workspace and real Pi SDK preserve entry-scoped fork semantics:
+ * physical branch truncation, lineage metadata, naming, and immediate loaded availability.
+ * Expect: The fork excludes later entries, records its name/parent, and joins the loaded set.
+ * Method: Persist two real user/assistant turns in a temp session directory, fork at
+ * user two through workspace dependencies, reopen JSONL, and compare IDs/header/name/state.
+ */
 Deno.test({
     name:
         "workspace materializes an entry-scoped fork with only the selected branch",
@@ -299,6 +341,13 @@ Deno.test({
     },
 });
 
+/**
+ * Purpose: Prevent unsupported user-only branches from reaching Pi's deferred-file path,
+ * which would violate the API guarantee that a returned fork is immediately loadable.
+ * Expect: The workspace throws SessionForkUnavailableError without changing loaded sessions.
+ * Method: Load a fake controller whose current branch is one user entry, request an
+ * entry-scoped fork, then inspect the typed error, loaded set, and source disposal count.
+ */
 Deno.test({
     name: "workspace rejects entry forks before the first assistant response",
     permissions: { env: true, read: true, sys: ["homedir"] },
@@ -340,6 +389,13 @@ Deno.test({
     },
 });
 
+/**
+ * Purpose: Prevent authenticated callers from making SessionManager open or rewrite files
+ * outside the current cwd's enumerated persisted-session set.
+ * Expect: An out-of-scope open fails before eviction or controller construction.
+ * Method: Fill a one-slot workspace, expose only its legitimate file from the list
+ * dependency, request an outside path, then verify rejection precedes eviction/open.
+ */
 Deno.test({
     name: "workspace rejects out-of-scope session files before eviction",
     permissions: { env: true, read: true, sys: ["homedir"] },
@@ -372,6 +428,13 @@ Deno.test({
     },
 });
 
+/**
+ * Purpose: Verify controller replacement cannot move the browser's transcript revision
+ * backward and allow stale HTTP history responses to overwrite newer state.
+ * Expect: The reopened controller receives the original revision while prior instances dispose.
+ * Method: Give controller A revision 7, evict it with B, reopen A from the persisted
+ * list as a new controller, then inspect seeded revision and both prior disposal counts.
+ */
 Deno.test({
     name: "workspace preserves history revision across eviction and reopen",
     permissions: { env: true, read: true, sys: ["homedir"] },

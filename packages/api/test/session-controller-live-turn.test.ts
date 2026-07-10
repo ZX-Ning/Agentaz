@@ -14,6 +14,13 @@ type LiveTurnTestController = {
     getHistory(): { messages: UiMessage[] };
 };
 
+/**
+ * Purpose: Verify the controller retains only mutable state needed for the active
+ * assistant turn while preserving multi-message/tool ordering and final SSE recovery.
+ * Expect: Text/tool blocks merge, final upserts precede cleanup, and turns never accumulate.
+ * Method: Emit turn_started, text, tool start/end, another assistant segment, and
+ * agent_end twice; inspect block order, final-upsert counts, IDs, and map size at boundaries.
+ */
 Deno.test("live projection retains only the active assistant turn", () => {
     const events: ServerEvent[] = [];
     const controller = liveTurnController([], events);
@@ -96,6 +103,13 @@ Deno.test("live projection retains only the active assistant turn", () => {
     assert.equal(messageUpsertCount(events, secondAssistantId), 2);
 });
 
+/**
+ * Purpose: Verify HTTP history remains authoritative and cannot accidentally expose
+ * transient or stale messages retained only by the realtime projection.
+ * Expect: History contains only SessionManager entries and excludes a live-only message.
+ * Method: Give the fake SessionManager persisted user/assistant entries, inject a
+ * conflicting live-only assistant into the map, call getHistory, and compare returned IDs.
+ */
 Deno.test("history projection is independent from live turn messages", () => {
     const entries = [
         messageEntry("history-user", "user", "persisted question"),
