@@ -147,6 +147,11 @@ POST   /api/agent/sessions/:sessionId/queue/clear
 POST   /api/agent/sessions/:sessionId/ui-requests/:requestId/response
 ```
 
+API request bodies are bounded before authentication and JSON parsing. Login
+accepts up to 16 KiB, normal API requests up to 1 MiB, and message submission up
+to 25 MiB to accommodate inline base64 image payloads. Oversized declared-length
+and streamed bodies return `413 payload_too_large`.
+
 Route files should stay thin. Put session/runtime behavior in the runtime
 services, not the route layer. Agent routes should resolve the process runtime
 through `getAgentRuntime()` or route helpers that wrap it, then delegate to the

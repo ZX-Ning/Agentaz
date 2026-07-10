@@ -1,5 +1,10 @@
 import { hashAdminPassword } from "../src/auth/auth.ts";
 import { fileURLToPath } from "node:url";
+import {
+    DEFAULT_API_BODY_LIMIT_BYTES,
+    LOGIN_BODY_LIMIT_BYTES,
+    MESSAGE_BODY_LIMIT_BYTES,
+} from "../src/http/body-limit.ts";
 
 const ADMIN_PASSWORD = "test-password";
 const SESSION_SECRET = "01234567890123456789012345678901";
@@ -22,6 +27,16 @@ Deno.test({
         read: true,
     },
     fn: runStaticFallbackTest,
+});
+
+Deno.test({
+    name:
+        "API request body limits reject declared and streamed oversized bodies",
+    permissions: {
+        env: true,
+        read: true,
+    },
+    fn: runBodyLimitTest,
 });
 
 async function runServerSmokeTest() {
@@ -129,6 +144,77 @@ async function runStaticFallbackTest() {
         }),
     );
     assertStatus(asset, 404);
+}
+
+async function runBodyLimitTest() {
+    using _env = withAuthEnv();
+    const { createApp } = await import("../src/main.ts");
+    const app = createApp();
+
+    const oversizedLogin = await app.request("/api/auth/login", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ password: "x".repeat(LOGIN_BODY_LIMIT_BYTES) }),
+    });
+    await assertPayloadTooLarge(oversizedLogin, LOGIN_BODY_LIMIT_BYTES);
+
+    // No Content-Length: exercise the middleware's streamed-body accounting.
+    const oversizedStream = byteStream(DEFAULT_API_BODY_LIMIT_BYTES + 1);
+    const oversizedApi = await app.fetch(
+        new Request("http://agentaz.test/api/agent/permissions/config", {
+            method: "PUT",
+            headers: { "content-type": "application/json" },
+            body: oversizedStream,
+        }),
+    );
+    await assertPayloadTooLarge(oversizedApi, DEFAULT_API_BODY_LIMIT_BYTES);
+
+    // Message requests intentionally use the larger image-capable ceiling.
+    const acceptedByMessageLimit = await app.fetch(
+        new Request(
+            "http://agentaz.test/api/agent/sessions/session-a/messages",
+            {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: byteStream(DEFAULT_API_BODY_LIMIT_BYTES + 1),
+            },
+        ),
+    );
+    assertStatus(acceptedByMessageLimit, 401);
+
+    const oversizedMessage = await app.request(
+        "/api/agent/sessions/session-a/messages",
+        {
+            method: "POST",
+            headers: {
+                "content-length": String(MESSAGE_BODY_LIMIT_BYTES + 1),
+                "content-type": "application/json",
+            },
+            body: "{}",
+        },
+    );
+    await assertPayloadTooLarge(oversizedMessage, MESSAGE_BODY_LIMIT_BYTES);
+}
+
+async function assertPayloadTooLarge(response: Response, maxSize: number) {
+    assertStatus(response, 413);
+    const payload = await response.json();
+    if (
+        payload.code !== "payload_too_large" ||
+        payload.message !== `Request body exceeds the ${maxSize}-byte limit.` ||
+        payload.recoverable !== true
+    ) {
+        throw new Error("body limit should return the structured API error");
+    }
+}
+
+function byteStream(size: number) {
+    return new ReadableStream<Uint8Array>({
+        start(controller) {
+            controller.enqueue(new Uint8Array(size));
+            controller.close();
+        },
+    });
 }
 
 async function requestJson(

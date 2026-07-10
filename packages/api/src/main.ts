@@ -7,6 +7,7 @@ import {
     initAgentRuntime,
 } from "./runtime/agent-runtime.ts";
 import { agentHttpError } from "./http/agent.ts";
+import { apiBodyLimit } from "./http/body-limit.ts";
 import { assertAuthConfig, authMiddleware } from "./auth/auth.ts";
 import { HttpError } from "./http/errors.ts";
 import { agentRoutes } from "./routes/agent.ts";
@@ -30,7 +31,8 @@ export function createApp() {
         });
     });
 
-    app.use("/api/*", authMiddleware);
+    // Reject oversized declared-length and streamed bodies before auth or JSON parsing.
+    app.use("/api/*", apiBodyLimit, authMiddleware);
     app.route("/api", authRoutes);
     app.route("/api", healthRoutes);
     app.route("/api", agentRoutes);
