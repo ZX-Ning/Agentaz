@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { SessionManager } from "@earendil-works/pi-coding-agent";
+import { join } from "node:path";
 import { AgentEventBus } from "../src/runtime/event-bus.ts";
 import {
     PiSessionWorkspace,
@@ -203,6 +205,101 @@ Deno.test({
 });
 
 Deno.test({
+    name:
+        "workspace materializes an entry-scoped fork with only the selected branch",
+    permissions: { env: true, read: true, write: true, sys: ["homedir"] },
+    async fn() {
+        const tempDir = await Deno.makeTempDir({
+            prefix: "agentaz-entry-fork-test-",
+        });
+        try {
+            const sessionDir = join(tempDir, "sessions");
+            const sourceManager = SessionManager.create(
+                "/tmp/agentaz-project",
+                sessionDir,
+            );
+            const firstUserId = sourceManager.appendMessage(
+                testMessage("user", "first question"),
+            );
+            const firstAssistantId = sourceManager.appendMessage(
+                testMessage("assistant", "first answer"),
+            );
+            const secondUserId = sourceManager.appendMessage(
+                testMessage("user", "second question"),
+            );
+            const excludedAssistantId = sourceManager.appendMessage(
+                testMessage("assistant", "excluded answer"),
+            );
+            const sourceFile = sourceManager.getSessionFile();
+            assert.ok(sourceFile);
+
+            const source = fakeController(sourceManager.getSessionId(), {
+                sessionFile: sourceFile,
+                entries: sourceManager.getBranch(),
+                sessionManager: sourceManager,
+            });
+            let openedFile: string | undefined;
+            const workspace = createWorkspace(
+                new AgentEventBus(),
+                [source],
+                () => [],
+                2,
+                () => listSessionFiles(sessionDir),
+                (options) => {
+                    openedFile = options.sessionFile;
+                    const manager = SessionManager.open(
+                        options.sessionFile,
+                        undefined,
+                        options.cwd,
+                    );
+                    return fakeController(manager.getSessionId(), {
+                        sessionFile: options.sessionFile,
+                        entries: manager.getBranch(),
+                        sessionManager: manager,
+                    });
+                },
+            );
+            await workspace.createLoadedSession();
+
+            const forked = await workspace.forkSession(
+                sourceManager.getSessionId(),
+                { entryId: secondUserId, name: "Selected branch" },
+            );
+
+            assert.ok(openedFile);
+            assert.notEqual(openedFile, sourceFile);
+            const persistedFork = SessionManager.open(
+                openedFile,
+                undefined,
+                "/tmp/agentaz-project",
+            );
+            const forkedMessageIds = persistedFork.getEntries()
+                .filter((entry) => entry.type === "message")
+                .map((entry) => entry.id);
+            assert.deepEqual(forkedMessageIds, [
+                firstUserId,
+                firstAssistantId,
+                secondUserId,
+            ]);
+            assert.ok(!forkedMessageIds.includes(excludedAssistantId));
+            assert.equal(persistedFork.getSessionName(), "Selected branch");
+            assert.equal(
+                persistedFork.getHeader()?.parentSession,
+                sourceFile,
+            );
+            assert.equal(forked.sessionFile, openedFile);
+            assert.deepEqual(
+                workspace.loadedSessions().map((session) => session.sessionId),
+                [sourceManager.getSessionId(), persistedFork.getSessionId()],
+            );
+        }
+        finally {
+            await Deno.remove(tempDir, { recursive: true });
+        }
+    },
+});
+
+Deno.test({
     name: "workspace rejects entry forks before the first assistant response",
     permissions: { env: true, read: true, sys: ["homedir"] },
     async fn() {
@@ -321,6 +418,9 @@ function createWorkspace(
     listPersistedSessions: PiSessionWorkspaceDependencies[
         "listPersistedSessions"
     ] = () => Promise.resolve([]),
+    openController:
+        PiSessionWorkspaceDependencies["controllerFactory"]["open"] = () =>
+            requireNextController(controllers),
 ) {
     const dependencies: PiSessionWorkspaceDependencies = {
         agentDir: "/tmp/agentaz-workspace-test",
@@ -332,7 +432,7 @@ function createWorkspace(
         listPersistedSessions,
         controllerFactory: {
             create: () => Promise.resolve(requireNextController(controllers)),
-            open: () => requireNextController(controllers),
+            open: openController,
         },
     };
     return new PiSessionWorkspace(
@@ -369,6 +469,8 @@ function fakeController(
         prompt?: () => Promise<void>;
         revision?: number;
         entries?: ReturnType<WorkspaceSessionController["getEntries"]>;
+        sessionFile?: string;
+        sessionManager?: SessionManager;
     } = {},
 ): WorkspaceSessionController {
     const state: FakeState = {
@@ -379,11 +481,11 @@ function fakeController(
     };
     const controller = {
         sessionId,
-        sessionFile: `/tmp/${sessionId}.jsonl`,
+        sessionFile: options.sessionFile ?? `/tmp/${sessionId}.jsonl`,
         toLoadedSession: () => ({
-            file: `/tmp/${sessionId}.jsonl`,
+            file: options.sessionFile ?? `/tmp/${sessionId}.jsonl`,
             sessionId,
-            sessionFile: `/tmp/${sessionId}.jsonl`,
+            sessionFile: options.sessionFile ?? `/tmp/${sessionId}.jsonl`,
             isWorking: options.busy ?? false,
             isStreaming: false,
             pendingMessageCount: 0,
@@ -407,7 +509,10 @@ function fakeController(
             }),
         getEntries: () => options.entries ?? [],
         getSessionManager: () => {
-            throw new Error("session manager not used by this test");
+            if (!options.sessionManager) {
+                throw new Error("session manager not used by this test");
+            }
+            return options.sessionManager;
         },
         historyRevision: () => options.revision ?? 0,
         seedHistoryRevision: (revision: number) => {
@@ -450,6 +555,25 @@ function fakeController(
     } as unknown as WorkspaceSessionController;
     fakeStates.set(controller, state);
     return controller;
+}
+
+function testMessage(role: "user" | "assistant", text: string) {
+    return {
+        role,
+        content: [{ type: "text" as const, text }],
+        timestamp: Date.now(),
+    } as Parameters<SessionManager["appendMessage"]>[0];
+}
+
+async function listSessionFiles(sessionDir: string) {
+    const sessions = [];
+    for await (const entry of Deno.readDir(sessionDir)) {
+        if (entry.isFile && entry.name.endsWith(".jsonl")) {
+            const file = join(sessionDir, entry.name);
+            sessions.push(persistedSession(file, entry.name));
+        }
+    }
+    return sessions;
 }
 
 function stateOf(controller: WorkspaceSessionController) {
