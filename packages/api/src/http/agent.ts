@@ -128,37 +128,7 @@ export function agentHttpError(error: unknown) {
     }
 
     const message = error instanceof Error ? error.message : String(error);
-    let statusCode = 500;
-    let code = "agent_error";
-
-    if (message.includes("required")) {
-        statusCode = 400;
-        code = "bad_request";
-    }
-    else if (message.includes("No loaded session")) {
-        statusCode = 404;
-        code = "session_not_found";
-    }
-    else if (message.includes("Loaded session limit reached")) {
-        statusCode = 409;
-        code = "session_limit_reached";
-    }
-    else if (message.includes("controlled by another browser client")) {
-        statusCode = 409;
-        code = "session_control_conflict";
-    }
-    else if (message.includes("Session is busy")) {
-        statusCode = 409;
-        code = "session_busy";
-    }
-    else if (message.includes("Unknown model")) {
-        statusCode = 400;
-        code = "unknown_model";
-    }
-    else if (message.includes("Agent is running")) {
-        statusCode = 409;
-        code = "agent_running";
-    }
-
-    return jsonError(statusCode, code, message);
+    // Unknown SDK/runtime failures are server errors. Only typed errors above
+    // may opt into a client status; message text is not a stable contract.
+    return jsonError(500, "agent_error", message);
 }
