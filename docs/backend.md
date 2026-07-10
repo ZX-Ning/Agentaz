@@ -407,6 +407,9 @@ Current behavior:
 - evict one idle, non-active session only when `maxLoadedSessions` is reached
 - do not expose loaded-session close/unload as a user-facing browser action
 - expose simple loaded-session fork/revert HTTP APIs for the current branch only
+- require entry-scoped fork points to include an assistant response; Pi defers
+  user-only branch files, so unsupported points return
+  `409 session_fork_unavailable`
 - do not expose full Pi tree navigation in the browser UI
 
 ## Error Handling

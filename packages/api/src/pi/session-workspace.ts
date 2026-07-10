@@ -29,6 +29,7 @@ import {
     PersistedSessionNotFoundError,
     SessionBusyError,
     SessionEntryNotFoundError,
+    SessionForkUnavailableError,
     SessionLimitReachedError,
     SessionNotFoundError,
     SessionNotPersistedError,
@@ -539,16 +540,13 @@ export class PiSessionWorkspace {
         let newSessionFile: string | undefined;
         if (options.entryId?.trim()) {
             const entryId = options.entryId.trim();
-            this.requireCurrentBranchEntry(controller, entryId);
+            this.requireForkableEntry(controller, entryId);
             const temporaryManager = SessionManager.open(
                 sourceFile,
                 undefined,
                 this.options.cwd,
             );
             newSessionFile = temporaryManager.createBranchedSession(entryId);
-            if (newSessionFile && !(await fileExists(newSessionFile))) {
-                forceRewriteSessionFile(temporaryManager);
-            }
         }
         else {
             newSessionFile = SessionManager.forkFrom(
@@ -966,6 +964,27 @@ export class PiSessionWorkspace {
         }
     }
 
+    /** Rejects entry forks that the SDK would defer instead of materializing. */
+    private requireForkableEntry(
+        controller: WorkspaceSessionController,
+        entryId: string,
+    ) {
+        const entries = controller.getEntries();
+        const targetIndex = entries.findIndex((entry) => entry.id === entryId);
+        if (targetIndex === -1) {
+            throw new SessionEntryNotFoundError();
+        }
+
+        const hasAssistant = entries.slice(0, targetIndex + 1).some(
+            (entry) =>
+                entry.type === "message" &&
+                entry.message.role === "assistant",
+        );
+        if (!hasAssistant) {
+            throw new SessionForkUnavailableError();
+        }
+    }
+
     /** Throws if the loaded session limit has been reached. */
     private assertCanLoadAnotherSession() {
         if (this.sessions.size >= this.options.maxLoadedSessions) {
@@ -1006,19 +1025,4 @@ function isUiEntryRole(role: unknown): role is "user" | "assistant" {
 function summarizeEntryContent(content: unknown) {
     const text = flattenText(content).replace(/\s+/g, " ").trim();
     return text.length > 100 ? `${text.slice(0, 100)}...` : text;
-}
-
-/**
- * Forces the Pi SDK manager to write its current JSONL content.
- *
- * createBranchedSession() intentionally defers file creation for paths that
- * contain no assistant message. Agentaz fork APIs return a loaded persisted
- * session immediately, so those user-only branch files must exist before open.
- */
-function forceRewriteSessionFile(sessionManager: SessionManager) {
-    (
-        sessionManager as unknown as {
-            _rewriteFile: () => void;
-        }
-    )._rewriteFile();
 }

@@ -7,6 +7,7 @@ import {
 } from "../src/pi/session-workspace.ts";
 import {
     PersistedSessionNotFoundError,
+    SessionForkUnavailableError,
     SessionLimitReachedError,
 } from "../src/errors.ts";
 
@@ -202,6 +203,47 @@ Deno.test({
 });
 
 Deno.test({
+    name: "workspace rejects entry forks before the first assistant response",
+    permissions: { env: true, read: true, sys: ["homedir"] },
+    async fn() {
+        const source = fakeController("session-a", {
+            entries: [{
+                type: "message",
+                id: "user-entry",
+                parentId: null,
+                timestamp: new Date(0).toISOString(),
+                message: {
+                    role: "user",
+                    content: [{ type: "text", text: "hello" }],
+                    timestamp: Date.now(),
+                },
+            }],
+        });
+        const workspace = createWorkspace(
+            new AgentEventBus(),
+            [source],
+            () => [],
+            2,
+        );
+        await workspace.createLoadedSession();
+
+        await assert.rejects(
+            () =>
+                workspace.forkSession("session-a", {
+                    entryId: "user-entry",
+                }),
+            SessionForkUnavailableError,
+        );
+
+        assert.deepEqual(
+            workspace.loadedSessions().map((session) => session.sessionId),
+            ["session-a"],
+        );
+        assert.equal(stateOf(source).disposeCalls, 0);
+    },
+});
+
+Deno.test({
     name: "workspace rejects out-of-scope session files before eviction",
     permissions: { env: true, read: true, sys: ["homedir"] },
     async fn() {
@@ -326,6 +368,7 @@ function fakeController(
         busy?: boolean;
         prompt?: () => Promise<void>;
         revision?: number;
+        entries?: ReturnType<WorkspaceSessionController["getEntries"]>;
     } = {},
 ): WorkspaceSessionController {
     const state: FakeState = {
@@ -362,7 +405,7 @@ function fakeController(
                 tokensBefore: 0,
                 revision: 1,
             }),
-        getEntries: () => [],
+        getEntries: () => options.entries ?? [],
         getSessionManager: () => {
             throw new Error("session manager not used by this test");
         },

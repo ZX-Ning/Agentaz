@@ -173,6 +173,19 @@ const canForkRevertActiveSession = computed(
     !isActiveDraftSession.value &&
     !activeLoadedSession.value?.isWorking,
 );
+const forkableMessageIds = computed(() => {
+  const ids = new Set<string>();
+  let hasAssistant = false;
+  for (const message of activeMessages.value) {
+    if (message.role === "user" && hasAssistant) {
+      ids.add(message.id);
+    }
+    if (message.role === "assistant") {
+      hasAssistant = true;
+    }
+  }
+  return ids;
+});
 const anchoredPendingUiRequests = computed(() =>
   activePendingUiRequests.value.filter(
     (request) => request.messageId && request.toolCallId,
@@ -245,7 +258,11 @@ async function handleForkMessage(message: {
   rewindEntryId?: string;
   blocks?: Array<{ type: string; text?: string }>;
 }) {
-  if (!message.rewindEntryId || activeSessionOperation.value) {
+  if (
+    !message.rewindEntryId ||
+    !forkableMessageIds.value.has(message.id) ||
+    activeSessionOperation.value
+  ) {
     return;
   }
   const text = messageText(message);
@@ -538,6 +555,7 @@ watch(pageTitle, (title) => setDocumentTitle(title), { immediate: true });
             :ref="component => setMessageComponent(message.id, component)"
             :message="message"
             :show-working-indicator="message.id === workingIndicatorMessageId"
+            :show-fork="forkableMessageIds.has(message.id)"
             :can-fork-revert="canForkRevertActiveSession"
             :is-forking="isMessageOperationPending('fork', message.id)"
             :is-reverting="isMessageOperationPending('revert', message.id)"

@@ -21,6 +21,7 @@ type RenderBlock =
 const props = defineProps<{
   message: UiMessage;
   showWorkingIndicator?: boolean;
+  showFork?: boolean;
   canForkRevert?: boolean;
   isForking?: boolean;
   isReverting?: boolean;
@@ -606,6 +607,7 @@ onBeforeUnmount(() => {
     class="-mt-2 flex justify-end gap-1 px-1 pb-1 sm:-mt-3 sm:px-4"
   >
     <Button
+      v-if="props.showFork"
       type="button"
       color="neutral"
       variant="ghost"

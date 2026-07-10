@@ -88,6 +88,17 @@ export class SessionEntryNotFoundError extends AgentazDomainError {
     }
 }
 
+/** The selected fork point cannot yet be materialized by the Pi SDK. */
+export class SessionForkUnavailableError extends AgentazDomainError {
+    constructor() {
+        super(
+            "The selected fork point must include an assistant response.",
+            409,
+            "session_fork_unavailable",
+        );
+    }
+}
+
 /** No idle loaded session can be evicted to satisfy a load/create request. */
 export class SessionLimitReachedError extends AgentazDomainError {
     constructor(maxLoadedSessions: number) {
