@@ -15,14 +15,14 @@ removed.** Sharing a single `AgentSessionServices`/resource loader/extension
 runtime across multiple loaded sessions was found to cause stale extension
 context errors when one session was disposed while another session's extensions
 (especially `@gotgenes/pi-permission-system` pollers) were still active. Each
-initialized `PiSessionController` now owns its own services instance. AuthStorage
-and ModelRegistry remain shared at the workspace level because they are not
-extension runtimes.
+initialized `PiSessionController` now owns its own services instance.
+AuthStorage and ModelRegistry remain shared at the workspace level because they
+are not extension runtimes.
 
 Create/open now attach only a `SessionManager` and do not pay extension-loading
-cost. The first live operation on each controller initializes its isolated services
-and may pay that cost. Future optimization must preserve per-session extension
-runtime isolation or require SDK/upstream support for safe sharing.
+cost. The first live operation on each controller initializes its isolated
+services and may pay that cost. Future optimization must preserve per-session
+extension runtime isolation or require SDK/upstream support for safe sharing.
 
 See `docs/backend.md` and
 `docs/implementation/pi-extension-runtime-isolation.md` for the isolation design
@@ -30,14 +30,17 @@ and stale context error investigation.
 
 Current expected behavior:
 
-- Creating or opening a manager-backed controller should take tens of milliseconds.
+- Creating or opening a manager-backed controller should take tens of
+  milliseconds.
 - Viewing history or model state should not initialize the live Pi session.
 - The first live operation on each controller can take around one second because
   that controller loads its isolated SDK extensions.
-- Opening the Web UI or clicking New session should not create a live Pi session.
-  The frontend keeps a local draft and materializes it on the first user prompt.
+- Opening the Web UI or clicking New session should not create a live Pi
+  session. The frontend keeps a local draft and materializes it on the first
+  user prompt.
 - Draft sessions may read model picker defaults through `GET /api/agent/models`;
-  that endpoint uses `ModelRegistry` only and should not initialize a Pi session.
+  that endpoint uses `ModelRegistry` only and should not initialize a Pi
+  session.
 
 ## Measured Call Costs
 

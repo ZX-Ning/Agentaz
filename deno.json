@@ -12,6 +12,9 @@
         "serve:api": "deno task --filter @agentaz/api serve",
         "test": "deno task --filter @agentaz/api test"
     },
+    "imports": {
+        "rolldown": "npm:rolldown@^1.1.5"
+    },
     "fmt": {
         "semiColons": true,
         "singleQuote": false,

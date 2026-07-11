@@ -58,8 +58,13 @@ function run(cmd, args, options = {}) {
         child.on("close", (code) => {
             if (code === 0) {
                 resolve();
-            } else {
-                reject(new Error(`${cmd} ${args.join(" ")} exited with code ${code}`));
+            }
+            else {
+                reject(
+                    new Error(
+                        `${cmd} ${args.join(" ")} exited with code ${code}`,
+                    ),
+                );
             }
         });
     });
@@ -69,12 +74,14 @@ async function commandExists(cmd) {
     try {
         if (process.platform === "win32") {
             await run("where", [cmd]);
-        } else {
+        }
+        else {
             await run("sh", ["-c", `command -v ${cmd}`]);
         }
 
         return true;
-    } catch {
+    }
+    catch {
         return false;
     }
 }
@@ -87,7 +94,8 @@ async function* walk(dir) {
 
         if (entry.isDirectory()) {
             yield* walk(fullPath);
-        } else if (entry.isFile()) {
+        }
+        else if (entry.isFile()) {
             yield fullPath;
         }
     }
@@ -96,11 +104,17 @@ async function* walk(dir) {
 async function shouldCompress(file) {
     const ext = path.extname(file).toLowerCase();
 
-    if (SKIP_EXTS.has(ext)) return false;
-    if (!COMPRESSIBLE_EXTS.has(ext)) return false;
+    if (SKIP_EXTS.has(ext)) {
+        return false;
+    }
+    if (!COMPRESSIBLE_EXTS.has(ext)) {
+        return false;
+    }
 
     const stat = await fs.stat(file);
-    if (stat.size <= MIN_SIZE) return false;
+    if (stat.size <= MIN_SIZE) {
+        return false;
+    }
 
     return true;
 }
@@ -129,7 +143,9 @@ async function compressFile(file, tools) {
     }
 
     if (tools.zstd) {
-        jobs.push(run("zstd", ["-f", "-19", "--keep", file, "-o", `${file}.zst`]));
+        jobs.push(
+            run("zstd", ["-f", "-19", "--keep", file, "-o", `${file}.zst`]),
+        );
     }
 
     await Promise.all(jobs);
@@ -146,10 +162,13 @@ async function runPool(items, concurrency, worker) {
             try {
                 await worker(current);
                 console.log(`compressed: ${current}`);
-            } catch (err) {
+            }
+            catch (err) {
                 failed++;
                 console.error(`failed: ${current}`);
-                console.error(`  ${err instanceof Error ? err.message : String(err)}`);
+                console.error(
+                    `  ${err instanceof Error ? err.message : String(err)}`,
+                );
             }
         }
     }

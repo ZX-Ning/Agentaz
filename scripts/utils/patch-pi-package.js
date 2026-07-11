@@ -3,6 +3,6 @@ const input = readFileSync(0, "utf8").trim();
 const packageJson = JSON.parse(input);
 packageJson.piConfig = {
     name: "Agentaz",
-    configDir: ".agentaz"
+    configDir: ".agentaz",
 };
 console.log(JSON.stringify(packageJson));

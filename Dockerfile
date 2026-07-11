@@ -1,4 +1,4 @@
-FROM denoland/deno:debian-2.9.0 AS base
+FROM denoland/deno:debian-2.9.2 AS base
 
 WORKDIR /project
 
@@ -8,7 +8,7 @@ RUN deno install
 
 RUN deno task build:web-ui && deno task build:server
 
-RUN cd build && deno install
+RUN cd build && deno install --node-modules-dir=manual
 
 RUN apt-get update -y && apt-get install -y patch brotli zstd gzip
 
@@ -19,7 +19,7 @@ RUN deno -A /project/scripts/utils/precompress.js dist
 RUN deno -A /project/scripts/utils/patch-pi-package.js < node_modules/@earendil-works/pi-coding-agent/package.json > tmp.json \
     && mv tmp.json node_modules/@earendil-works/pi-coding-agent/package.json
 
-FROM denoland/deno:alpine-2.9.0
+FROM denoland/deno:debian-2.9.2
 
 COPY --from=base /project/build /app
 

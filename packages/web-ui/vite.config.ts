@@ -2,6 +2,7 @@ import { defineConfig, loadEnv } from "vite";
 import vue from "@vitejs/plugin-vue";
 import tailwindcss from "@tailwindcss/vite";
 import { fileURLToPath } from "node:url";
+import deno from "@deno/vite-plugin";
 
 const rootDir = fileURLToPath(new URL(".", import.meta.url));
 
@@ -12,7 +13,7 @@ export default defineConfig(({ mode }) => {
         "http://127.0.0.1:3000";
 
     return {
-        plugins: [vue(), tailwindcss()],
+        plugins: [deno(), vue(), tailwindcss()],
         server: {
             proxy: {
                 "/api": {

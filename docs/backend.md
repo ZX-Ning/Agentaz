@@ -226,12 +226,13 @@ to `LOCAL_CLIENT_ID` only for non-browser or pre-SSE callers.
 - bind extension UI context
 - dispose loaded sessions explicitly
 
-`PiSessionController` owns browser-facing operations for one manager-backed session.
-Create/open only attaches a `SessionManager`; the first operation that needs a live
-Pi session lazily creates controller-local services, binds extensions, and subscribes
-to events. History and other manager-only reads do not initialize the live runtime.
-The controller projects one browser-facing assistant `UiMessage` per agent turn;
-complete history is rebuilt from the `SessionManager` branch.
+`PiSessionController` owns browser-facing operations for one manager-backed
+session. Create/open only attaches a `SessionManager`; the first operation that
+needs a live Pi session lazily creates controller-local services, binds
+extensions, and subscribes to events. History and other manager-only reads do
+not initialize the live runtime. The controller projects one browser-facing
+assistant `UiMessage` per agent turn; complete history is rebuilt from the
+`SessionManager` branch.
 
 The workspace shares only process-wide backing objects that are not extension
 runtimes (`AuthStorage`, `ModelRegistry`, working directory). Each initialized
