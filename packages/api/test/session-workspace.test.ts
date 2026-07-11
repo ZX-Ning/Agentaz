@@ -5,8 +5,8 @@ import { AgentEventBus } from "../src/runtime/event-bus.ts";
 import {
     PiSessionWorkspace,
     type PiSessionWorkspaceDependencies,
-    type WorkspaceSessionController,
 } from "../src/pi/session-workspace.ts";
+import type { ControllerBase } from "../src/pi/session-controller.ts";
 import {
     PersistedSessionNotFoundError,
     SessionForkUnavailableError,
@@ -475,7 +475,7 @@ function persistedSession(file: string, sessionId: string) {
 
 function createWorkspace(
     eventBus: AgentEventBus,
-    controllers: WorkspaceSessionController[],
+    controllers: ControllerBase[],
     protectedIds: () => Iterable<string>,
     maxLoadedSessions: number,
     listPersistedSessions: PiSessionWorkspaceDependencies[
@@ -494,7 +494,7 @@ function createWorkspace(
             }),
         listPersistedSessions,
         controllerFactory: {
-            create: () => Promise.resolve(requireNextController(controllers)),
+            create: () => requireNextController(controllers),
             open: openController,
         },
     };
@@ -510,7 +510,7 @@ function createWorkspace(
     );
 }
 
-function requireNextController(controllers: WorkspaceSessionController[]) {
+function requireNextController(controllers: ControllerBase[]) {
     const controller = controllers.shift();
     assert.ok(controller, "test controller queue should not be empty");
     return controller;
@@ -523,7 +523,7 @@ type FakeState = {
     seededRevisions: number[];
 };
 
-const fakeStates = new WeakMap<WorkspaceSessionController, FakeState>();
+const fakeStates = new WeakMap<ControllerBase, FakeState>();
 
 function fakeController(
     sessionId: string,
@@ -531,11 +531,11 @@ function fakeController(
         busy?: boolean;
         prompt?: () => Promise<void>;
         revision?: number;
-        entries?: ReturnType<WorkspaceSessionController["getEntries"]>;
+        entries?: ReturnType<ControllerBase["getEntries"]>;
         sessionFile?: string;
         sessionManager?: SessionManager;
     } = {},
-): WorkspaceSessionController {
+): ControllerBase {
     const state: FakeState = {
         disposeCalls: 0,
         promptCalls: 0,
@@ -615,7 +615,7 @@ function fakeController(
         resolveConfirm: () => {},
         resolveInput: () => {},
         resolveSelect: () => {},
-    } as unknown as WorkspaceSessionController;
+    } satisfies ControllerBase;
     fakeStates.set(controller, state);
     return controller;
 }
@@ -639,7 +639,7 @@ async function listSessionFiles(sessionDir: string) {
     return sessions;
 }
 
-function stateOf(controller: WorkspaceSessionController) {
+function stateOf(controller: ControllerBase) {
     const state = fakeStates.get(controller);
     assert.ok(state);
     return state;

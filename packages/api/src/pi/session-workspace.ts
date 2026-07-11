@@ -35,9 +35,13 @@ import {
     SessionNotPersistedError,
 } from "../errors.ts";
 import {
+    type ControllerBase,
+    createSessionController,
+    type CreateSessionControllerOptions,
     DEFAULT_THINKING_LEVELS,
     flattenText,
-    PiSessionController,
+    openSessionController,
+    type OpenSessionControllerOptions,
     type PiSessionControllerHost,
     toUiModel,
     toUiSessionSummary,
@@ -59,49 +63,16 @@ export type PiSessionWorkspaceOptions = {
     maxLoadedSessions: number;
 };
 
-/** Controller surface owned and orchestrated by PiSessionWorkspace. */
-export type WorkspaceSessionController = Pick<
-    PiSessionController,
-    | "sessionId"
-    | "sessionFile"
-    | "toLoadedSession"
-    | "rename"
-    | "isBusy"
-    | "dispose"
-    | "getHistory"
-    | "compact"
-    | "getEntries"
-    | "getSessionManager"
-    | "historyRevision"
-    | "seedHistoryRevision"
-    | "getModelState"
-    | "setModel"
-    | "setThinkingLevel"
-    | "prompt"
-    | "steer"
-    | "followUp"
-    | "abort"
-    | "clearQueue"
-    | "resolveConfirm"
-    | "resolveInput"
-    | "resolveSelect"
->;
-
-type CreateControllerOptions = Parameters<typeof PiSessionController.create>[0];
-type OpenControllerOptions = Parameters<typeof PiSessionController.open>[0];
-
 /** Replaceable SDK boundary used by tests without loading Pi extensions. */
-export type PiSessionWorkspaceDependencies = {
+export interface PiSessionWorkspaceDependencies {
     agentDir: string;
     ensureRequiredPackages: typeof ensureRequiredPiPackages;
     listPersistedSessions(cwd: string): Promise<UiSessionSummary[]>;
     controllerFactory: {
-        create(
-            options: CreateControllerOptions,
-        ): Promise<WorkspaceSessionController>;
-        open(options: OpenControllerOptions): WorkspaceSessionController;
+        create(options: CreateSessionControllerOptions): ControllerBase;
+        open(options: OpenSessionControllerOptions): ControllerBase;
     };
-};
+}
 
 function defaultWorkspaceDependencies(): PiSessionWorkspaceDependencies {
     return {
@@ -109,7 +80,10 @@ function defaultWorkspaceDependencies(): PiSessionWorkspaceDependencies {
         ensureRequiredPackages: ensureRequiredPiPackages,
         listPersistedSessions: async (cwd) =>
             (await SessionManager.list(cwd)).map(toUiSessionSummary),
-        controllerFactory: PiSessionController,
+        controllerFactory: {
+            create: createSessionController,
+            open: openSessionController,
+        },
     };
 }
 
@@ -142,7 +116,7 @@ export class PiSessionWorkspace {
      */
     private requiredPackagesPromise?: Promise<void>;
     /** The loaded session working set indexed by sessionId. */
-    private sessions = new Map<string, WorkspaceSessionController>();
+    private sessions = new Map<string, ControllerBase>();
     /** Last known history revision for sessions that may be reopened later. */
     private historyRevisionBySessionId = new Map<string, number>();
     /** Snapshot of persisted session metadata from the working directory. */
@@ -310,7 +284,7 @@ export class PiSessionWorkspace {
         await this.releaseOneAvailableSessionIfAtCapacity();
         this.assertCanLoadAnotherSession();
 
-        const controller = await this.dependencies.controllerFactory.create({
+        const controller = this.dependencies.controllerFactory.create({
             cwd: this.options.cwd,
             agentDir: this.agentDir,
             authStorage: this.authStorage,
@@ -891,7 +865,7 @@ export class PiSessionWorkspace {
     }
 
     /** Restores the last known revision for a controller reopened by session id. */
-    private seedHistoryRevision(controller: WorkspaceSessionController) {
+    private seedHistoryRevision(controller: ControllerBase) {
         const revision = this.historyRevisionBySessionId.get(
             controller.sessionId,
         );
@@ -902,7 +876,7 @@ export class PiSessionWorkspace {
 
     /** Saves a controller revision before disposal/reload can reset it. */
     private rememberHistoryRevision(
-        controller: WorkspaceSessionController,
+        controller: ControllerBase,
         revision = controller.historyRevision(),
     ) {
         const current = this.historyRevisionBySessionId.get(
@@ -917,7 +891,7 @@ export class PiSessionWorkspace {
     }
 
     /** Throws unless the loaded controller can be safely forked or reverted. */
-    private assertForkRevertReady(controller: WorkspaceSessionController) {
+    private assertForkRevertReady(controller: ControllerBase) {
         if (controller.isBusy()) {
             throw new SessionBusyError();
         }
@@ -928,7 +902,7 @@ export class PiSessionWorkspace {
 
     /** Returns the selectable current-branch message entries for a controller. */
     private selectableEntries(
-        controller: WorkspaceSessionController,
+        controller: ControllerBase,
     ): SessionEntryInfo[] {
         return controller
             .getEntries()
@@ -954,7 +928,7 @@ export class PiSessionWorkspace {
 
     /** Ensures an entry id belongs to the current branch. */
     private requireCurrentBranchEntry(
-        controller: WorkspaceSessionController,
+        controller: ControllerBase,
         entryId: string,
     ) {
         if (
@@ -966,7 +940,7 @@ export class PiSessionWorkspace {
 
     /** Rejects entry forks that the SDK would defer instead of materializing. */
     private requireForkableEntry(
-        controller: WorkspaceSessionController,
+        controller: ControllerBase,
         entryId: string,
     ) {
         const entries = controller.getEntries();

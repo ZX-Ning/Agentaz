@@ -262,7 +262,7 @@ agentRoutes.post("/agent/sessions/:sessionId/messages", async (c) => {
     try {
         const onSettled = lease.release;
         const response: MessageSubmitResponse = body.mode === "prompt"
-            ? await lease.runtime.workspace.submitMessage(
+            ? lease.runtime.workspace.submitMessage(
                 sessionId,
                 {
                     mode: "prompt",
@@ -272,7 +272,7 @@ agentRoutes.post("/agent/sessions/:sessionId/messages", async (c) => {
                 },
                 onSettled,
             )
-            : await lease.runtime.workspace.submitMessage(
+            : lease.runtime.workspace.submitMessage(
                 sessionId,
                 {
                     mode: body.mode,

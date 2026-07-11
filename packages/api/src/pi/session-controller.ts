@@ -115,12 +115,46 @@ type ToolBlockLocation = {
 };
 
 /** Metadata for one browser-submitted prompt turn. */
-type PromptTurn = {
+export type PromptTurn = {
     /** Server-side id for this prompt turn. */
     turnId: string;
     /** Browser-generated id used to reconcile optimistic user messages. */
     clientMessageId: string;
 };
+
+/** Public surface of a loaded session controller.
+ *  Workspace and test fakes depend on this interface. */
+export interface ControllerBase {
+    readonly sessionId: string;
+    readonly sessionFile: string | undefined;
+    historyRevision(): number;
+    seedHistoryRevision(revision: number): void;
+    isBusy(): boolean;
+    rename(name: string): Promise<void>;
+    toLoadedSession(): UiRuntimeLoadedSession;
+    prompt(
+        text: string,
+        images: ImagePayload[] | undefined,
+        turn: PromptTurn,
+    ): Promise<void>;
+    steer(text: string, images?: ImagePayload[]): Promise<void>;
+    followUp(text: string, images?: ImagePayload[]): Promise<void>;
+    abort(): Promise<void>;
+    clearQueue(): Promise<void>;
+    compact(
+        customInstructions?: string,
+    ): Promise<CompactionResult & { revision: number }>;
+    getModelState(): ModelStateResponse;
+    setModel(provider: string, id: string): Promise<ModelStateResponse>;
+    setThinkingLevel(level: ThinkingLevel): Promise<ModelStateResponse>;
+    resolveSelect(requestId: string, selected?: string): void;
+    resolveInput(requestId: string, value?: string): void;
+    resolveConfirm(requestId: string, confirmed: boolean): void;
+    dispose(): Promise<void>;
+    getHistory(): SessionHistoryResponse;
+    getEntries(): SessionEntry[];
+    getSessionManager(): SessionManager;
+}
 
 /** The complete set of thinking levels exposed through the web UI. */
 export const DEFAULT_THINKING_LEVELS: ThinkingLevel[] = [
@@ -138,7 +172,7 @@ export const DEFAULT_THINKING_LEVELS: ThinkingLevel[] = [
  * model/thinking state, and extension UI bridge until workspace disposal.
  * Realtime detach does not stop the session; explicit abort/dispose does.
  */
-export class PiSessionController {
+export class PiSessionController implements ControllerBase {
     /** The result of createAgentSessionFromServices — holds the live Pi session. */
     private sessionResult?: CreateAgentSessionResult;
     /**
@@ -202,7 +236,7 @@ export class PiSessionController {
     /** Monotonic counter for normalized transcript/history changes. */
     private transcriptRevision = 0;
 
-    private constructor(
+    constructor(
         private readonly cwd: string,
         private readonly agentDir: string,
         private readonly authStorage: ReturnType<typeof AuthStorage.create>,
@@ -210,76 +244,6 @@ export class PiSessionController {
         private readonly approvalTimeoutMs: number,
         private readonly host: PiSessionControllerHost,
     ) {}
-
-    /**
-     * Creates a fresh persisted session for the configured working directory.
-     *
-     * Steps:
-     *   1. Create a PiSessionController with the given options.
-     *   2. Create a new SessionManager (generates a new session file).
-     *   3. Initialize the controller with the session manager.
-     *   4. Return the controller (the session is lazily initialized on first use).
-     */
-    static async create(options: {
-        cwd: string;
-        agentDir: string;
-        authStorage: ReturnType<typeof AuthStorage.create>;
-        modelRegistry: ReturnType<typeof ModelRegistry.create>;
-        approvalTimeoutMs: number;
-        host: PiSessionControllerHost;
-    }) {
-        const controller = new PiSessionController(
-            options.cwd,
-            options.agentDir,
-            options.authStorage,
-            options.modelRegistry,
-            options.approvalTimeoutMs,
-            options.host,
-        );
-
-        // Create a fresh SessionManager — allocates a new session file
-        // and writes the initial session header.
-        const sessionManager = SessionManager.create(options.cwd);
-        sessionManager.newSession();
-        await controller.init(sessionManager);
-        return controller;
-    }
-
-    /**
-     * Opens an existing persisted session file for the configured working directory.
-     *
-     * Unlike create(), this does not call sessionManager.newSession() — the
-     * session file already exists. The SessionManager is opened directly from
-     * the file path, and the controller is initialized from that manager.
-     */
-    static open(options: {
-        cwd: string;
-        agentDir: string;
-        authStorage: ReturnType<typeof AuthStorage.create>;
-        modelRegistry: ReturnType<typeof ModelRegistry.create>;
-        approvalTimeoutMs: number;
-        host: PiSessionControllerHost;
-        sessionFile: string;
-    }) {
-        const controller = new PiSessionController(
-            options.cwd,
-            options.agentDir,
-            options.authStorage,
-            options.modelRegistry,
-            options.approvalTimeoutMs,
-            options.host,
-        );
-
-        // Open the existing session file. The third argument (cwd) is used
-        // to maintain the SessionManager's working directory reference.
-        controller.sessionManager = SessionManager.open(
-            options.sessionFile,
-            undefined,
-            options.cwd,
-        );
-
-        return controller;
-    }
 
     /**
      * Returns (and lazily creates) this controller's own AgentSessionServices.
@@ -815,10 +779,9 @@ export class PiSessionController {
         });
     }
 
-    /** Sets the SessionManager and triggers lazy session initialization. */
-    private async init(sessionManager: SessionManager) {
+    /** Attaches the persistence manager without creating the live Pi SDK session. */
+    attachSessionManager(sessionManager: SessionManager) {
         this.sessionManager = sessionManager;
-        await this.ensureInitialized();
     }
 
     /**
@@ -1647,6 +1610,72 @@ export class PiSessionController {
             throw new Error("Pi session controller has been disposed");
         }
     }
+}
+
+/** Options for createSessionController. */
+export type CreateSessionControllerOptions = {
+    cwd: string;
+    agentDir: string;
+    authStorage: ReturnType<typeof AuthStorage.create>;
+    modelRegistry: ReturnType<typeof ModelRegistry.create>;
+    approvalTimeoutMs: number;
+    host: PiSessionControllerHost;
+};
+
+/** Options for openSessionController. */
+export type OpenSessionControllerOptions = CreateSessionControllerOptions & {
+    sessionFile: string;
+};
+
+/**
+ * Creates a fresh manager-backed controller for the configured working directory.
+ * The live Pi SDK session, extensions, and event subscription are initialized on
+ * demand by the first operation that requires them.
+ */
+export function createSessionController(
+    options: CreateSessionControllerOptions,
+) {
+    const controller = new PiSessionController(
+        options.cwd,
+        options.agentDir,
+        options.authStorage,
+        options.modelRegistry,
+        options.approvalTimeoutMs,
+        options.host,
+    );
+
+    // SessionManager.create() already starts a fresh session target.
+    controller.attachSessionManager(SessionManager.create(options.cwd));
+    return controller;
+}
+
+/**
+ * Opens an existing manager-backed controller for the configured working directory.
+ * The live Pi SDK session, extensions, and event subscription are initialized on
+ * demand by the first operation that requires them.
+ */
+export function openSessionController(
+    options: OpenSessionControllerOptions,
+) {
+    const controller = new PiSessionController(
+        options.cwd,
+        options.agentDir,
+        options.authStorage,
+        options.modelRegistry,
+        options.approvalTimeoutMs,
+        options.host,
+    );
+
+    // The cwd override keeps the manager bound to the configured workspace.
+    controller.attachSessionManager(
+        SessionManager.open(
+            options.sessionFile,
+            undefined,
+            options.cwd,
+        ),
+    );
+
+    return controller;
 }
 
 // ──────────────────────────────────────────────────────────────────────────

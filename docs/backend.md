@@ -226,20 +226,19 @@ to `LOCAL_CLIENT_ID` only for non-browser or pre-SSE callers.
 - bind extension UI context
 - dispose loaded sessions explicitly
 
-`PiSessionController` owns browser-facing operations for one loaded Pi session.
-It projects one browser-facing assistant `UiMessage` per agent turn, including
-consecutive Pi SDK assistant messages and tool result blocks, so live streaming
-and HTTP history reload use the same grouping. Its mutable live projection keeps
-only the active agent turn and is cleared after the final `agent_end` upsert;
+`PiSessionController` owns browser-facing operations for one manager-backed session.
+Create/open only attaches a `SessionManager`; the first operation that needs a live
+Pi session lazily creates controller-local services, binds extensions, and subscribes
+to events. History and other manager-only reads do not initialize the live runtime.
+The controller projects one browser-facing assistant `UiMessage` per agent turn;
 complete history is rebuilt from the `SessionManager` branch.
 
 The workspace shares only process-wide backing objects that are not extension
-runtimes (`AuthStorage`, `ModelRegistry`, working directory). Each loaded
+runtimes (`AuthStorage`, `ModelRegistry`, working directory). Each initialized
 `PiSessionController` owns its own Pi SDK `AgentSessionServices` instance with a
-controller-local resource loader and extension runtime. This per-controller
-isolation prevents stale extension context errors when one loaded session is
-disposed while another session's extensions are still active (e.g.
-permission-system pollers).
+controller-local resource loader and extension runtime. Dormant manager-backed
+controllers allocate these services only on first live operation. This isolation
+prevents disposing one session from invalidating another session's extensions.
 
 Service creation is still warmed at the workspace level for required Pi package
 configuration, but full SDK extension loading happens per controller. See
