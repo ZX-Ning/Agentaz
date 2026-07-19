@@ -729,7 +729,7 @@ Deno.test({
 /**
  * Purpose: Verify controller replacement cannot move the browser's transcript revision
  * backward and allow stale HTTP history responses to overwrite newer state.
- * Expect: The reopened controller receives the original revision while prior instances dispose.
+ * Expect: The reopened controller receives a newer generation while prior instances dispose.
  * Method: Give controller A revision 7, evict it with B, reopen A from the persisted
  * list as a new controller, then inspect seeded revision and both prior disposal counts.
  */
@@ -755,9 +755,60 @@ Deno.test({
         await workspace.createLoadedSession();
         await workspace.openLoadedSession("/tmp/session-a.jsonl");
 
-        assert.deepEqual(stateOf(reopened).seededRevisions, [7]);
+        const originalRevision = stateOf(original).seededRevisions.at(-1);
+        const reopenedRevision = stateOf(reopened).seededRevisions.at(-1);
+        assert.ok(originalRevision !== undefined);
+        assert.ok(reopenedRevision !== undefined);
+        assert.ok(reopenedRevision > originalRevision);
         assert.equal(stateOf(original).disposeCalls, 1);
         assert.equal(stateOf(replacement).disposeCalls, 1);
+    },
+});
+
+/**
+ * Purpose: Prove revision retention stays O(1) across an unbounded sequence of
+ * distinct session IDs while a reopened controller still starts above stale state.
+ * Expect: One numeric generation replaces per-session bookkeeping and reopen advances it.
+ * Method: Cycle 200 one-slot controllers, reopen the first, then inspect seeds and shape.
+ */
+Deno.test({
+    name:
+        "workspace uses one revision generation across many distinct sessions",
+    permissions: { env: true, read: true, sys: ["homedir"] },
+    async fn() {
+        const sessionCount = 200;
+        const distinct = Array.from(
+            { length: sessionCount },
+            (_, index) => fakeController(`session-${index}`),
+        );
+        const original = distinct[0];
+        assert.ok(original);
+        const reopened = fakeController("session-0");
+        const workspace = createWorkspace(
+            new AgentEventBus(),
+            [...distinct, reopened],
+            () => [],
+            1,
+            () =>
+                Promise.resolve([
+                    persistedSession("/tmp/session-0.jsonl", "session-0"),
+                ]),
+        );
+
+        for (let index = 0; index < sessionCount; index += 1) {
+            await workspace.createLoadedSession();
+        }
+        await workspace.openLoadedSession("/tmp/session-0.jsonl");
+
+        const originalRevision = stateOf(original).seededRevisions.at(-1);
+        const reopenedRevision = stateOf(reopened).seededRevisions.at(-1);
+        assert.ok(originalRevision !== undefined);
+        assert.ok(reopenedRevision !== undefined);
+        assert.ok(reopenedRevision > originalRevision);
+
+        const revisionState = workspace as unknown as Record<string, unknown>;
+        assert.equal(typeof revisionState.historyRevisionGeneration, "number");
+        assert.equal("historyRevisionBySessionId" in revisionState, false);
     },
 });
 
@@ -837,6 +888,7 @@ function fakeController(
         sessionManager?: SessionManager;
     } = {},
 ): ControllerBase {
+    let revision = options.revision ?? 0;
     const state: FakeState = {
         disposeCalls: 0,
         promptCalls: 0,
@@ -878,9 +930,10 @@ function fakeController(
             }
             return options.sessionManager;
         },
-        historyRevision: () => options.revision ?? 0,
-        seedHistoryRevision: (revision: number) => {
-            state.seededRevisions.push(revision);
+        historyRevision: () => revision,
+        seedHistoryRevision: (seededRevision: number) => {
+            state.seededRevisions.push(seededRevision);
+            revision = Math.max(revision, seededRevision);
         },
         getModelState: () => ({
             sessionId,

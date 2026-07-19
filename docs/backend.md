@@ -270,6 +270,12 @@ keeps a recovery controller registered across pre-commit failures; the file
 rename is the commit point. Post-rename cleanup failure rolls the file back and
 registers a fresh replacement before the error crosses the HTTP boundary.
 
+Controller ownership epochs are seeded from one workspace-wide monotonic history
+generation. The workspace advances it before eviction/disposal and seeds each
+new or replacement controller above all currently loaded revisions. This
+preserves stale-history rejection across reopen/revert without retaining a
+process-lifetime map of every session ID.
+
 `PiSessionController` owns browser-facing operations for one manager-backed
 session. Create/open only attaches a `SessionManager`; the first operation that
 needs a live Pi session lazily creates controller-local services, binds

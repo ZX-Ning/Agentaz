@@ -114,7 +114,7 @@ Out of scope for this plan:
 | `COORD-01`    | B2: client ID can be forged                           | Document coordination-only boundary   | P2       | WS3        | ACCEPTED |
 | `SDK-01`      | B4: compact classification depends on SDK text        | Isolate adapter + track upstream      | P2       | WS4        | BLOCKED  |
 | `HTTP-01`     | B5: route parameters are decoded twice                | Fix                                   | P3       | WS3        | DONE     |
-| `MEM-01`      | B6: history revision retention is unbounded           | Fix without weakening monotonicity    | P3       | WS6        | TODO     |
+| `MEM-01`      | B6: history revision retention is unbounded           | Fix without weakening monotonicity    | P3       | WS6        | DONE     |
 | `EVENT-01`    | B7: overlapping anonymous tool calls cross-wire       | Guard unsupported edge case           | P3       | WS4        | DONE     |
 | `AUTH-01`     | B8: login has no rate limiting                        | Fix                                   | P1       | WS3        | DONE     |
 | `AUTH-02`     | B9: copied stateless token survives logout            | Explicitly accept for local mode      | P3       | WS3        | ACCEPTED |
@@ -409,13 +409,13 @@ before refactoring normalization
 
 #### Tasks
 
-- [ ] Replace unbounded per-session revision retention with a bounded mechanism
+- [x] Replace unbounded per-session revision retention with a bounded mechanism
       that preserves stale-response protection. Prefer a workspace-wide
       monotonic generation seed over an arbitrary LRU:
   - seed every replacement above all live/remembered controller revisions;
   - advance the generation before eviction/disposal;
   - keep only O(1) workspace revision state.
-- [ ] Add tests covering eviction/reopen/revert after many distinct sessions and
+- [x] Add tests covering eviction/reopen/revert after many distinct sessions and
       prove the replacement revision remains greater than the previous instance.
 - [ ] Replace `process.env[AGENTAZ_PI_NODE_MODULES_DIR]` with `Deno.env.get()`
       for repository consistency; retain current behavior/tests.
@@ -565,6 +565,7 @@ The remediation plan is complete when:
 
 | Date       | Change                                                                         | Findings                 |
 | ---------- | ------------------------------------------------------------------------------ | ------------------------ |
+| 2026-07-19 | Replaced per-session revision retention with one monotonic generation          | `MEM-01` `DONE`          |
 | 2026-07-19 | Removed history/snapshot hot paths and cached the per-app SPA shell            | WS5 findings complete    |
 | 2026-07-19 | Isolated compact compatibility and guarded anonymous tool projection           | `EVENT-01`, `PROTO-01`   |
 | 2026-07-19 | Hardened login, auth routing, route params, error redaction, and exposure docs | WS3 findings complete    |

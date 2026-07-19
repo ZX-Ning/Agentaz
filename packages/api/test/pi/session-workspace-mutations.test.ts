@@ -226,7 +226,10 @@ Deno.test("workspace keeps the original controller when revert replacement fails
 
         assert.equal(workspace.hasSession(original.sessionId), true);
         assert.equal(original.disposeCalls, 0);
-        assert.deepEqual(original.seededRevisions, [8]);
+        assert.equal(original.seededRevisions.length, 2);
+        assert.ok(
+            original.seededRevisions[1]! > original.seededRevisions[0]!,
+        );
         assert.equal(
             messageIds(original.getSessionManager()).at(-1),
             targetEntry,
@@ -287,7 +290,10 @@ Deno.test("workspace retains revert replacement after old-controller dispose fai
 
         assert.equal(original.disposeCalls, 1);
         assert.equal(workspace.hasSession(replacement.sessionId), true);
-        assert.deepEqual(replacement.seededRevisions, [3]);
+        assert.ok(
+            replacement.seededRevisions[0]! >
+                original.seededRevisions[0]!,
+        );
         assert.equal(
             workspace.loadedSessions()[0]?.sessionId,
             replacement.sessionId,
@@ -374,7 +380,9 @@ Deno.test("workspace recovers a loaded session after soft-delete rename failure"
 
         assert.equal(original.disposeCalls, 1);
         assert.equal(workspace.hasSession(recovery.sessionId), true);
-        assert.deepEqual(recovery.seededRevisions, [1]);
+        assert.ok(
+            recovery.seededRevisions[0]! > original.seededRevisions[0]!,
+        );
         assert.equal(await exists(sourceFile), true);
         assert.equal(removalEvents(events).length, 0);
     }
@@ -421,7 +429,10 @@ Deno.test("workspace rolls back soft-delete after post-rename cleanup failure", 
         assert.equal(original.disposeCalls, 1);
         assert.equal(failedRecovery.disposeCalls, 1);
         assert.equal(workspace.hasSession(restored.sessionId), true);
-        assert.deepEqual(restored.seededRevisions, [2]);
+        assert.ok(
+            restored.seededRevisions[0]! >
+                failedRecovery.seededRevisions[0]!,
+        );
         assert.equal(await exists(sourceFile), true);
         assert.equal(await exists(`${sourceFile}.deleted`), false);
         assert.equal(removalEvents(events).length, 0);
@@ -514,7 +525,10 @@ Deno.test("workspace full fork and revert preserve branches and revisions", asyn
         ]);
         const revertedFake = opened.at(-1);
         assert.ok(revertedFake);
-        assert.deepEqual(revertedFake.seededRevisions, [4]);
+        assert.ok(
+            revertedFake.seededRevisions[0]! >
+                source.seededRevisions[0]!,
+        );
     }
     finally {
         await workspace.disposeAll();
@@ -562,7 +576,7 @@ Deno.test("workspace dispatches compact, steer, and UI response operations", asy
         firstKeptEntryId: "entry-a",
         tokensBefore: 42,
         details: undefined,
-        revision: 1,
+        revision: controller.historyRevision(),
     });
     assert.deepEqual(controller.compactInstructions, ["keep decisions"]);
     assert.equal(refreshCalls, 1);

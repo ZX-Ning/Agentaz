@@ -128,8 +128,8 @@ export class PiSessionWorkspace {
      * later lifecycle requests.
      */
     private lifecycleMutationTail: Promise<void> = Promise.resolve();
-    /** Last known history revision for sessions that may be reopened later. */
-    private historyRevisionBySessionId = new Map<string, number>();
+    /** Process-local generation used to seed every controller ownership epoch. */
+    private historyRevisionGeneration = 0;
     /** Snapshot of persisted session metadata from the working directory. */
     private persistedSessionCache: UiSessionSummary[] = [];
 
@@ -459,7 +459,6 @@ export class PiSessionWorkspace {
                 normalizedSessionFile,
                 deletedSessionFile,
             );
-            this.historyRevisionBySessionId.delete(loadedSessionId);
         }
 
         this.eventBus.publish({
@@ -636,14 +635,13 @@ export class PiSessionWorkspace {
 
         const sessionManager = controller.getSessionManager();
         const currentName = sessionManager.getSessionName() ?? "";
-        const replacementRevision = controller.historyRevision() + 1;
+        const replacementRevision = this.reserveHistoryRevision(controller);
         sessionManager.branch(normalizedEntryId);
         sessionManager.appendSessionInfo(currentName);
 
         // The original manager now reflects the reverted branch. Raising its
         // revision keeps the recovery path safe if replacement construction fails.
         controller.seedHistoryRevision(replacementRevision);
-        this.rememberHistoryRevision(controller, replacementRevision);
 
         let reopenedController: ControllerBase;
         try {
@@ -848,9 +846,7 @@ export class PiSessionWorkspace {
     private async disposeAllWithinMutation() {
         const controllers = [...this.sessions.values()];
         this.sessions.clear();
-        controllers.forEach((controller) =>
-            this.rememberHistoryRevision(controller)
-        );
+        this.advanceHistoryRevisionGeneration(...controllers);
         await Promise.all(
             controllers.map((controller) => controller.dispose()),
         );
@@ -887,7 +883,9 @@ export class PiSessionWorkspace {
         }
 
         try {
-            this.seedHistoryRevision(controller);
+            controller.seedHistoryRevision(
+                this.reserveHistoryRevision(controller),
+            );
             this.sessions.set(controller.sessionId, controller);
             this.emitStateChanged();
             return controller;
@@ -973,7 +971,7 @@ export class PiSessionWorkspace {
         deletedFile: string,
     ) {
         const sessionId = loaded.sessionId;
-        const recoveryRevision = loaded.historyRevision() + 1;
+        const recoveryRevision = this.reserveHistoryRevision(loaded);
         const recovery = await this.createReplacementController(
             sourceFile,
             sessionId,
@@ -999,6 +997,7 @@ export class PiSessionWorkspace {
         }
 
         // Rename committed. Remove the recovery owner only while disposing it.
+        const rollbackRevision = this.reserveHistoryRevision(recovery);
         this.sessions.delete(sessionId);
         try {
             await recovery.dispose();
@@ -1008,7 +1007,7 @@ export class PiSessionWorkspace {
                 sessionId,
                 sourceFile,
                 deletedFile,
-                recoveryRevision + 1,
+                rollbackRevision,
                 cleanupError,
             );
         }
@@ -1030,7 +1029,6 @@ export class PiSessionWorkspace {
                 recoveryRevision,
             );
             this.sessions.set(sessionId, replacement);
-            this.rememberHistoryRevision(replacement, recoveryRevision);
             this.emitStateChanged();
         }
         catch (recoveryError) {
@@ -1092,7 +1090,7 @@ export class PiSessionWorkspace {
             }
 
             this.sessions.delete(sessionId);
-            this.rememberHistoryRevision(controller);
+            this.advanceHistoryRevisionGeneration(controller);
             await controller.dispose();
             this.eventBus.publish({
                 type: "session_removed",
@@ -1118,28 +1116,24 @@ export class PiSessionWorkspace {
         return controller;
     }
 
-    /** Restores the last known revision for a controller reopened by session id. */
-    private seedHistoryRevision(controller: ControllerBase) {
-        const revision = this.historyRevisionBySessionId.get(
-            controller.sessionId,
+    /** Advances the O(1) generation past every currently known revision. */
+    private reserveHistoryRevision(...controllers: ControllerBase[]) {
+        this.advanceHistoryRevisionGeneration(
+            ...this.sessions.values(),
+            ...controllers,
         );
-        if (revision !== undefined) {
-            controller.seedHistoryRevision(revision);
-        }
+        this.historyRevisionGeneration += 1;
+        return this.historyRevisionGeneration;
     }
 
-    /** Saves a controller revision before disposal/reload can reset it. */
-    private rememberHistoryRevision(
-        controller: ControllerBase,
-        revision = controller.historyRevision(),
+    /** Records revision progress before a controller can leave workspace ownership. */
+    private advanceHistoryRevisionGeneration(
+        ...controllers: ControllerBase[]
     ) {
-        const current = this.historyRevisionBySessionId.get(
-            controller.sessionId,
-        );
-        if (current === undefined || revision > current) {
-            this.historyRevisionBySessionId.set(
-                controller.sessionId,
-                revision,
+        for (const controller of controllers) {
+            this.historyRevisionGeneration = Math.max(
+                this.historyRevisionGeneration,
+                controller.historyRevision(),
             );
         }
     }
