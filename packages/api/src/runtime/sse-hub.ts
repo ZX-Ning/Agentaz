@@ -4,6 +4,7 @@ import type { ClientPresence } from "./client-presence.ts";
 import type { PiSessionWorkspace } from "../pi/session-workspace.ts";
 import {
     createServerHello,
+    createSharedAgentStateProjection,
     getAgentState,
     refreshProjectionData,
 } from "./session-projector.ts";
@@ -66,13 +67,19 @@ export class SseAgentHub {
         }
 
         // Phase 4: send the initial hello + targeted state snapshot.
+        const shared = createSharedAgentStateProjection(this.workspace);
         this.pushSafely(
             send,
             JSON.stringify(
-                createServerHello(this.workspace, this.presence, clientId),
+                createServerHello(
+                    this.workspace,
+                    this.presence,
+                    clientId,
+                    shared,
+                ),
             ),
         );
-        this.writeStateSnapshot(clientId, send);
+        this.writeStateSnapshot(clientId, send, shared);
 
         // Phase 5: lazy subscription — only subscribe to the event bus when at
         // least one browser client is connected.
@@ -175,13 +182,18 @@ export class SseAgentHub {
 
     /** Sends a state_snapshot event to all connected browser clients. */
     private broadcastStateSnapshots() {
+        const shared = createSharedAgentStateProjection(this.workspace);
         for (const [clientId, send] of this.senders) {
-            this.writeStateSnapshot(clientId, send);
+            this.writeStateSnapshot(clientId, send, shared);
         }
     }
 
     /** Sends a state_snapshot event targeted to one specific client. */
-    private writeStateSnapshot(clientId: string, send: SseSend) {
+    private writeStateSnapshot(
+        clientId: string,
+        send: SseSend,
+        shared = createSharedAgentStateProjection(this.workspace),
+    ) {
         this.pushSafely(
             send,
             JSON.stringify({
@@ -190,6 +202,7 @@ export class SseAgentHub {
                     this.workspace,
                     this.presence,
                     clientId,
+                    shared,
                 ),
             }),
         );

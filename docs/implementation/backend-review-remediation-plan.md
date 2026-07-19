@@ -109,8 +109,8 @@ Out of scope for this plan:
 | ------------- | ----------------------------------------------------- | ------------------------------------- | -------- | ---------- | -------- |
 | `COR-01`      | B1: loaded-session open/capacity/dedup race           | Fix                                   | P0       | WS1        | DONE     |
 | `COR-02`      | B3: revert/delete failure atomicity                   | Fix                                   | P1       | WS2        | DONE     |
-| `PERF-01`     | Snapshot/usage projection repeated per client         | Fix                                   | P2       | WS5        | TODO     |
-| `PERF-02`     | `getHistory()` branch lookup is O(n²)                 | Fix                                   | P1       | WS5        | TODO     |
+| `PERF-01`     | Snapshot/usage projection repeated per client         | Fix                                   | P2       | WS5        | DONE     |
+| `PERF-02`     | `getHistory()` branch lookup is O(n²)                 | Fix                                   | P1       | WS5        | DONE     |
 | `COORD-01`    | B2: client ID can be forged                           | Document coordination-only boundary   | P2       | WS3        | ACCEPTED |
 | `SDK-01`      | B4: compact classification depends on SDK text        | Isolate adapter + track upstream      | P2       | WS4        | BLOCKED  |
 | `HTTP-01`     | B5: route parameters are decoded twice                | Fix                                   | P3       | WS3        | DONE     |
@@ -123,7 +123,7 @@ Out of scope for this plan:
 | `COMPAT-01`   | B12: `max` thinking support is incomplete             | Fix across protocol/backend/frontend  | P1       | WS4        | DONE     |
 | `CLEAN-01`    | B12: required packages use `process.env`              | Standardize on `Deno.env`             | P4       | WS6        | TODO     |
 | `MODEL-01`    | B12: dormant model context read can throw             | Make failure behavior explicit/tested | P3       | WS6        | TODO     |
-| `STATIC-01`   | B12: SPA fallback rereads `index.html`                | Cache production shell read           | P4       | WS5        | TODO     |
+| `STATIC-01`   | B12: SPA fallback rereads `index.html`                | Cache production shell read           | P4       | WS5        | DONE     |
 | `AUTH-03`     | B12: public auth path matching is brittle             | Use exact normalized paths            | P3       | WS3        | DONE     |
 | `STYLE-01`    | Truncation markers use inconsistent ellipses          | Standardize                           | P4       | WS6        | TODO     |
 | `REFACTOR-01` | Controller normalization helpers make file oversized  | Extract after behavior fixes          | P4       | WS6        | TODO     |
@@ -367,26 +367,26 @@ Frontend edits in this workstream must follow `docs/frontend.md`.
 
 #### Tasks
 
-- [ ] Replace per-message `branchEntries.findIndex()` with one O(n) ID/index
+- [x] Replace per-message `branchEntries.findIndex()` with one O(n) ID/index
       pass in `getHistory()`.
-- [ ] Preserve compaction entries, rewind IDs, tool-result grouping, and
+- [x] Preserve compaction entries, rewind IDs, tool-result grouping, and
       one-assistant-message-per-turn normalization.
-- [ ] Cache usage stats by a stable branch token such as
+- [x] Cache usage stats by a stable branch token such as
       `SessionManager.getLeafId()`; do not call `getBranch()` merely to decide
       whether the cache is valid.
-- [ ] Invalidate usage projection after prompt persistence, agent completion,
+- [x] Invalidate usage projection after prompt persistence, agent completion,
       compaction, revert/reopen, and any other branch-leaf change.
-- [ ] Separate expensive client-independent loaded-session projection from
+- [x] Separate expensive client-independent loaded-session projection from
       client-specific active/control decoration.
-- [ ] During one SSE broadcast, compute the shared loaded-session projection
+- [x] During one SSE broadcast, compute the shared loaded-session projection
       once, then decorate it for each client.
-- [ ] Reuse the initial projection when emitting hello plus the immediately
+- [x] Reuse the initial projection when emitting hello plus the immediately
       following state snapshot.
-- [ ] Ensure rename, pending UI, widgets, streaming flags, queue counts, and
+- [x] Ensure rename, pending UI, widgets, streaming flags, queue counts, and
       control state are never stale because of caching.
-- [ ] Cache the production SPA `index.html` read at app creation/first use while
+- [x] Cache the production SPA `index.html` read at app creation/first use while
       preserving startup/read errors and test isolation.
-- [ ] Add structural counter tests and a non-flaky large-history
+- [x] Add structural counter tests and a non-flaky large-history
       benchmark/regression test. Prefer operation-count assertions over strict
       wall-clock thresholds in CI.
 
@@ -454,7 +454,7 @@ before refactoring normalization
 | Real SSE HTTP stream                   | WS7               | Authenticated hello/snapshot parsing and disconnect cleanup through Hono streaming | TODO   |
 | `readJsonBody` empty boundaries        | WS3/WS7           | `content-length: 0`, bodyless request, `Unexpected end`, malformed JSON            | TODO   |
 | `onSessionEvent` dispatch branches     | WS4               | Direct `queue_update`, `compaction_end`, metadata/error isolation coverage         | DONE   |
-| Large-history/projection regression    | WS5               | Structural complexity/cache assertions plus diagnostic benchmark                   | TODO   |
+| Large-history/projection regression    | WS5               | Structural complexity/cache assertions plus diagnostic benchmark                   | DONE   |
 
 The SSE integration test should use an in-process server and a controlled
 runtime, not a separately started development server. It must cleanly cancel the
@@ -565,6 +565,7 @@ The remediation plan is complete when:
 
 | Date       | Change                                                                         | Findings                 |
 | ---------- | ------------------------------------------------------------------------------ | ------------------------ |
+| 2026-07-19 | Removed history/snapshot hot paths and cached the per-app SPA shell            | WS5 findings complete    |
 | 2026-07-19 | Isolated compact compatibility and guarded anonymous tool projection           | `EVENT-01`, `PROTO-01`   |
 | 2026-07-19 | Hardened login, auth routing, route params, error redaction, and exposure docs | WS3 findings complete    |
 | 2026-07-19 | Aligned `max` thinking capabilities across protocol, backend, and frontend     | `COMPAT-01` `DONE`       |

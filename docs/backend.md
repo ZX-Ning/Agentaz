@@ -74,7 +74,9 @@ Shared runtime constraints:
   package sources when absent.
 - The web UI does not currently switch cwd.
 - `STATIC_FILE_DIR`, when set, serves static frontend assets and falls back to
-  `index.html` for browser document routes outside `/api`.
+  `index.html` for browser document routes outside `/api`. The SPA shell is read
+  lazily once per composed Hono app; a failed read is not cached and can recover
+  on the next request.
 - The checked-in `deno task serve` binds to `127.0.0.1:3000`. Broader network
   exposure should be explicit and reviewed because the app exposes a powerful
   single-user coding agent surface.
@@ -227,7 +229,11 @@ The first config wins. Reconfiguration with different values should fail loudly.
 - `SseAgentHub`: SSE stream lifecycle and event forwarding.
 
 Client-specific HTTP/SSE state snapshots are built by pure helpers in
-`session-projector.ts`, not by an AgentRuntime-owned service.
+`session-projector.ts`, not by an AgentRuntime-owned service. Within one SSE
+broadcast, the hub computes loaded/persisted session state once and adds
+active/control fields per client. The shared value is event-scoped so runtime
+counts, widgets, pending UI, streaming state, and renamed sessions stay fresh on
+the next snapshot.
 
 SSE `hello` assigns the browser tab `clientId`. Client-specific HTTP requests
 should send that identity back through `X-Agentaz-Client-Id`; routes fall back
@@ -358,9 +364,10 @@ include optional Pi SDK usage fields:
   Calculated from session entries so totals do not reset after context compact.
   Nullable only if usage projection fails.
 
-These fields are refreshed on every `sendStatus()` call (after turns,
-compaction, model changes, queue updates, and reconnect recovery). Do not
-estimate tokens in Agentaz — use Pi SDK as the single source of truth.
+Context usage is read on every `sendStatus()` call. Cumulative usage is cached
+by `SessionManager.getLeafId()` and rescanned only when the branch leaf changes
+or a prompt/agent/compaction/replacement boundary explicitly invalidates it. Do
+not estimate tokens in Agentaz — use Pi SDK as the single source of truth.
 
 History projection includes Pi `compaction` entries as durable `system` messages
 in the transcript. The marker is intentionally concise and uses the persisted

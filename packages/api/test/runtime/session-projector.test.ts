@@ -5,6 +5,7 @@ import type { PiSessionWorkspace } from "../../src/pi/session-workspace.ts";
 import { ClientPresence } from "../../src/runtime/client-presence.ts";
 import {
     createServerHello,
+    createSharedAgentStateProjection,
     getAgentState,
     refreshProjectionData,
 } from "../../src/runtime/session-projector.ts";
@@ -25,8 +26,9 @@ Deno.test("session projector builds client-specific state snapshots", () => {
     presence.focus("client-b", "session-b");
     presence.acquireControl("client-a", "session-a");
 
-    const stateA = getAgentState(workspace, presence, "client-a");
-    const stateB = getAgentState(workspace, presence, "client-b");
+    const shared = createSharedAgentStateProjection(workspace);
+    const stateA = getAgentState(workspace, presence, "client-a", shared);
+    const stateB = getAgentState(workspace, presence, "client-b", shared);
 
     assert.equal(stateA.protocolVersion, PROTOCOL_VERSION);
     assert.equal(stateA.cwd, "/workspace");
@@ -45,6 +47,7 @@ Deno.test("session projector builds client-specific state snapshots", () => {
     assert.equal(sessionAForA?.controlledByCurrentClient, true);
     assert.equal(sessionAForB?.controlOwnerClientId, "client-a");
     assert.equal(sessionAForB?.controlledByCurrentClient, false);
+    assert.equal(workspaceProjectionCalls(workspace), 1);
 });
 
 /**
@@ -76,7 +79,8 @@ function fakeWorkspace(
     sessions: UiRuntimeLoadedSession[],
     refresh: () => void = () => {},
 ) {
-    return {
+    let projectionCalls = 0;
+    const workspace = {
         cwd: "/workspace",
         persistedSessions: [{
             file: "/workspace/session-a.jsonl",
@@ -85,12 +89,26 @@ function fakeWorkspace(
             createdAt: 1,
             updatedAt: 2,
         }],
-        loadedSessions: () => sessions,
+        loadedSessions: () => {
+            projectionCalls += 1;
+            return sessions;
+        },
         refreshPersistedSessionCache: () => {
             refresh();
             return Promise.resolve();
         },
     } as unknown as PiSessionWorkspace;
+    projectionCallsByWorkspace.set(workspace, () => projectionCalls);
+    return workspace;
+}
+
+const projectionCallsByWorkspace = new WeakMap<
+    PiSessionWorkspace,
+    () => number
+>();
+
+function workspaceProjectionCalls(workspace: PiSessionWorkspace) {
+    return projectionCallsByWorkspace.get(workspace)?.() ?? 0;
 }
 
 function loadedSession(sessionId: string): UiRuntimeLoadedSession {

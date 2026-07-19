@@ -232,6 +232,11 @@ export class PiSessionController implements ControllerBase {
     private toolResultEmittedLength = new Map<string, number>();
     /** Cached normalized history; invalidated when messages change. */
     private cachedHistory?: SessionHistoryResponse;
+    /** Cumulative branch usage cached by the manager's current leaf id. */
+    private cachedUsageStats?: {
+        leafId: string | null;
+        value: UiSessionUsageStats;
+    };
     /** Monotonic counter for normalized transcript/history changes. */
     private transcriptRevision = 0;
 
@@ -306,6 +311,7 @@ export class PiSessionController implements ControllerBase {
         }
         this.transcriptRevision = revision;
         this.cachedHistory = undefined;
+        this.cachedUsageStats = undefined;
     }
 
     /**
@@ -400,6 +406,9 @@ export class PiSessionController implements ControllerBase {
             });
             throw error;
         }
+        finally {
+            this.invalidateUsageStatsCache();
+        }
     }
 
     /**
@@ -468,6 +477,7 @@ export class PiSessionController implements ControllerBase {
             const result = await this.requireSession().compact(
                 customInstructions,
             );
+            this.invalidateUsageStatsCache();
             this.invalidateHistoryCache();
             return {
                 ...result,
@@ -676,6 +686,9 @@ export class PiSessionController implements ControllerBase {
             (entry): entry is SessionTranscriptEntry =>
                 entry.type === "message" || entry.type === "compaction",
         );
+        const branchIndexByEntryId = new Map(
+            branchEntries.map((entry, index) => [entry.id, index]),
+        );
 
         const historyItems = transcriptEntries.map(
             (entry, index): HistoryItem => {
@@ -684,9 +697,7 @@ export class PiSessionController implements ControllerBase {
                 }
 
                 const message = asRecord(entry.message) as PersistedMessage;
-                const branchIndex = branchEntries.findIndex(
-                    (branchEntry) => branchEntry.id === entry.id,
-                );
+                const branchIndex = branchIndexByEntryId.get(entry.id) ?? -1;
                 const rewindEntryId = branchEntries[branchIndex - 1]?.id;
                 if (message?.id) {
                     entryIdByMessageId.set(String(message.id), entry.id);
@@ -1017,10 +1028,12 @@ export class PiSessionController implements ControllerBase {
                     void this.applyPendingSettingsIfIdle();
                     break;
                 case "compaction_end":
-                    this.sendStatus();
+                    this.invalidateUsageStatsCache();
                     this.invalidateHistoryCache();
+                    this.sendStatus();
                     break;
                 case "agent_end":
+                    this.invalidateUsageStatsCache();
                     this.sendStatus();
                     // Flush the final state of the current assistant message.
                     this.flushCurrentAssistantMessage(sessionId);
@@ -1581,9 +1594,14 @@ export class PiSessionController implements ControllerBase {
     /** Best-effort cumulative usage stats for the current branch. */
     private usageStats() {
         try {
-            return summarizeUsageStatsFromEntries(
-                this.requireSessionManager().getBranch(),
-            );
+            const manager = this.requireSessionManager();
+            const leafId = manager.getLeafId();
+            if (this.cachedUsageStats?.leafId === leafId) {
+                return this.cachedUsageStats.value;
+            }
+            const value = summarizeUsageStatsFromEntries(manager.getBranch());
+            this.cachedUsageStats = { leafId, value };
+            return value;
         }
         catch (error) {
             console.warn(
@@ -1592,6 +1610,11 @@ export class PiSessionController implements ControllerBase {
             );
             return undefined;
         }
+    }
+
+    /** Clears cumulative usage after a branch-changing operation or event. */
+    private invalidateUsageStatsCache() {
+        this.cachedUsageStats = undefined;
     }
 
     /**

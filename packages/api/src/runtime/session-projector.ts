@@ -4,6 +4,7 @@ import type {
     ServerHello,
     UiLoadedSession,
     UiRuntimeLoadedSession,
+    UiSessionSummary,
 } from "@agentaz/protocol";
 import { PROTOCOL_VERSION } from "@agentaz/protocol";
 import type { ClientPresence } from "./client-presence.ts";
@@ -39,6 +40,22 @@ export async function refreshProjectionData(workspace: PiSessionWorkspace) {
     await workspace.refreshPersistedSessionCache();
 }
 
+/** Expensive client-independent data reused within one snapshot broadcast. */
+export type SharedAgentStateProjection = {
+    loadedSessions: UiRuntimeLoadedSession[];
+    persistedSessions: UiSessionSummary[];
+};
+
+/** Computes one fresh shared projection; callers must not retain it across events. */
+export function createSharedAgentStateProjection(
+    workspace: PiSessionWorkspace,
+): SharedAgentStateProjection {
+    return {
+        loadedSessions: workspace.loadedSessions(),
+        persistedSessions: workspace.persistedSessions,
+    };
+}
+
 /**
  * Returns the current state snapshot for one browser client.
  * Client-specific fields: active session + session control ownership flags.
@@ -47,17 +64,18 @@ export function getAgentState(
     workspace: PiSessionWorkspace,
     presence: ClientPresence,
     clientId: string,
+    shared = createSharedAgentStateProjection(workspace),
 ): AgentStateResponse {
     return {
         protocolVersion: PROTOCOL_VERSION,
         cwd: workspace.cwd,
         activeSessionId: presence.activeFor(clientId),
         loadedSessions: getLoadedSessionsForClient(
-            workspace,
+            shared.loadedSessions,
             presence,
             clientId,
         ),
-        persistedSessions: workspace.persistedSessions,
+        persistedSessions: shared.persistedSessions,
         capabilities: CAPABILITIES,
     };
 }
@@ -67,23 +85,24 @@ export function createServerHello(
     workspace: PiSessionWorkspace,
     presence: ClientPresence,
     clientId: string,
+    shared = createSharedAgentStateProjection(workspace),
 ): ServerHello {
     return {
         type: "hello",
         protocolVersion: PROTOCOL_VERSION,
         cwd: workspace.cwd,
         clientId,
-        state: getAgentState(workspace, presence, clientId),
+        state: getAgentState(workspace, presence, clientId, shared),
     };
 }
 
 /** Projects runtime loaded sessions into one client's browser-facing rows. */
 function getLoadedSessionsForClient(
-    workspace: PiSessionWorkspace,
+    loadedSessions: UiRuntimeLoadedSession[],
     presence: ClientPresence,
     clientId: string,
 ): UiLoadedSession[] {
-    return workspace.loadedSessions().map(
+    return loadedSessions.map(
         (session: UiRuntimeLoadedSession) => {
             const controlOwnerClientId = presence.ownerOf(session.sessionId);
             return {

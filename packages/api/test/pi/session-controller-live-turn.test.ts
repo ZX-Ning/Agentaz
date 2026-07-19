@@ -347,6 +347,7 @@ function liveTurnController(
     Object.assign(controller, {
         sessionResult: { session },
         sessionManager: {
+            getLeafId: () => entries.at(-1)?.id ?? null,
             getBranch: () => entries,
         },
         host: {

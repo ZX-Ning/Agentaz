@@ -31,6 +31,7 @@ Deno.test("SseAgentHub opens with hello, snapshot, and loaded-session fallback",
     }
     assert.equal(presence.activeFor("client-a"), "session-a");
     assert.equal(workspace.refreshCalls(), 1);
+    assert.equal(workspace.loadedCalls(), 1);
 
     hub.close("client-a");
     assert.deepEqual(presence.clients(), []);
@@ -70,6 +71,7 @@ Deno.test("SseAgentHub broadcasts events and releases disconnected control", asy
         sessionId: "session-a",
         controlOwnerClientId: "client-a",
     });
+    assert.equal(workspace.loadedCalls(), 3);
     assert.ok(eventsA.some((event) =>
         event.type === "control_changed" &&
         event.controlOwnerClientId === "client-a"
@@ -159,11 +161,15 @@ function fakeWorkspace(
     refresh: () => Promise<void> = () => Promise.resolve(),
 ) {
     let refreshCount = 0;
+    let loadedCount = 0;
     let disposed = 0;
     const value = {
         cwd: "/workspace",
         persistedSessions: [],
-        loadedSessions: () => sessions,
+        loadedSessions: () => {
+            loadedCount += 1;
+            return sessions;
+        },
         firstLoadedSessionId: () => sessions[0]?.sessionId,
         refreshPersistedSessionCache: async () => {
             refreshCount += 1;
@@ -177,6 +183,7 @@ function fakeWorkspace(
     return {
         value,
         refreshCalls: () => refreshCount,
+        loadedCalls: () => loadedCount,
         disposeCalls: () => disposed,
     };
 }

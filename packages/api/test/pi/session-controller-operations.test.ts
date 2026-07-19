@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import { join } from "node:path";
-import { SessionManager } from "@earendil-works/pi-coding-agent";
+import {
+    type SessionEntry,
+    SessionManager,
+} from "@earendil-works/pi-coding-agent";
 import type { ServerEvent, ThinkingLevel } from "@agentaz/protocol";
 import {
     ContextCompactUnavailableError,
@@ -360,6 +363,108 @@ Deno.test("PiSessionController history cache follows monotonic revision seeds", 
     }
 });
 
+/**
+ * Purpose: Guard history projection against reintroducing an inner linear branch lookup.
+ * Expect: A 4,000-entry uncached history performs only a linear number of entry-id reads.
+ * Method: Wrap entry ids with counting getters, project once, and assert structure + count.
+ */
+Deno.test("PiSessionController projects large history with linear branch lookup", () => {
+    const entryCount = 4_000;
+    let idReads = 0;
+    const entries = Array.from({ length: entryCount }, (_, index) => {
+        const id = `entry-${index}`;
+        return {
+            type: "message",
+            get id() {
+                idReads += 1;
+                return id;
+            },
+            parentId: index > 0 ? `entry-${index - 1}` : null,
+            timestamp: new Date(index).toISOString(),
+            message: {
+                id,
+                role: index % 2 === 0 ? "user" : "assistant",
+                content: `message ${index}`,
+                timestamp: index,
+            },
+        } as SessionEntry;
+    });
+    const controller = bareController(undefined as never, [], {
+        sessionResult: undefined,
+        sessionManager: {
+            getSessionId: () => "large-session",
+            getBranch: () => entries,
+        },
+    });
+
+    const history = controller.getHistory();
+
+    assert.equal(history.messages.length, entryCount);
+    assert.equal(history.messages.at(-1)?.entryId, `entry-${entryCount - 1}`);
+    assert.ok(
+        idReads <= entryCount * 8,
+        `expected O(n) id reads, observed ${idReads} for ${entryCount} entries`,
+    );
+});
+
+/**
+ * Purpose: Cache cumulative usage by branch leaf without freezing dynamic runtime fields.
+ * Expect: Repeated projections scan once; a branch event rescans and exposes new totals.
+ * Method: Count manager branch reads around repeated loaded-state projections and compaction.
+ */
+Deno.test("PiSessionController caches usage by branch leaf and invalidates on events", () => {
+    let leafId = "leaf-a";
+    let branchCalls = 0;
+    let branch = [usageMessageEntry("entry-a", "user")];
+    const session = {
+        sessionId: "session-a",
+        sessionFile: "/tmp/session-a.jsonl",
+        isStreaming: false,
+        pendingMessageCount: 0,
+        getContextUsage: () => undefined,
+    };
+    const manager = {
+        getLeafId: () => leafId,
+        getBranch: () => {
+            branchCalls += 1;
+            return branch;
+        },
+        getEntries: () => branch,
+        getSessionId: () => "session-a",
+        getSessionFile: () => "/tmp/session-a.jsonl",
+        getSessionName: () => "Session A",
+        getHeader: () => undefined,
+    };
+    const events: ServerEvent[] = [];
+    const controller = bareController(session, events, {
+        sessionManager: manager,
+    });
+
+    assert.equal(controller.toLoadedSession().usageStats?.totalMessages, 1);
+    controller.toLoadedSession();
+    controller.toLoadedSession();
+    assert.equal(branchCalls, 1);
+
+    session.pendingMessageCount = 2;
+    assert.equal(controller.toLoadedSession().pendingMessageCount, 2);
+    assert.equal(branchCalls, 1);
+
+    branch = [
+        ...branch,
+        usageMessageEntry("entry-b", "assistant"),
+    ];
+    (controller as unknown as { onSessionEvent(event: unknown): void })
+        .onSessionEvent({ type: "compaction_end" });
+    assert.equal(branchCalls, 1);
+    assert.equal(controller.toLoadedSession().usageStats?.totalMessages, 2);
+    assert.equal(branchCalls, 2);
+
+    leafId = "leaf-b";
+    branch = [...branch, usageMessageEntry("entry-c", "user")];
+    assert.equal(controller.toLoadedSession().usageStats?.totalMessages, 3);
+    assert.equal(branchCalls, 3);
+});
+
 function bareController(
     session: object,
     events: ServerEvent[],
@@ -412,4 +517,14 @@ function testMessage(role: "user" | "assistant", text: string) {
         content: [{ type: "text" as const, text }],
         timestamp: Date.now(),
     } as Parameters<SessionManager["appendMessage"]>[0];
+}
+
+function usageMessageEntry(id: string, role: "user" | "assistant") {
+    return {
+        type: "message",
+        id,
+        parentId: null,
+        timestamp: new Date(0).toISOString(),
+        message: { id, role, content: role, timestamp: 0 },
+    } as unknown as SessionEntry;
 }

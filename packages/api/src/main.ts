@@ -18,7 +18,13 @@ const DEFAULT_MAX_LOADED_SESSIONS = 5;
 
 let serverRuntimeInitialized = false;
 
-export function createApp() {
+export interface CreateAppOptions {
+    /** Overrides env lookup for isolated app instances and tests. */
+    staticDir?: string | null;
+    readTextFile?: (path: string) => Promise<string>;
+}
+
+export function createApp(options: CreateAppOptions = {}) {
     const app = new Hono();
 
     app.onError(agentHttpErrorResponse);
@@ -29,9 +35,27 @@ export function createApp() {
     app.route("/api", healthRoutes);
     app.route("/api", agentRoutes);
 
-    const staticDir = Deno.env.get("STATIC_FILE_DIR");
+    const staticDir = options.staticDir === undefined
+        ? Deno.env.get("STATIC_FILE_DIR")
+        : options.staticDir ?? undefined;
     if (staticDir) {
         console.log(`Serving static files: ${staticDir}`);
+        const readTextFile = options.readTextFile ?? Deno.readTextFile;
+        let spaShellPromise: Promise<string> | undefined;
+
+        // Cache only within this app instance. A failed read is retryable so a
+        // temporarily missing deployment artifact does not poison the process.
+        const readSpaShell = () => {
+            if (!spaShellPromise) {
+                spaShellPromise = readTextFile(join(staticDir, "index.html"))
+                    .catch((error) => {
+                        spaShellPromise = undefined;
+                        throw error;
+                    });
+            }
+            return spaShellPromise;
+        };
+
         app.use(
             "*",
             serveStatic({ root: staticDir, precompressed: true }),
@@ -44,7 +68,7 @@ export function createApp() {
             }
 
             return c.html(
-                await Deno.readTextFile(join(staticDir, "index.html")),
+                await readSpaShell(),
             );
         });
     }
