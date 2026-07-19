@@ -451,8 +451,8 @@ before refactoring normalization
 | -------------------------------------- | ----------------- | ---------------------------------------------------------------------------------- | ------ |
 | Concurrent capacity and same-file open | WS1               | Deterministic race tests fail on baseline and pass after serialization             | DONE   |
 | Auth crypto/config edge cases          | WS3               | Direct unit coverage beyond happy-path smoke tests                                 | DONE   |
-| Real SSE HTTP stream                   | WS7               | Authenticated hello/snapshot parsing and disconnect cleanup through Hono streaming | TODO   |
-| `readJsonBody` empty boundaries        | WS3/WS7           | `content-length: 0`, bodyless request, `Unexpected end`, malformed JSON            | TODO   |
+| Real SSE HTTP stream                   | WS7               | Authenticated hello/snapshot parsing and disconnect cleanup through Hono streaming | DONE   |
+| `readJsonBody` empty boundaries        | WS3/WS7           | `content-length: 0`, bodyless request, `Unexpected end`, malformed JSON            | DONE   |
 | `onSessionEvent` dispatch branches     | WS4               | Direct `queue_update`, `compaction_end`, metadata/error isolation coverage         | DONE   |
 | Large-history/projection regression    | WS5               | Structural complexity/cache assertions plus diagnostic benchmark                   | DONE   |
 
@@ -565,6 +565,7 @@ The remediation plan is complete when:
 
 | Date       | Change                                                                         | Findings                 |
 | ---------- | ------------------------------------------------------------------------------ | ------------------------ |
+| 2026-07-19 | Added real authenticated SSE and complete optional-JSON boundary coverage      | WS7 gaps complete        |
 | 2026-07-19 | Extracted pure session normalization and moved its focused tests               | `REFACTOR-01` `DONE`     |
 | 2026-07-19 | Standardized env/truncation and made dormant model failures explicit           | WS6 low-risk items done  |
 | 2026-07-19 | Replaced per-session revision retention with one monotonic generation          | `MEM-01` `DONE`          |

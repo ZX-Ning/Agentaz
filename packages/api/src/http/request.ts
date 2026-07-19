@@ -10,8 +10,15 @@ export async function readJsonBody<T extends object>(
         return {};
     }
 
+    const text = await c.req.text();
+    // Fetch/Hono surface a bodyless JSON parse as "Unexpected end". Inspecting
+    // the raw body first distinguishes truly empty input from truncated JSON.
+    if (!text.trim()) {
+        return {};
+    }
+
     try {
-        return (await c.req.json()) ?? {};
+        return JSON.parse(text) ?? {};
     }
     catch (error) {
         if (error instanceof SyntaxError) {
@@ -20,13 +27,6 @@ export async function readJsonBody<T extends object>(
                 "bad_request",
                 "Malformed JSON request body.",
             );
-        }
-        // Hono throws when there is no body; routes with optional JSON treat it as empty.
-        if (
-            error instanceof Error &&
-            error.message.includes("Unexpected end")
-        ) {
-            return {};
         }
         throw error;
     }

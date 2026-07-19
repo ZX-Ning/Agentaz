@@ -532,6 +532,9 @@ The smoke test starts an in-process Hono server. It checks:
 - exact public auth route matching and stateless copied-token behavior
 - generic unexpected-error redaction with contextual server logging
 - SPA static fallback when `STATIC_FILE_DIR` is set
+- authenticated SSE hello/snapshot framing plus disconnect cleanup
+- optional JSON body boundaries, including empty, whitespace, truncated, and
+  malformed input
 
 The test sets `AGENTAZ_ADMIN_PASSWORD_HASH` and `AGENTAZ_SESSION_SECRET`
 directly, so it does not require a separately running dev server.
