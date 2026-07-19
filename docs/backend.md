@@ -57,6 +57,7 @@ PI_WEB_APPROVAL_TIMEOUT_MS       defaults to 300000
 PI_WEB_MAX_LOADED_SESSIONS       defaults to 5
 AGENTAZ_ADMIN_PASSWORD_HASH      required base64(SHA3-256(password-string))
 AGENTAZ_SESSION_SECRET           optional stable Better Auth secret, 32+ chars
+AGENTAZ_BIND_HOST                deployment bind metadata used for exposure warnings
 AGENTAZ_PI_NODE_MODULES_DIR       optional preinstalled Pi extension node_modules root
 STATIC_FILE_DIR                  optional built SPA directory served by Hono
 ```
@@ -77,6 +78,10 @@ Shared runtime constraints:
 - The checked-in `deno task serve` binds to `127.0.0.1:3000`. Broader network
   exposure should be explicit and reviewed because the app exposes a powerful
   single-user coding agent surface.
+- The production `Dockerfile` listens on `0.0.0.0` inside the container and sets
+  `AGENTAZ_BIND_HOST=0.0.0.0`, which produces a loud startup warning. Publish
+  port 3000 to host loopback by default; use only a trusted network after an
+  explicit security review.
 
 Important constraints:
 
@@ -118,6 +123,21 @@ valid session cookie before the event stream is opened.
 The login route remains a project JSON endpoint. It compares
 `base64(SHA3-256(password))` with `AGENTAZ_ADMIN_PASSWORD_HASH`, then stores a
 24-hour encrypted stateless admin session in an HTTP-only cookie on success.
+Failed logins share one bounded process-local backoff for the single admin
+identity: consecutive failures earn a capped exponential delay, while success or
+five idle minutes resets it. Attempts are serialized so concurrent requests
+cannot bypass the failure counter. There is no permanent lockout or database
+state.
+
+Logout clears the current browser cookie only. Because sessions are stateless, a
+copied original token remains valid until its 24-hour expiry. This is accepted
+for the local-first single-user threat model. Server-side revocation must be a
+prerequisite product/security decision before remote or multi-user operation; it
+is not implemented by adding a database in the current model.
+
+Public auth matching is exact and method-aware: only `POST /api/auth/login` and
+`GET /api/_auth/session` bypass authentication. Trailing-slash variants and
+wrong methods remain protected.
 
 ## HTTP Agent API
 
@@ -211,7 +231,12 @@ Client-specific HTTP/SSE state snapshots are built by pure helpers in
 
 SSE `hello` assigns the browser tab `clientId`. Client-specific HTTP requests
 should send that identity back through `X-Agentaz-Client-Id`; routes fall back
-to `LOCAL_CLIENT_ID` only for non-browser or pre-SSE callers.
+to `LOCAL_CLIENT_ID` only for non-browser or pre-SSE callers. Client IDs and
+control leases coordinate tabs and prevent accidental concurrent mutations. They
+are observable/reusable by the same authenticated caller and are not
+authentication or authorization principals. Presence membership checks alone
+would not change that boundary; a true security credential would need to be
+unshared per tab and is outside the current threat model.
 
 `PiSessionWorkspace` owns server-resident Pi SDK session lifecycle:
 
@@ -438,6 +463,10 @@ Backend should emit unified protocol errors:
 ```
 
 Also log unexpected server-side errors to console for local development.
+Unexpected exceptions return the generic client message
+`Unexpected server
+error.` and are logged once with HTTP method/path plus the
+original error. Typed domain and `HttpError` messages remain unchanged.
 
 ## Health and Smoke Tests
 
@@ -461,6 +490,9 @@ The smoke test starts an in-process Hono server. It checks:
 - login with the test admin password
 - authenticated health endpoint
 - logout behavior
+- auth crypto/config edge cases and bounded login backoff
+- exact public auth route matching and stateless copied-token behavior
+- generic unexpected-error redaction with contextual server logging
 - SPA static fallback when `STATIC_FILE_DIR` is set
 
 The test sets `AGENTAZ_ADMIN_PASSWORD_HASH` and `AGENTAZ_SESSION_SECRET`

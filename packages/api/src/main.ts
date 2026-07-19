@@ -6,10 +6,9 @@ import {
     disposeAgentRuntime,
     initAgentRuntime,
 } from "./runtime/agent-runtime.ts";
-import { agentHttpError } from "./http/agent.ts";
+import { agentHttpErrorResponse } from "./http/agent.ts";
 import { apiBodyLimit } from "./http/body-limit.ts";
 import { assertAuthConfig, authMiddleware } from "./auth/auth.ts";
-import { HttpError } from "./http/errors.ts";
 import { agentRoutes } from "./routes/agent.ts";
 import { authRoutes } from "./routes/auth.ts";
 import { healthRoutes } from "./routes/health.ts";
@@ -22,14 +21,7 @@ let serverRuntimeInitialized = false;
 export function createApp() {
     const app = new Hono();
 
-    app.onError((error, c) => {
-        const httpError = error instanceof HttpError
-            ? error
-            : agentHttpError(error);
-        return c.json(httpError.data, {
-            status: httpError.status as 400,
-        });
-    });
+    app.onError(agentHttpErrorResponse);
 
     // Reject oversized declared-length and streamed bodies before auth or JSON parsing.
     app.use("/api/*", apiBodyLimit, authMiddleware);
@@ -87,6 +79,7 @@ export function initServerRuntime() {
     }
 
     assertAuthConfig();
+    warnForNetworkExposure();
 
     const cwd = Deno.env.get("PI_WEB_CWD") || Deno.cwd();
     const approvalTimeoutMs = numberEnv(
@@ -105,6 +98,19 @@ export function initServerRuntime() {
     addEventListener("unload", () => {
         void disposeAgentRuntime();
     });
+}
+
+/** Warns when deployment metadata says the server is reachable beyond loopback. */
+export function warnForNetworkExposure() {
+    const bindHost = Deno.env.get("AGENTAZ_BIND_HOST")?.trim() || "127.0.0.1";
+    if (
+        bindHost !== "127.0.0.1" && bindHost !== "localhost" &&
+        bindHost !== "::1"
+    ) {
+        console.warn(
+            `[agentaz-server] WARNING: server bind host ${bindHost} may expose the single-user coding agent to the network. Publish ports only on loopback or a trusted network.`,
+        );
+    }
 }
 
 export const app = createApp();

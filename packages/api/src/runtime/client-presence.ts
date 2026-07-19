@@ -25,6 +25,8 @@ type SessionControlLease = {
 /**
  * Process singleton presence tracker owned by AgentRuntime.
  * Stores client focus + re-entrant session control leases; no Pi/SSE deps.
+ * Client ids prevent accidental tab collisions only. They are observable and
+ * reusable by the same authenticated caller, so they are not auth principals.
  */
 export class ClientPresence {
     /** clientId → presence record for currently connected browser clients. */

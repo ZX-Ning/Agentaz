@@ -87,7 +87,9 @@ export function requireRouteParam(c: Context, name: string) {
             `Missing route parameter: ${name}`,
         );
     }
-    return decodeURIComponent(value);
+    // Hono already decodes route parameters once. Returning its value avoids
+    // turning a literal encoded percent into a second path interpretation.
+    return value;
 }
 
 /** Validates and normalizes a browser-backed extension UI response body. */
@@ -135,8 +137,25 @@ export function agentHttpError(error: unknown) {
         return error;
     }
 
-    const message = error instanceof Error ? error.message : String(error);
     // Unknown SDK/runtime failures are server errors. Only typed errors above
-    // may opt into a client status; message text is not a stable contract.
-    return jsonError(500, "agent_error", message);
+    // may opt into a client status; internal details stay in server logs.
+    return jsonError(500, "agent_error", "Unexpected server error.");
+}
+
+/** Logs unexpected request failures once, then returns the JSON API response. */
+export function agentHttpErrorResponse(error: unknown, c: Context) {
+    if (
+        !(error instanceof HttpError) &&
+        !(error instanceof AgentazDomainError)
+    ) {
+        console.error(
+            "[agentaz-server] unexpected request error",
+            { method: c.req.method, path: new URL(c.req.url).pathname },
+            error,
+        );
+    }
+    const httpError = agentHttpError(error);
+    return c.json(httpError.data, {
+        status: httpError.status as 400,
+    });
 }

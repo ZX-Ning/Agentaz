@@ -3,6 +3,7 @@ import { getCookie, setCookie } from "@hono/hono/cookie";
 import type { Context, Next } from "@hono/hono";
 import { symmetricDecodeJWT, symmetricEncodeJWT } from "better-auth/crypto";
 import { jsonError } from "../http/errors.ts";
+import { LoginBackoff } from "./login-backoff.ts";
 
 const ADMIN_PASSWORD_HASH_ENV = "AGENTAZ_ADMIN_PASSWORD_HASH";
 const SESSION_SECRET_ENV = "AGENTAZ_SESSION_SECRET";
@@ -10,6 +11,7 @@ const MIN_SESSION_SECRET_LENGTH = 32;
 const SESSION_MAX_AGE_SECONDS = 60 * 60 * 24;
 const SESSION_COOKIE = "better-auth.session_token";
 const SESSION_TOKEN_SALT = "agentaz-admin-session";
+const adminLoginBackoff = new LoginBackoff();
 
 type SessionTokenPayload = {
     sub: "admin";
@@ -36,20 +38,22 @@ export function requireAdminPasswordHash() {
 /** Validates auth env and creates a process-local Better Auth secret when omitted. */
 export function assertAuthConfig() {
     requireAdminPasswordHash();
+    adminLoginBackoff.recordSuccess();
 
     const configured = Deno.env.get(SESSION_SECRET_ENV) || "";
-    processSessionSecret = configured || randomBytes(32).toString("base64url");
+    const sessionSecret = configured || randomBytes(32).toString("base64url");
 
     if (!configured) {
         console.warn(
             `${SESSION_SECRET_ENV} is not set; generated a process-local Better Auth secret. Existing browser sessions will be invalid after restart.`,
         );
     }
-    if (processSessionSecret.length < MIN_SESSION_SECRET_LENGTH) {
+    if (sessionSecret.length < MIN_SESSION_SECRET_LENGTH) {
         throw new Error(
             `${SESSION_SECRET_ENV} must be at least ${MIN_SESSION_SECRET_LENGTH} characters.`,
         );
     }
+    processSessionSecret = sessionSecret;
 }
 
 export function hashAdminPassword(password: string) {
@@ -79,29 +83,33 @@ export async function signInWithAdminPassword(
     c: Context,
     password: string,
 ): Promise<AdminAuthSession> {
-    if (!verifyAdminPassword(password)) {
-        throw unauthorizedError("Invalid password.");
-    }
+    return await adminLoginBackoff.run(async () => {
+        if (!verifyAdminPassword(password)) {
+            adminLoginBackoff.recordFailure();
+            throw unauthorizedError("Invalid password.");
+        }
+        adminLoginBackoff.recordSuccess();
 
-    const loggedInAt = Date.now();
-    const expiresAt = loggedInAt + SESSION_MAX_AGE_SECONDS * 1000;
-    const session = adminSession({ sub: "admin", loggedInAt, expiresAt });
-    const token = await symmetricEncodeJWT<SessionTokenPayload>(
-        { sub: "admin", loggedInAt, expiresAt },
-        requireSessionSecret(),
-        SESSION_TOKEN_SALT,
-        SESSION_MAX_AGE_SECONDS,
-    );
+        const loggedInAt = Date.now();
+        const expiresAt = loggedInAt + SESSION_MAX_AGE_SECONDS * 1000;
+        const session = adminSession({ sub: "admin", loggedInAt, expiresAt });
+        const token = await symmetricEncodeJWT<SessionTokenPayload>(
+            { sub: "admin", loggedInAt, expiresAt },
+            requireSessionSecret(),
+            SESSION_TOKEN_SALT,
+            SESSION_MAX_AGE_SECONDS,
+        );
 
-    setCookie(c, SESSION_COOKIE, token, {
-        httpOnly: true,
-        sameSite: "Lax",
-        secure: new URL(c.req.url).protocol === "https:",
-        path: "/",
-        maxAge: SESSION_MAX_AGE_SECONDS,
+        setCookie(c, SESSION_COOKIE, token, {
+            httpOnly: true,
+            sameSite: "Lax",
+            secure: new URL(c.req.url).protocol === "https:",
+            path: "/",
+            maxAge: SESSION_MAX_AGE_SECONDS,
+        });
+
+        return session;
     });
-
-    return session;
 }
 
 export function clearAuthSession(c: Context) {
@@ -122,11 +130,18 @@ export async function getAuthSession(
         return undefined;
     }
 
-    const payload = await symmetricDecodeJWT<SessionTokenPayload>(
-        token,
-        requireSessionSecret(),
-        SESSION_TOKEN_SALT,
-    );
+    let payload: SessionTokenPayload | null;
+    try {
+        payload = await symmetricDecodeJWT<SessionTokenPayload>(
+            token,
+            requireSessionSecret(),
+            SESSION_TOKEN_SALT,
+        );
+    }
+    catch {
+        // Invalid, corrupted, wrong-secret, and wrong-salt cookies are logged out.
+        return undefined;
+    }
     if (
         !payload || payload.sub !== "admin" || payload.expiresAt <= Date.now()
     ) {
@@ -152,16 +167,20 @@ function adminSession(payload: SessionTokenPayload): AdminAuthSession {
     };
 }
 
-function isPublicApiPath(path: string) {
+function isPublicApiRequest(path: string, method: string) {
     return (
-        path.endsWith("/api/auth/login") || path.endsWith("/api/_auth/session")
+        (path === "/api/auth/login" && method === "POST") ||
+        (path === "/api/_auth/session" && method === "GET")
     );
 }
 
 /** Hono middleware protecting every `/api/**` endpoint except public auth. */
 export async function authMiddleware(c: Context, next: Next) {
     const path = new URL(c.req.url).pathname;
-    if (!path.includes("/api/") || isPublicApiPath(path)) {
+    if (
+        (path !== "/api" && !path.startsWith("/api/")) ||
+        isPublicApiRequest(path, c.req.method)
+    ) {
         return await next();
     }
 

@@ -105,28 +105,28 @@ Out of scope for this plan:
 
 ## Finding Register
 
-| ID            | Review item                                           | Disposition                           | Priority | Workstream | Status |
-| ------------- | ----------------------------------------------------- | ------------------------------------- | -------- | ---------- | ------ |
-| `COR-01`      | B1: loaded-session open/capacity/dedup race           | Fix                                   | P0       | WS1        | DONE   |
-| `COR-02`      | B3: revert/delete failure atomicity                   | Fix                                   | P1       | WS2        | DONE   |
-| `PERF-01`     | Snapshot/usage projection repeated per client         | Fix                                   | P2       | WS5        | TODO   |
-| `PERF-02`     | `getHistory()` branch lookup is O(n²)                 | Fix                                   | P1       | WS5        | TODO   |
-| `COORD-01`    | B2: client ID can be forged                           | Document coordination-only boundary   | P2       | WS3        | TODO   |
-| `SDK-01`      | B4: compact classification depends on SDK text        | Isolate adapter + track upstream      | P2       | WS4        | TODO   |
-| `HTTP-01`     | B5: route parameters are decoded twice                | Fix                                   | P3       | WS3        | TODO   |
-| `MEM-01`      | B6: history revision retention is unbounded           | Fix without weakening monotonicity    | P3       | WS6        | TODO   |
-| `EVENT-01`    | B7: overlapping anonymous tool calls cross-wire       | Guard unsupported edge case           | P3       | WS4        | TODO   |
-| `AUTH-01`     | B8: login has no rate limiting                        | Fix                                   | P1       | WS3        | TODO   |
-| `AUTH-02`     | B9: copied stateless token survives logout            | Explicitly accept for local mode      | P3       | WS3        | TODO   |
-| `HTTP-02`     | B10: unknown 500 messages expose internals            | Fix + server-side logging             | P2       | WS3        | TODO   |
-| `PROTO-01`    | B11: merged assistant metadata semantics are implicit | Document intentional projection       | P3       | WS4        | TODO   |
-| `COMPAT-01`   | B12: `max` thinking support is incomplete             | Fix across protocol/backend/frontend  | P1       | WS4        | DONE   |
-| `CLEAN-01`    | B12: required packages use `process.env`              | Standardize on `Deno.env`             | P4       | WS6        | TODO   |
-| `MODEL-01`    | B12: dormant model context read can throw             | Make failure behavior explicit/tested | P3       | WS6        | TODO   |
-| `STATIC-01`   | B12: SPA fallback rereads `index.html`                | Cache production shell read           | P4       | WS5        | TODO   |
-| `AUTH-03`     | B12: public auth path matching is brittle             | Use exact normalized paths            | P3       | WS3        | TODO   |
-| `STYLE-01`    | Truncation markers use inconsistent ellipses          | Standardize                           | P4       | WS6        | TODO   |
-| `REFACTOR-01` | Controller normalization helpers make file oversized  | Extract after behavior fixes          | P4       | WS6        | TODO   |
+| ID            | Review item                                           | Disposition                           | Priority | Workstream | Status   |
+| ------------- | ----------------------------------------------------- | ------------------------------------- | -------- | ---------- | -------- |
+| `COR-01`      | B1: loaded-session open/capacity/dedup race           | Fix                                   | P0       | WS1        | DONE     |
+| `COR-02`      | B3: revert/delete failure atomicity                   | Fix                                   | P1       | WS2        | DONE     |
+| `PERF-01`     | Snapshot/usage projection repeated per client         | Fix                                   | P2       | WS5        | TODO     |
+| `PERF-02`     | `getHistory()` branch lookup is O(n²)                 | Fix                                   | P1       | WS5        | TODO     |
+| `COORD-01`    | B2: client ID can be forged                           | Document coordination-only boundary   | P2       | WS3        | ACCEPTED |
+| `SDK-01`      | B4: compact classification depends on SDK text        | Isolate adapter + track upstream      | P2       | WS4        | TODO     |
+| `HTTP-01`     | B5: route parameters are decoded twice                | Fix                                   | P3       | WS3        | DONE     |
+| `MEM-01`      | B6: history revision retention is unbounded           | Fix without weakening monotonicity    | P3       | WS6        | TODO     |
+| `EVENT-01`    | B7: overlapping anonymous tool calls cross-wire       | Guard unsupported edge case           | P3       | WS4        | TODO     |
+| `AUTH-01`     | B8: login has no rate limiting                        | Fix                                   | P1       | WS3        | DONE     |
+| `AUTH-02`     | B9: copied stateless token survives logout            | Explicitly accept for local mode      | P3       | WS3        | ACCEPTED |
+| `HTTP-02`     | B10: unknown 500 messages expose internals            | Fix + server-side logging             | P2       | WS3        | DONE     |
+| `PROTO-01`    | B11: merged assistant metadata semantics are implicit | Document intentional projection       | P3       | WS4        | TODO     |
+| `COMPAT-01`   | B12: `max` thinking support is incomplete             | Fix across protocol/backend/frontend  | P1       | WS4        | DONE     |
+| `CLEAN-01`    | B12: required packages use `process.env`              | Standardize on `Deno.env`             | P4       | WS6        | TODO     |
+| `MODEL-01`    | B12: dormant model context read can throw             | Make failure behavior explicit/tested | P3       | WS6        | TODO     |
+| `STATIC-01`   | B12: SPA fallback rereads `index.html`                | Cache production shell read           | P4       | WS5        | TODO     |
+| `AUTH-03`     | B12: public auth path matching is brittle             | Use exact normalized paths            | P3       | WS3        | DONE     |
+| `STYLE-01`    | Truncation markers use inconsistent ellipses          | Standardize                           | P4       | WS6        | TODO     |
+| `REFACTOR-01` | Controller normalization helpers make file oversized  | Extract after behavior fixes          | P4       | WS6        | TODO     |
 
 `AUTH-02` is tracked even though the expected outcome is an accepted risk. It is
 not complete until the logout/revocation semantics and remote-exposure gate are
@@ -242,37 +242,37 @@ a multi-step disk/controller transition recoverable.
 
 #### Tasks
 
-- [ ] Add bounded process-local login backoff suitable for one admin identity:
+- [x] Add bounded process-local login backoff suitable for one admin identity:
   - count consecutive failures;
   - apply capped exponential delay;
   - reset after successful login and after an idle window;
   - do not introduce permanent lockout or database state.
-- [ ] Make limiter timing injectable so unit tests do not sleep.
-- [ ] Document container exposure explicitly: `Dockerfile` listens on `0.0.0.0`
+- [x] Make limiter timing injectable so unit tests do not sleep.
+- [x] Document container exposure explicitly: `Dockerfile` listens on `0.0.0.0`
       inside the container, and host port publishing should default to loopback
       or a trusted network.
-- [ ] Add a loud startup/deployment warning for broader network exposure where
+- [x] Add a loud startup/deployment warning for broader network exposure where
       the bind mode is known.
-- [ ] State in `docs/backend.md` and client-presence JSDoc that client
+- [x] State in `docs/backend.md` and client-presence JSDoc that client
       IDs/control leases prevent accidental tab collisions; they are not
       authentication or authorization principals.
-- [ ] Do not present simple presence membership validation as a security fix:
+- [x] Do not present simple presence membership validation as a security fix:
       the same authenticated caller can observe/reuse another registered ID. A
       true fix would require an unshared per-tab credential and is outside the
       current threat model.
-- [ ] Explicitly document stateless logout semantics: clearing the browser
+- [x] Explicitly document stateless logout semantics: clearing the browser
       cookie does not revoke a copied token before its 24-hour expiry.
-- [ ] Treat server-side revocation as a prerequisite decision if remote or
+- [x] Treat server-side revocation as a prerequisite decision if remote or
       multi-user operation is introduced later, not as a database addition in
       this plan.
-- [ ] Remove the second `decodeURIComponent()` from `requireRouteParam()` and
+- [x] Remove the second `decodeURIComponent()` from `requireRouteParam()` and
       test encoded percent/malformed escape inputs.
-- [ ] Match public auth routes by exact normalized path instead of
+- [x] Match public auth routes by exact normalized path instead of
       `includes`/`endsWith` checks.
-- [ ] Return a generic message for unexpected `500 agent_error` responses.
-- [ ] Log the original unexpected error server-side exactly once with useful
+- [x] Return a generic message for unexpected `500 agent_error` responses.
+- [x] Log the original unexpected error server-side exactly once with useful
       route context; preserve typed domain/HTTP error messages.
-- [ ] Update tests that currently pin raw unknown error messages.
+- [x] Update tests that currently pin raw unknown error messages.
 
 #### Required Auth Tests
 
@@ -559,9 +559,10 @@ The remediation plan is complete when:
 
 ## Progress Log
 
-| Date       | Change                                                                      | Findings                 |
-| ---------- | --------------------------------------------------------------------------- | ------------------------ |
-| 2026-07-19 | Aligned `max` thinking capabilities across protocol, backend, and frontend  | `COMPAT-01` `DONE`       |
-| 2026-07-19 | Made revert and loaded soft-delete failure-atomic with recovery tests       | `COR-02` `DONE`          |
-| 2026-07-19 | Serialized workspace lifecycle ownership and added deterministic race tests | `COR-01` `DONE`          |
-| 2026-07-19 | Created plan from the verified current backend review; no fixes implemented | All registered as `TODO` |
+| Date       | Change                                                                         | Findings                 |
+| ---------- | ------------------------------------------------------------------------------ | ------------------------ |
+| 2026-07-19 | Hardened login, auth routing, route params, error redaction, and exposure docs | WS3 findings complete    |
+| 2026-07-19 | Aligned `max` thinking capabilities across protocol, backend, and frontend     | `COMPAT-01` `DONE`       |
+| 2026-07-19 | Made revert and loaded soft-delete failure-atomic with recovery tests          | `COR-02` `DONE`          |
+| 2026-07-19 | Serialized workspace lifecycle ownership and added deterministic race tests    | `COR-01` `DONE`          |
+| 2026-07-19 | Created plan from the verified current backend review; no fixes implemented    | All registered as `TODO` |

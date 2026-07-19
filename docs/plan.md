@@ -38,6 +38,12 @@ current implementation baseline.
 - Better Auth uses `AGENTAZ_SESSION_SECRET` for cookie token encryption. If
   omitted, startup generates a process-local secret and browser sessions are
   invalid after restart.
+- Logout clears the browser cookie but does not revoke a copied stateless token
+  before its 24-hour expiry. This is accepted only for the current local-first,
+  single-user threat model. Remote or multi-user operation requires an explicit
+  server-side revocation decision first.
+- Browser client IDs and session control leases are coordination identifiers,
+  not authentication or authorization principals.
 - All existing app API endpoints are protected, including `GET /api/health` and
   `GET /api/agent/events`. The only public API endpoints are login and the
   session discovery endpoint required by the frontend.
