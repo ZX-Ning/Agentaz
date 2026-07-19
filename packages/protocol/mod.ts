@@ -81,9 +81,16 @@ export type UiMessage = {
     clientMessageId?: string;
     /** Agent turn that created this message, when known. */
     turnId?: string;
-    /** Current-branch Pi session entry id, present for persisted history messages. */
+    /**
+     * Current-branch Pi entry backing this persisted message. One browser
+     * assistant message may aggregate consecutive Pi assistant entries and
+     * intentionally retains the first assistant entry's metadata.
+     */
     entryId?: string;
-    /** Previous current-branch Pi entry id used to rewind before this message. */
+    /**
+     * Previous current-branch Pi entry used to rewind before this message.
+     * Aggregated assistant turns retain the first assistant entry's rewind id.
+     */
     rewindEntryId?: string;
     /** Speaker role: user, assistant, tool (result), or system. */
     role: "user" | "assistant" | "tool" | "system";

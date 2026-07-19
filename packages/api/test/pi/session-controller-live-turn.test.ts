@@ -12,6 +12,7 @@ type LiveTurnTestController = {
     ): void;
     onSessionEvent(event: unknown): void;
     getHistory(): { messages: UiMessage[] };
+    historyRevision(): number;
 };
 
 /**
@@ -176,6 +177,133 @@ Deno.test("live projection streams thinking and anonymous tool result deltas", (
 });
 
 /**
+ * Purpose: Prevent overlapping anonymous provider events from cross-wiring tool blocks.
+ * Expect: Ambiguity emits one recoverable error and suppresses anonymous updates/ends.
+ * Method: Start two id-less calls, send id-less lifecycle events, then verify an
+ * explicit current-SDK call still projects independently.
+ */
+Deno.test("live projection stops ambiguous anonymous tool correlation", () => {
+    using errors = captureConsoleErrors();
+    const events: ServerEvent[] = [];
+    const controller = liveTurnController([], events);
+    controller.startPromptTurn("run both", {
+        turnId: "turn-1",
+        clientMessageId: "client-1",
+    });
+
+    controller.onSessionEvent({ type: "tool_start", name: "first" });
+    controller.onSessionEvent({ type: "tool_start", name: "second" });
+    controller.onSessionEvent({
+        type: "tool_update",
+        partialResult: { content: "ambiguous" },
+    });
+    controller.onSessionEvent({ type: "tool_end", result: "ambiguous" });
+
+    controller.onSessionEvent({
+        type: "tool_execution_start",
+        toolCallId: "explicit-1",
+        toolName: "read",
+    });
+    controller.onSessionEvent({
+        type: "tool_execution_end",
+        toolCallId: "explicit-1",
+        toolName: "read",
+        result: "ok",
+    });
+
+    const message = controller.liveTurnMessages.get(
+        controller.currentAssistantMessageId,
+    );
+    assert.ok(message);
+    assert.deepEqual(
+        message.blocks.filter((block) => block.type === "tool_call").map((
+            block,
+        ) => block.toolCallId),
+        ["anonymous-1", "explicit-1"],
+    );
+    assert.ok(
+        !message.blocks.some((block) =>
+            block.type === "tool_result" && block.toolCallId === "anonymous-1"
+        ),
+    );
+    assert.equal(
+        events.filter((event) =>
+            event.type === "error" &&
+            event.code === "tool_projection_ambiguous"
+        ).length,
+        1,
+    );
+    assert.equal(errors.messages.length, 1);
+});
+
+/**
+ * Purpose: Exercise queue and compaction branches through the central dispatcher.
+ * Expect: Queue contents forward/apply pending settings; compaction updates status/revision.
+ * Method: Override status/pending hooks, dispatch both SDK events, and inspect effects.
+ */
+Deno.test("session event dispatcher handles queue and compaction events", () => {
+    const events: ServerEvent[] = [];
+    const controller = liveTurnController([], events);
+    let statusCalls = 0;
+    let pendingApplyCalls = 0;
+    Object.assign(controller, {
+        sendStatus: () => statusCalls++,
+        applyPendingSettingsIfIdle: () => {
+            pendingApplyCalls += 1;
+            return Promise.resolve();
+        },
+        transcriptRevision: 4,
+        cachedHistory: { stale: true },
+    });
+
+    controller.onSessionEvent({
+        type: "queue_update",
+        steering: ["redirect"],
+        followUp: ["later"],
+    });
+    assert.ok(events.some((event) =>
+        event.type === "queue_update" &&
+        event.steering[0] === "redirect" &&
+        event.followUp[0] === "later"
+    ));
+    assert.equal(pendingApplyCalls, 1);
+    assert.equal(statusCalls, 1);
+
+    controller.onSessionEvent({ type: "compaction_end" });
+    assert.equal(statusCalls, 2);
+    assert.equal(controller.historyRevision(), 5);
+});
+
+/**
+ * Purpose: Keep asynchronous metadata refresh failures isolated from event delivery.
+ * Expect: The rejection is logged and a later message event still reaches the browser.
+ * Method: Reject the metadata callback, drain it, then dispatch a normal text delta.
+ */
+Deno.test("session event dispatcher isolates metadata refresh errors", async () => {
+    using errors = captureConsoleErrors();
+    const events: ServerEvent[] = [];
+    const controller = liveTurnController([], events);
+    Object.assign(controller, {
+        host: {
+            emit: (event: ServerEvent) => events.push(event),
+            onSessionMetadataChanged: () =>
+                Promise.reject(new Error("metadata failed")),
+        },
+    });
+
+    controller.onSessionEvent({ type: "session_info_changed" });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    controller.onSessionEvent(messageDelta("still live"));
+
+    assert.equal(errors.messages.length, 1);
+    assert.ok(
+        events.some((event) =>
+            event.type === "message_block_delta" && event.delta === "still live"
+        ),
+    );
+});
+
+/**
  * Purpose: Verify HTTP history remains authoritative and cannot accidentally expose
  * transient or stale messages retained only by the realtime projection.
  * Expect: History contains only SessionManager entries and excludes a live-only message.
@@ -232,6 +360,7 @@ function liveTurnController(
         toolResultEmittedLength: new Map(),
         anonymousToolCallCounter: 0,
         anonymousToolCallId: undefined,
+        anonymousToolProjectionAmbiguous: false,
         currentToolRequestAnchor: undefined,
         pendingSettings: {},
         transcriptRevision: 0,
@@ -240,6 +369,18 @@ function liveTurnController(
         disposed: false,
     });
     return controller;
+}
+
+function captureConsoleErrors() {
+    const original = console.error;
+    const messages: unknown[][] = [];
+    console.error = (...args: unknown[]) => messages.push(args);
+    return {
+        messages,
+        [Symbol.dispose]() {
+            console.error = original;
+        },
+    };
 }
 
 function messageDelta(delta: string) {

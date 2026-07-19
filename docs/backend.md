@@ -292,7 +292,10 @@ synchronous and intentionally idle-only: if the session is initializing,
 streaming, has queued messages, has pending browser UI prompts, or is already
 compacting, the backend returns `409 session_busy` instead of aborting current
 work. A session that is too small to compact, or already compacted at the
-current leaf, returns `409 context_compact_unavailable`.
+current leaf, returns `409 context_compact_unavailable`. Pi SDK `0.80.6` exposes
+those unavailable cases only as exact plain-Error messages. Classification is
+isolated in `pi/sdk-compat.ts`; changed/unknown messages remain unexpected 500
+failures until Pi provides a typed error.
 
 ## Protocol
 
@@ -377,6 +380,14 @@ in one browser-facing assistant `UiMessage` and starts fresh text/thinking
 blocks at each assistant `message_start` so tool blocks stay in temporal order.
 History normalization should mirror the same one-assistant-message-per-turn
 projection when reloading sessions over HTTP.
+
+Current Pi SDK parallel tool events carry explicit tool-call IDs and retain
+their existing projection behavior. The legacy/provider fallback for one
+sequential anonymous tool call uses a synthetic ID. If a second anonymous start
+overlaps before the first ends, correlation is ambiguous: the controller emits a
+recoverable `tool_projection_ambiguous` error, suppresses further anonymous
+update/end projection for that turn, and relies on persisted history after
+completion. Explicit-ID tools continue projecting normally.
 
 ## Permissions
 

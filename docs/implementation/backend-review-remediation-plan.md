@@ -112,14 +112,14 @@ Out of scope for this plan:
 | `PERF-01`     | Snapshot/usage projection repeated per client         | Fix                                   | P2       | WS5        | TODO     |
 | `PERF-02`     | `getHistory()` branch lookup is O(n²)                 | Fix                                   | P1       | WS5        | TODO     |
 | `COORD-01`    | B2: client ID can be forged                           | Document coordination-only boundary   | P2       | WS3        | ACCEPTED |
-| `SDK-01`      | B4: compact classification depends on SDK text        | Isolate adapter + track upstream      | P2       | WS4        | TODO     |
+| `SDK-01`      | B4: compact classification depends on SDK text        | Isolate adapter + track upstream      | P2       | WS4        | BLOCKED  |
 | `HTTP-01`     | B5: route parameters are decoded twice                | Fix                                   | P3       | WS3        | DONE     |
 | `MEM-01`      | B6: history revision retention is unbounded           | Fix without weakening monotonicity    | P3       | WS6        | TODO     |
-| `EVENT-01`    | B7: overlapping anonymous tool calls cross-wire       | Guard unsupported edge case           | P3       | WS4        | TODO     |
+| `EVENT-01`    | B7: overlapping anonymous tool calls cross-wire       | Guard unsupported edge case           | P3       | WS4        | DONE     |
 | `AUTH-01`     | B8: login has no rate limiting                        | Fix                                   | P1       | WS3        | DONE     |
 | `AUTH-02`     | B9: copied stateless token survives logout            | Explicitly accept for local mode      | P3       | WS3        | ACCEPTED |
 | `HTTP-02`     | B10: unknown 500 messages expose internals            | Fix + server-side logging             | P2       | WS3        | DONE     |
-| `PROTO-01`    | B11: merged assistant metadata semantics are implicit | Document intentional projection       | P3       | WS4        | TODO     |
+| `PROTO-01`    | B11: merged assistant metadata semantics are implicit | Document intentional projection       | P3       | WS4        | DONE     |
 | `COMPAT-01`   | B12: `max` thinking support is incomplete             | Fix across protocol/backend/frontend  | P1       | WS4        | DONE     |
 | `CLEAN-01`    | B12: required packages use `process.env`              | Standardize on `Deno.env`             | P4       | WS6        | TODO     |
 | `MODEL-01`    | B12: dormant model context read can throw             | Make failure behavior explicit/tested | P3       | WS6        | TODO     |
@@ -314,23 +314,27 @@ Frontend edits in this workstream must follow `docs/frontend.md`.
 - [x] Ensure draft model selection, live model state, frontend validation, and
       closest-level fallback all understand the same ordered level set.
 - [x] Add protocol/backend/frontend table-driven tests for every thinking level.
-- [ ] Extract compact-unavailable recognition into a small SDK-adapter helper
+- [x] Extract compact-unavailable recognition into a small SDK-adapter helper
       with exact tests and a comment naming the pinned SDK behavior.
 - [ ] Record an upstream Pi SDK issue/link requesting a typed
       compact-unavailable error; replace text matching when such a type becomes
       available.
-- [ ] Keep unknown compact errors as 500-class failures.
-- [ ] Document that current SDK tool events must carry explicit IDs for parallel
+- [x] Related compaction work is tracked at
+      [`earendil-works/pi#128`](https://github.com/earendil-works/pi/issues/128),
+      but no existing typed-error request was found. Filing a new external issue
+      awaits maintainer authorization.
+- [x] Keep unknown compact errors as 500-class failures.
+- [x] Document that current SDK tool events must carry explicit IDs for parallel
       execution.
-- [ ] Detect overlapping anonymous tool starts. Once correlation becomes
+- [x] Detect overlapping anonymous tool starts. Once correlation becomes
       ambiguous, stop projecting anonymous update/end events for that turn,
       log/emit a recoverable projection error, and rely on authoritative
       persisted history after completion rather than cross-wiring blocks.
-- [ ] Preserve the existing sequential anonymous fallback.
-- [ ] Clarify `UiMessage.entryId`/`rewindEntryId` comments: one browser
+- [x] Preserve the existing sequential anonymous fallback.
+- [x] Clarify `UiMessage.entryId`/`rewindEntryId` comments: one browser
       assistant message may aggregate multiple consecutive Pi assistant entries
       and retains the first message's metadata.
-- [ ] Keep the current UI action boundary: rewind/fork actions target user
+- [x] Keep the current UI action boundary: rewind/fork actions target user
       messages, not an unrepresented midpoint inside an assistant turn.
 
 #### Required Tests
@@ -445,11 +449,11 @@ before refactoring normalization
 
 | Test gap                               | Owning workstream | Required outcome                                                                   | Status |
 | -------------------------------------- | ----------------- | ---------------------------------------------------------------------------------- | ------ |
-| Concurrent capacity and same-file open | WS1               | Deterministic race tests fail on baseline and pass after serialization             | TODO   |
-| Auth crypto/config edge cases          | WS3               | Direct unit coverage beyond happy-path smoke tests                                 | TODO   |
+| Concurrent capacity and same-file open | WS1               | Deterministic race tests fail on baseline and pass after serialization             | DONE   |
+| Auth crypto/config edge cases          | WS3               | Direct unit coverage beyond happy-path smoke tests                                 | DONE   |
 | Real SSE HTTP stream                   | WS7               | Authenticated hello/snapshot parsing and disconnect cleanup through Hono streaming | TODO   |
 | `readJsonBody` empty boundaries        | WS3/WS7           | `content-length: 0`, bodyless request, `Unexpected end`, malformed JSON            | TODO   |
-| `onSessionEvent` dispatch branches     | WS4               | Direct `queue_update`, `compaction_end`, metadata/error isolation coverage         | TODO   |
+| `onSessionEvent` dispatch branches     | WS4               | Direct `queue_update`, `compaction_end`, metadata/error isolation coverage         | DONE   |
 | Large-history/projection regression    | WS5               | Structural complexity/cache assertions plus diagnostic benchmark                   | TODO   |
 
 The SSE integration test should use an in-process server and a controlled
@@ -561,6 +565,7 @@ The remediation plan is complete when:
 
 | Date       | Change                                                                         | Findings                 |
 | ---------- | ------------------------------------------------------------------------------ | ------------------------ |
+| 2026-07-19 | Isolated compact compatibility and guarded anonymous tool projection           | `EVENT-01`, `PROTO-01`   |
 | 2026-07-19 | Hardened login, auth routing, route params, error redaction, and exposure docs | WS3 findings complete    |
 | 2026-07-19 | Aligned `max` thinking capabilities across protocol, backend, and frontend     | `COMPAT-01` `DONE`       |
 | 2026-07-19 | Made revert and loaded soft-delete failure-atomic with recovery tests          | `COR-02` `DONE`          |

@@ -277,13 +277,17 @@ persisted it, history will restore it.
 Persisted history messages may include `UiMessage.entryId`, which identifies the
 current-branch Pi session entry backing that rendered message, and
 `UiMessage.rewindEntryId`, which identifies the previous current-branch entry.
-The first fork/revert UI uses only user messages with a `rewindEntryId` as
-anchors. Forking from a user message creates and focuses a new loaded session
-before that message, then moves the message text into the composer. Fork stays
-hidden until an earlier assistant message exists because Pi does not materialize
-user-only branch files. Reverting asks for confirmation, then removes the user
-message from the current session, moves its text into the composer, and reloads
-history.
+One assistant bubble may aggregate consecutive Pi assistant entries around tool
+results; it intentionally retains the first assistant entry's `entryId` and
+`rewindEntryId`. The first fork/revert UI uses only user messages with a
+`rewindEntryId` as anchors. Forking from a user message creates and focuses a
+new loaded session before that message, then moves the message text into the
+composer. Fork stays hidden until an earlier assistant message exists because Pi
+does not materialize user-only branch files. Reverting asks for confirmation,
+then removes the user message from the current session, moves its text into the
+composer, and reloads history. Rewind/fork actions therefore remain user-message
+actions; the UI does not target an unrepresented midpoint inside an aggregated
+assistant turn.
 
 ## Composer Behavior
 

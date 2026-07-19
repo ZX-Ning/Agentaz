@@ -33,6 +33,7 @@ import {
     ContextCompactUnavailableError,
     UnknownModelError,
 } from "../errors.ts";
+import { compactUnavailableMessage } from "./sdk-compat.ts";
 import { ensurePermissionConfig } from "../extensions/permission-config.ts";
 
 /** Emits a normalized server event to the runtime event bus. */
@@ -217,6 +218,8 @@ export class PiSessionController implements ControllerBase {
     };
     /** Synthetic id for anonymous tool calls that lack explicit toolCallId fields. */
     private anonymousToolCallId?: string;
+    /** Anonymous events are ignored after overlapping starts lose correlation. */
+    private anonymousToolProjectionAmbiguous = false;
     /** Counter for generating unique anonymous tool call ids. */
     private anonymousToolCallCounter = 0;
     /**
@@ -472,13 +475,8 @@ export class PiSessionController implements ControllerBase {
             } satisfies CompactionResult & { revision: number };
         }
         catch (error) {
-            const message = error instanceof Error
-                ? error.message
-                : String(error);
-            if (message === "Nothing to compact (session too small)") {
-                throw new ContextCompactUnavailableError(message);
-            }
-            if (message === "Already compacted") {
+            const message = compactUnavailableMessage(error);
+            if (message) {
                 throw new ContextCompactUnavailableError(message);
             }
             throw error;
@@ -1037,6 +1035,7 @@ export class PiSessionController implements ControllerBase {
                     this.toolResultEmittedLength.clear();
                     this.currentToolRequestAnchor = undefined;
                     this.anonymousToolCallId = undefined;
+                    this.anonymousToolProjectionAmbiguous = false;
                     void this.applyPendingSettingsIfIdle();
                     this.invalidateHistoryCache();
                     break;
@@ -1153,6 +1152,9 @@ export class PiSessionController implements ControllerBase {
             event,
             status === "pending" ? "start" : "update",
         );
+        if (!toolCallId) {
+            return;
+        }
 
         // Ensure we have a location mapping for this tool call.
         const location = this.ensureToolBlockLocation(sessionId, toolCallId);
@@ -1222,6 +1224,9 @@ export class PiSessionController implements ControllerBase {
         }
 
         const toolCallId = this.toolCallId(event, "update");
+        if (!toolCallId) {
+            return;
+        }
         const location = this.ensureToolBlockLocation(sessionId, toolCallId);
         const fullText = flattenText(asRecord(partialResult).content ?? []);
 
@@ -1288,6 +1293,9 @@ export class PiSessionController implements ControllerBase {
 
         // Create the result block with summarized content.
         const toolCallId = this.toolCallId(event, "end");
+        if (!toolCallId) {
+            return;
+        }
         const location = this.ensureToolBlockLocation(sessionId, toolCallId);
         const message = this.ensureAssistantMessage(
             sessionId,
@@ -1470,10 +1478,32 @@ export class PiSessionController implements ControllerBase {
      * identifier. If no id is found, generates a synthetic anonymous id for
      * the duration of the tool execution.
      */
-    private toolCallId(event: unknown, phase: "start" | "update" | "end") {
+    private toolCallId(
+        event: unknown,
+        phase: "start" | "update" | "end",
+    ) {
         const explicit = extractToolCallId(event);
         if (explicit) {
             return explicit;
+        }
+
+        if (this.anonymousToolProjectionAmbiguous) {
+            return undefined;
+        }
+
+        if (phase === "start" && this.anonymousToolCallId) {
+            this.anonymousToolProjectionAmbiguous = true;
+            this.anonymousToolCallId = undefined;
+            const message =
+                "Overlapping anonymous tool calls cannot be correlated; live anonymous tool projection is paused until the turn completes.";
+            console.error(`[agentaz-server] ${message}`);
+            this.host.emit({
+                type: "error",
+                code: "tool_projection_ambiguous",
+                message,
+                recoverable: true,
+            });
+            return undefined;
         }
 
         // For anonymous tool calls, generate a synthetic id that persists

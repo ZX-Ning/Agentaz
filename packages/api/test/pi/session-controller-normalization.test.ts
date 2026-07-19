@@ -123,10 +123,21 @@ Deno.test("normalizeMessages groups assistant turns across tool results", () => 
             content: "/tmp",
         },
         { id: "assistant-b", role: "assistant", content: "done" },
-    ] as HistoryItems);
+    ] as HistoryItems, {
+        entryIdByMessageId: new Map([
+            ["assistant-a", "entry-assistant-a"],
+            ["assistant-b", "entry-assistant-b"],
+        ]),
+        rewindEntryIdByMessageId: new Map([
+            ["assistant-a", "entry-user"],
+            ["assistant-b", "entry-result"],
+        ]),
+    });
 
     assert.equal(messages.length, 2);
     assert.equal(messages[1].id, "assistant-a");
+    assert.equal(messages[1].entryId, "entry-assistant-a");
+    assert.equal(messages[1].rewindEntryId, "entry-user");
     assert.deepEqual(messages[1].blocks, [
         {
             id: "assistant-a:tool:call-1:call",
