@@ -10,14 +10,17 @@ export const PROTOCOL_VERSION = 8;
 /**
  * Supported Pi thinking levels exposed through the web UI.
  */
-export type ThinkingLevel =
-    | "off"
-    | "minimal"
-    | "low"
-    | "medium"
-    | "high"
-    | "xhigh"
-    | "max";
+export const THINKING_LEVELS = [
+    "off",
+    "minimal",
+    "low",
+    "medium",
+    "high",
+    "xhigh",
+    "max",
+] as const;
+
+export type ThinkingLevel = (typeof THINKING_LEVELS)[number];
 
 /** Base64-encoded image attachment reserved for future multimodal prompts. */
 export type ImagePayload = {

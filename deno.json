@@ -10,7 +10,7 @@
         "build:server": "deno --allow-read --allow-write --unstable-bundle  packages/api/bundle-server.ts",
         "serve": "deno task serve:api",
         "serve:api": "deno task --filter @agentaz/api serve",
-        "test": "deno task --filter @agentaz/api test"
+        "test": "deno task --filter @agentaz/api test && deno task --filter @agentaz/web-ui test"
     },
     "fmt": {
         "semiColons": true,

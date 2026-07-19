@@ -6,7 +6,10 @@ import {
     ContextCompactUnavailableError,
     UnknownModelError,
 } from "../../src/errors.ts";
-import { PiSessionController } from "../../src/pi/session-controller.ts";
+import {
+    PiSessionController,
+    supportedThinkingLevels,
+} from "../../src/pi/session-controller.ts";
 
 /**
  * Purpose: Verify prompt lifecycle emits correlation events around the SDK call
@@ -263,6 +266,51 @@ Deno.test("PiSessionController applies or defers model settings by workflow stat
         () => controller.setModel("test", "missing"),
         UnknownModelError,
     );
+});
+
+/**
+ * Purpose: Keep dormant and initialized model state aligned for persisted max thinking.
+ * Expect: Both states restore max and advertise the same explicitly mapped levels.
+ * Method: Compare a manager-context controller with a live fake session for one model.
+ */
+Deno.test("PiSessionController restores mapped max thinking consistently", () => {
+    const model = {
+        provider: "test",
+        id: "reasoning",
+        name: "Reasoning",
+        reasoning: true,
+        thinkingLevelMap: { xhigh: "xhigh", max: "max" },
+    } as Parameters<typeof supportedThinkingLevels>[0];
+    const levels = supportedThinkingLevels(model);
+    const registry = {
+        find: () => model,
+        getAvailable: () => [model],
+    };
+    const dormant = bareController(undefined as never, [], {
+        sessionResult: undefined,
+        sessionManager: {
+            getSessionId: () => "session-a",
+            buildSessionContext: () => ({
+                model: { provider: "test", modelId: "reasoning" },
+                thinkingLevel: "max",
+            }),
+        },
+        modelRegistry: registry,
+    });
+    const live = bareController(
+        {
+            sessionId: "session-a",
+            model,
+            thinkingLevel: "max",
+            getAvailableThinkingLevels: () => levels,
+        },
+        [],
+        { modelRegistry: registry },
+    );
+
+    assert.deepEqual(dormant.getModelState().availableThinkingLevels, levels);
+    assert.equal(dormant.getModelState().thinkingLevel, "max");
+    assert.deepEqual(dormant.getModelState(), live.getModelState());
 });
 
 /**

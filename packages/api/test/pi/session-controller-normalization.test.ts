@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
-import type { UiBlock } from "@agentaz/protocol";
+import { THINKING_LEVELS, type UiBlock } from "@agentaz/protocol";
 import {
     areSameToolBlock,
     extractToolCallId,
@@ -263,7 +263,9 @@ Deno.test("tool and content helpers normalize provider variants", () => {
  * model shapes, convert timestamps, and compare tool blocks sharing a toolCallId.
  */
 Deno.test("model, timestamp, and block helpers enforce stable defaults", () => {
-    assert.equal(normalizeThinkingLevel("high"), "high");
+    for (const level of THINKING_LEVELS) {
+        assert.equal(normalizeThinkingLevel(level), level);
+    }
     assert.equal(normalizeThinkingLevel("invalid"), "off");
     assert.deepEqual(
         supportedThinkingLevels(
@@ -277,10 +279,23 @@ Deno.test("model, timestamp, and block helpers enforce stable defaults", () => {
         supportedThinkingLevels(
             {
                 reasoning: true,
-                thinkingLevelMap: { low: null, xhigh: "xhigh" },
+                thinkingLevelMap: {
+                    low: null,
+                    xhigh: "xhigh",
+                    max: "max",
+                },
             } as Parameters<typeof supportedThinkingLevels>[0],
         ),
-        ["off", "minimal", "medium", "high", "xhigh"],
+        ["off", "minimal", "medium", "high", "xhigh", "max"],
+    );
+    assert.deepEqual(
+        supportedThinkingLevels(
+            {
+                reasoning: true,
+                thinkingLevelMap: {},
+            } as Parameters<typeof supportedThinkingLevels>[0],
+        ),
+        ["off", "minimal", "low", "medium", "high"],
     );
     assert.equal(toTimestamp(new Date(123)), 123);
     assert.equal(toTimestamp("not-a-date"), undefined);

@@ -120,7 +120,7 @@ Out of scope for this plan:
 | `AUTH-02`     | B9: copied stateless token survives logout            | Explicitly accept for local mode      | P3       | WS3        | TODO   |
 | `HTTP-02`     | B10: unknown 500 messages expose internals            | Fix + server-side logging             | P2       | WS3        | TODO   |
 | `PROTO-01`    | B11: merged assistant metadata semantics are implicit | Document intentional projection       | P3       | WS4        | TODO   |
-| `COMPAT-01`   | B12: `max` thinking support is incomplete             | Fix across protocol/backend/frontend  | P1       | WS4        | TODO   |
+| `COMPAT-01`   | B12: `max` thinking support is incomplete             | Fix across protocol/backend/frontend  | P1       | WS4        | DONE   |
 | `CLEAN-01`    | B12: required packages use `process.env`              | Standardize on `Deno.env`             | P4       | WS6        | TODO   |
 | `MODEL-01`    | B12: dormant model context read can throw             | Make failure behavior explicit/tested | P3       | WS6        | TODO   |
 | `STATIC-01`   | B12: SPA fallback rereads `index.html`                | Cache production shell read           | P4       | WS5        | TODO   |
@@ -306,14 +306,14 @@ Frontend edits in this workstream must follow `docs/frontend.md`.
 
 #### Tasks
 
-- [ ] Add `max` to backend default thinking levels and frontend thinking
+- [x] Add `max` to backend default thinking levels and frontend thinking
       options.
-- [ ] Match Pi SDK capability rules: both `xhigh` and `max` require an explicit
+- [x] Match Pi SDK capability rules: both `xhigh` and `max` require an explicit
       non-null model mapping before they are advertised.
-- [ ] Preserve/restore persisted `max` instead of normalizing it to `off`.
-- [ ] Ensure draft model selection, live model state, frontend validation, and
+- [x] Preserve/restore persisted `max` instead of normalizing it to `off`.
+- [x] Ensure draft model selection, live model state, frontend validation, and
       closest-level fallback all understand the same ordered level set.
-- [ ] Add protocol/backend/frontend table-driven tests for every thinking level.
+- [x] Add protocol/backend/frontend table-driven tests for every thinking level.
 - [ ] Extract compact-unavailable recognition into a small SDK-adapter helper
       with exact tests and a comment naming the pinned SDK behavior.
 - [ ] Record an upstream Pi SDK issue/link requesting a typed
@@ -561,6 +561,7 @@ The remediation plan is complete when:
 
 | Date       | Change                                                                      | Findings                 |
 | ---------- | --------------------------------------------------------------------------- | ------------------------ |
+| 2026-07-19 | Aligned `max` thinking capabilities across protocol, backend, and frontend  | `COMPAT-01` `DONE`       |
 | 2026-07-19 | Made revert and loaded soft-delete failure-atomic with recovery tests       | `COR-02` `DONE`          |
 | 2026-07-19 | Serialized workspace lifecycle ownership and added deterministic race tests | `COR-01` `DONE`          |
 | 2026-07-19 | Created plan from the verified current backend review; no fixes implemented | All registered as `TODO` |

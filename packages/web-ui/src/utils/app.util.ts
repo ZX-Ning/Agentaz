@@ -24,6 +24,7 @@ export const thinkingOptions: Array<{ value: ThinkingLevel; label: string }> = [
     { value: "medium", label: "Medium" },
     { value: "high", label: "High" },
     { value: "xhigh", label: "Extra high" },
+    { value: "max", label: "Max" },
 ];
 
 export function defaultModelState(): SessionModelState {

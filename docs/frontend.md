@@ -239,6 +239,13 @@ the persisted session list by matching `sessionId` and opening the existing
 `/login?redirect=<original path>`. Successful login returns to that redirect
 target when it is a safe same-origin path.
 
+Thinking levels use the protocol order
+`off → minimal → low → medium → high →
+xhigh → max`. The two highest levels
+(`xhigh` and `max`) are shown only when the selected model supplies an explicit
+non-null Pi thinking-level mapping. Draft, dormant, and initialized session
+state use the same capability rule and closest available-level fallback.
+
 ## Chat Transcript
 
 Render user and assistant messages differently:

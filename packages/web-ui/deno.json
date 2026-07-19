@@ -25,6 +25,7 @@
     "tasks": {
         "dev": "vite --host 127.0.0.1",
         "build": "vite build --outDir ../../build/dist --emptyOutDir",
-        "typecheck": "deno run -A npm:vue-tsc --noEmit -p tsconfig.json && deno check ."
+        "typecheck": "deno run -A npm:vue-tsc --noEmit -p tsconfig.json && deno check .",
+        "test": "deno test test/**/*.test.ts"
     }
 }

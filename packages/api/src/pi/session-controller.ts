@@ -13,6 +13,7 @@ import {
     SessionManager,
     type SessionMessageEntry,
 } from "@earendil-works/pi-coding-agent";
+import { THINKING_LEVELS } from "@agentaz/protocol";
 import type {
     ImagePayload,
     ModelStateResponse,
@@ -158,12 +159,7 @@ export interface ControllerBase {
 
 /** The complete set of thinking levels exposed through the web UI. */
 export const DEFAULT_THINKING_LEVELS: ThinkingLevel[] = [
-    "off",
-    "minimal",
-    "low",
-    "medium",
-    "high",
-    "xhigh",
+    ...THINKING_LEVELS,
 ];
 
 /**
@@ -529,7 +525,9 @@ export class PiSessionController implements ControllerBase {
             thinkingLevel: session?.thinkingLevel ??
                 normalizeThinkingLevel(restored?.thinkingLevel),
             availableThinkingLevels: session?.getAvailableThinkingLevels() ??
-                DEFAULT_THINKING_LEVELS,
+                (restoredModel
+                    ? supportedThinkingLevels(restoredModel)
+                    : DEFAULT_THINKING_LEVELS),
             pendingModel: this.pendingSettings.model
                 ? toUiModel(this.pendingSettings.model)
                 : undefined,
@@ -2183,8 +2181,8 @@ export function supportedThinkingLevels(model: PiModel): ThinkingLevel[] {
         if (mapped === null) {
             return false;
         }
-        // "xhigh" requires an explicit mapping.
-        if (level === "xhigh") {
+        // Pi only advertises its two highest levels through explicit mappings.
+        if (level === "xhigh" || level === "max") {
             return mapped !== undefined;
         }
         return true;
