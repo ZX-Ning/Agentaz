@@ -1,7 +1,9 @@
 /**
- * Pi SDK 0.80.6 throws plain Error values for unavailable manual compaction.
- * Keep the exact-message dependency isolated here until upstream exposes a
- * typed error. Related upstream compaction tracker:
+ * Pi SDK 0.80.6 has no compact-unavailable error class/code. Observed behavior:
+ *   - too-small session -> Error("Nothing to compact (session too small)")
+ *   - unchanged leaf -> Error("Already compacted")
+ * Keep the exact-message dependency isolated and revalidate it on SDK upgrade.
+ * Related upstream compaction tracker (not a typed-error request):
  * https://github.com/earendil-works/pi/issues/128
  */
 const COMPACT_UNAVAILABLE_MESSAGES = new Set([

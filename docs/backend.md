@@ -316,9 +316,11 @@ streaming, has queued messages, has pending browser UI prompts, or is already
 compacting, the backend returns `409 session_busy` instead of aborting current
 work. A session that is too small to compact, or already compacted at the
 current leaf, returns `409 context_compact_unavailable`. Pi SDK `0.80.6` exposes
-those unavailable cases only as exact plain-Error messages. Classification is
-isolated in `pi/sdk-compat.ts`; changed/unknown messages remain unexpected 500
-failures until Pi provides a typed error.
+those unavailable cases without a stable error class or code. Its observed plain
+`Error` messages are `Nothing to compact (session too small)` and
+`Already compacted`. Classification is isolated in `pi/sdk-compat.ts` and pinned
+by exact tests; every Pi SDK upgrade must revalidate this adapter. Changed or
+unknown messages remain unexpected 500 failures.
 
 ## Protocol
 

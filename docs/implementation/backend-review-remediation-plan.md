@@ -2,8 +2,7 @@
 
 ## Status
 
-- **State:** In progress — local work verified; upstream issue authorization
-  pending
+- **State:** Complete
 - **Created:** 2026-07-19
 - **Baseline commit:** `b98e6c8818fc` (`test(api): expand backend coverage`)
 - **Scope:** `packages/api`, `packages/protocol`, related frontend
@@ -106,28 +105,28 @@ Out of scope for this plan:
 
 ## Finding Register
 
-| ID            | Review item                                           | Disposition                           | Priority | Workstream | Status   |
-| ------------- | ----------------------------------------------------- | ------------------------------------- | -------- | ---------- | -------- |
-| `COR-01`      | B1: loaded-session open/capacity/dedup race           | Fix                                   | P0       | WS1        | DONE     |
-| `COR-02`      | B3: revert/delete failure atomicity                   | Fix                                   | P1       | WS2        | DONE     |
-| `PERF-01`     | Snapshot/usage projection repeated per client         | Fix                                   | P2       | WS5        | DONE     |
-| `PERF-02`     | `getHistory()` branch lookup is O(n²)                 | Fix                                   | P1       | WS5        | DONE     |
-| `COORD-01`    | B2: client ID can be forged                           | Document coordination-only boundary   | P2       | WS3        | ACCEPTED |
-| `SDK-01`      | B4: compact classification depends on SDK text        | Isolate adapter + track upstream      | P2       | WS4        | BLOCKED  |
-| `HTTP-01`     | B5: route parameters are decoded twice                | Fix                                   | P3       | WS3        | DONE     |
-| `MEM-01`      | B6: history revision retention is unbounded           | Fix without weakening monotonicity    | P3       | WS6        | DONE     |
-| `EVENT-01`    | B7: overlapping anonymous tool calls cross-wire       | Guard unsupported edge case           | P3       | WS4        | DONE     |
-| `AUTH-01`     | B8: login has no rate limiting                        | Fix                                   | P1       | WS3        | DONE     |
-| `AUTH-02`     | B9: copied stateless token survives logout            | Explicitly accept for local mode      | P3       | WS3        | ACCEPTED |
-| `HTTP-02`     | B10: unknown 500 messages expose internals            | Fix + server-side logging             | P2       | WS3        | DONE     |
-| `PROTO-01`    | B11: merged assistant metadata semantics are implicit | Document intentional projection       | P3       | WS4        | DONE     |
-| `COMPAT-01`   | B12: `max` thinking support is incomplete             | Fix across protocol/backend/frontend  | P1       | WS4        | DONE     |
-| `CLEAN-01`    | B12: required packages use `process.env`              | Standardize on `Deno.env`             | P4       | WS6        | DONE     |
-| `MODEL-01`    | B12: dormant model context read can throw             | Make failure behavior explicit/tested | P3       | WS6        | DONE     |
-| `STATIC-01`   | B12: SPA fallback rereads `index.html`                | Cache production shell read           | P4       | WS5        | DONE     |
-| `AUTH-03`     | B12: public auth path matching is brittle             | Use exact normalized paths            | P3       | WS3        | DONE     |
-| `STYLE-01`    | Truncation markers use inconsistent ellipses          | Standardize                           | P4       | WS6        | DONE     |
-| `REFACTOR-01` | Controller normalization helpers make file oversized  | Extract after behavior fixes          | P4       | WS6        | DONE     |
+| ID            | Review item                                           | Disposition                             | Priority | Workstream | Status   |
+| ------------- | ----------------------------------------------------- | --------------------------------------- | -------- | ---------- | -------- |
+| `COR-01`      | B1: loaded-session open/capacity/dedup race           | Fix                                     | P0       | WS1        | DONE     |
+| `COR-02`      | B3: revert/delete failure atomicity                   | Fix                                     | P1       | WS2        | DONE     |
+| `PERF-01`     | Snapshot/usage projection repeated per client         | Fix                                     | P2       | WS5        | DONE     |
+| `PERF-02`     | `getHistory()` branch lookup is O(n²)                 | Fix                                     | P1       | WS5        | DONE     |
+| `COORD-01`    | B2: client ID can be forged                           | Document coordination-only boundary     | P2       | WS3        | ACCEPTED |
+| `SDK-01`      | B4: compact classification depends on SDK text        | Isolate adapter + document SDK behavior | P2       | WS4        | ACCEPTED |
+| `HTTP-01`     | B5: route parameters are decoded twice                | Fix                                     | P3       | WS3        | DONE     |
+| `MEM-01`      | B6: history revision retention is unbounded           | Fix without weakening monotonicity      | P3       | WS6        | DONE     |
+| `EVENT-01`    | B7: overlapping anonymous tool calls cross-wire       | Guard unsupported edge case             | P3       | WS4        | DONE     |
+| `AUTH-01`     | B8: login has no rate limiting                        | Fix                                     | P1       | WS3        | DONE     |
+| `AUTH-02`     | B9: copied stateless token survives logout            | Explicitly accept for local mode        | P3       | WS3        | ACCEPTED |
+| `HTTP-02`     | B10: unknown 500 messages expose internals            | Fix + server-side logging               | P2       | WS3        | DONE     |
+| `PROTO-01`    | B11: merged assistant metadata semantics are implicit | Document intentional projection         | P3       | WS4        | DONE     |
+| `COMPAT-01`   | B12: `max` thinking support is incomplete             | Fix across protocol/backend/frontend    | P1       | WS4        | DONE     |
+| `CLEAN-01`    | B12: required packages use `process.env`              | Standardize on `Deno.env`               | P4       | WS6        | DONE     |
+| `MODEL-01`    | B12: dormant model context read can throw             | Make failure behavior explicit/tested   | P3       | WS6        | DONE     |
+| `STATIC-01`   | B12: SPA fallback rereads `index.html`                | Cache production shell read             | P4       | WS5        | DONE     |
+| `AUTH-03`     | B12: public auth path matching is brittle             | Use exact normalized paths              | P3       | WS3        | DONE     |
+| `STYLE-01`    | Truncation markers use inconsistent ellipses          | Standardize                             | P4       | WS6        | DONE     |
+| `REFACTOR-01` | Controller normalization helpers make file oversized  | Extract after behavior fixes            | P4       | WS6        | DONE     |
 
 `AUTH-02` is tracked even though the expected outcome is an accepted risk. It is
 not complete until the logout/revocation semantics and remote-exposure gate are
@@ -317,13 +316,14 @@ Frontend edits in this workstream must follow `docs/frontend.md`.
 - [x] Add protocol/backend/frontend table-driven tests for every thinking level.
 - [x] Extract compact-unavailable recognition into a small SDK-adapter helper
       with exact tests and a comment naming the pinned SDK behavior.
-- [ ] Record an upstream Pi SDK issue/link requesting a typed
-      compact-unavailable error; replace text matching when such a type becomes
-      available.
+- [x] Record the current Pi SDK `0.80.6` behavior instead of filing a new
+      upstream issue: compact-unavailable cases are plain `Error` values with
+      exact messages and no stable class/code. Revalidate the adapter on every
+      SDK upgrade.
 - [x] Related compaction work is tracked at
       [`earendil-works/pi#128`](https://github.com/earendil-works/pi/issues/128),
-      but no existing typed-error request was found. Filing a new external issue
-      awaits maintainer authorization.
+      but it is not a typed-error request. The project explicitly accepts the
+      isolated, pinned text adapter and will not file a new issue for now.
 - [x] Keep unknown compact errors as 500-class failures.
 - [x] Document that current SDK tool events must carry explicit IDs for parallel
       execution.
@@ -566,7 +566,8 @@ The remediation plan is complete when:
 
 | Date       | Change                                                                         | Findings                 |
 | ---------- | ------------------------------------------------------------------------------ | ------------------------ |
-| 2026-07-19 | Audited final local state: check/test/lint pass; concurrency suite 10/10       | Only `SDK-01` remains    |
+| 2026-07-19 | Accepted/documented Pi 0.80.6 compact errors; no upstream issue will be filed  | `SDK-01` `ACCEPTED`      |
+| 2026-07-19 | Audited final local state: check/test/lint pass; concurrency suite 10/10       | Pre-decision audit       |
 | 2026-07-19 | Added real authenticated SSE and complete optional-JSON boundary coverage      | WS7 gaps complete        |
 | 2026-07-19 | Extracted pure session normalization and moved its focused tests               | `REFACTOR-01` `DONE`     |
 | 2026-07-19 | Standardized env/truncation and made dormant model failures explicit           | WS6 low-risk items done  |
