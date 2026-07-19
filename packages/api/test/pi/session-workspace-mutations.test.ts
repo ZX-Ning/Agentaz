@@ -16,10 +16,8 @@ import {
     PersistedSessionNotFoundError,
     SessionBusyError,
 } from "../../src/errors.ts";
-import {
-    type ControllerBase,
-    toUiSessionSummary,
-} from "../../src/pi/session-controller.ts";
+import type { ControllerBase } from "../../src/pi/session-controller.ts";
+import { toUiSessionSummary } from "../../src/pi/session-normalization.ts";
 import {
     PiSessionWorkspace,
     type PiSessionWorkspaceDependencies,

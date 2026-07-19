@@ -289,6 +289,12 @@ not initialize the live runtime. The controller projects one browser-facing
 assistant `UiMessage` per agent turn; complete history is rebuilt from the
 `SessionManager` branch.
 
+Pure SDK-to-protocol conversion lives in `pi/session-normalization.ts`:
+persisted history/content/tool blocks, model/thinking capabilities, session
+summaries, images, timestamps, and usage totals. The controller owns
+lifecycle/event state; the normalization module owns no controller or runtime
+resources.
+
 The workspace shares only process-wide backing objects that are not extension
 runtimes (`AuthStorage`, `ModelRegistry`, working directory). Each initialized
 `PiSessionController` owns its own Pi SDK `AgentSessionServices` instance with a

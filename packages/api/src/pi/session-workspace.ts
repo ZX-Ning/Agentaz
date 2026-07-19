@@ -38,14 +38,16 @@ import {
     type ControllerBase,
     createSessionController,
     type CreateSessionControllerOptions,
-    DEFAULT_THINKING_LEVELS,
-    flattenText,
     openSessionController,
     type OpenSessionControllerOptions,
     type PiSessionControllerHost,
+} from "./session-controller.ts";
+import {
+    DEFAULT_THINKING_LEVELS,
+    flattenText,
     toUiModel,
     toUiSessionSummary,
-} from "./session-controller.ts";
+} from "./session-normalization.ts";
 import { ensureRequiredPiPackages } from "./required-packages.ts";
 import {
     readProjectPermissionConfig,

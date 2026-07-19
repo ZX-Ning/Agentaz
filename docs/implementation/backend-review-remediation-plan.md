@@ -126,7 +126,7 @@ Out of scope for this plan:
 | `STATIC-01`   | B12: SPA fallback rereads `index.html`                | Cache production shell read           | P4       | WS5        | DONE     |
 | `AUTH-03`     | B12: public auth path matching is brittle             | Use exact normalized paths            | P3       | WS3        | DONE     |
 | `STYLE-01`    | Truncation markers use inconsistent ellipses          | Standardize                           | P4       | WS6        | DONE     |
-| `REFACTOR-01` | Controller normalization helpers make file oversized  | Extract after behavior fixes          | P4       | WS6        | TODO     |
+| `REFACTOR-01` | Controller normalization helpers make file oversized  | Extract after behavior fixes          | P4       | WS6        | DONE     |
 
 `AUTH-02` is tracked even though the expected outcome is an accepted risk. It is
 not complete until the logout/revocation semantics and remote-exposure gate are
@@ -425,10 +425,10 @@ before refactoring normalization
       contract.
 - [x] Standardize truncation markers (`…` or `...`) in one focused change and
       update exact-output tests.
-- [ ] After correctness/protocol changes settle, extract pure
+- [x] After correctness/protocol changes settle, extract pure
       history/content/tool normalization helpers from `session-controller.ts`
       into a focused module.
-- [ ] Move tests with the extracted helpers; do not mix behavioral changes into
+- [x] Move tests with the extracted helpers; do not mix behavioral changes into
       the extraction commit.
 
 #### Acceptance Criteria
@@ -565,6 +565,7 @@ The remediation plan is complete when:
 
 | Date       | Change                                                                         | Findings                 |
 | ---------- | ------------------------------------------------------------------------------ | ------------------------ |
+| 2026-07-19 | Extracted pure session normalization and moved its focused tests               | `REFACTOR-01` `DONE`     |
 | 2026-07-19 | Standardized env/truncation and made dormant model failures explicit           | WS6 low-risk items done  |
 | 2026-07-19 | Replaced per-session revision retention with one monotonic generation          | `MEM-01` `DONE`          |
 | 2026-07-19 | Removed history/snapshot hot paths and cached the per-app SPA shell            | WS5 findings complete    |

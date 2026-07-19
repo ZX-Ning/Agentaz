@@ -9,10 +9,8 @@ import {
     ContextCompactUnavailableError,
     UnknownModelError,
 } from "../../src/errors.ts";
-import {
-    PiSessionController,
-    supportedThinkingLevels,
-} from "../../src/pi/session-controller.ts";
+import { PiSessionController } from "../../src/pi/session-controller.ts";
+import { supportedThinkingLevels } from "../../src/pi/session-normalization.ts";
 
 /**
  * Purpose: Verify prompt lifecycle emits correlation events around the SDK call
