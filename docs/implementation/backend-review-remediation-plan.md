@@ -2,7 +2,8 @@
 
 ## Status
 
-- **State:** In progress
+- **State:** In progress — local work verified; upstream issue authorization
+  pending
 - **Created:** 2026-07-19
 - **Baseline commit:** `b98e6c8818fc` (`test(api): expand backend coverage`)
 - **Scope:** `packages/api`, `packages/protocol`, related frontend
@@ -565,6 +566,7 @@ The remediation plan is complete when:
 
 | Date       | Change                                                                         | Findings                 |
 | ---------- | ------------------------------------------------------------------------------ | ------------------------ |
+| 2026-07-19 | Audited final local state: check/test/lint pass; concurrency suite 10/10       | Only `SDK-01` remains    |
 | 2026-07-19 | Added real authenticated SSE and complete optional-JSON boundary coverage      | WS7 gaps complete        |
 | 2026-07-19 | Extracted pure session normalization and moved its focused tests               | `REFACTOR-01` `DONE`     |
 | 2026-07-19 | Standardized env/truncation and made dormant model failures explicit           | WS6 low-risk items done  |
