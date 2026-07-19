@@ -99,6 +99,304 @@ Deno.test({
 });
 
 /**
+ * Purpose: Reproduce concurrent opens that previously crossed the capacity check together.
+ * Expect: A one-slot workspace never retains both controllers and disposes one replacement.
+ * Method: Pause the first async factory open, enqueue a second file, release the first,
+ * then assert serialized registration, final capacity, and single disposal.
+ */
+Deno.test({
+    name:
+        "workspace serializes concurrent opens of different files at capacity",
+    permissions: { env: true, read: true, sys: ["homedir"] },
+    async fn() {
+        const firstLookupEntered = deferred<void>();
+        const releaseFirstLookup = deferred<
+            ReturnType<typeof persistedSession>[]
+        >();
+        const first = fakeController("session-a");
+        const second = fakeController("session-b");
+        let openCalls = 0;
+        let listCalls = 0;
+        const workspace = createWorkspace(
+            new AgentEventBus(),
+            [],
+            () => [],
+            1,
+            () => {
+                listCalls += 1;
+                if (listCalls === 1) {
+                    firstLookupEntered.resolve();
+                    return releaseFirstLookup.promise;
+                }
+                return Promise.resolve([
+                    persistedSession("/tmp/session-a.jsonl", "session-a"),
+                    persistedSession("/tmp/session-b.jsonl", "session-b"),
+                ]);
+            },
+            (options) => {
+                openCalls += 1;
+                if (options.sessionFile.endsWith("session-a.jsonl")) {
+                    return first;
+                }
+                return second;
+            },
+        );
+
+        const openingFirst = workspace.openLoadedSession(
+            "/tmp/session-a.jsonl",
+        );
+        await firstLookupEntered.promise;
+        const openingSecond = workspace.openLoadedSession(
+            "/tmp/session-b.jsonl",
+        );
+        releaseFirstLookup.resolve([
+            persistedSession("/tmp/session-a.jsonl", "session-a"),
+            persistedSession("/tmp/session-b.jsonl", "session-b"),
+        ]);
+        await Promise.all([openingFirst, openingSecond]);
+
+        assert.equal(openCalls, 2);
+        assert.deepEqual(
+            workspace.loadedSessions().map((session) => session.sessionId),
+            ["session-b"],
+        );
+        assert.equal(stateOf(first).disposeCalls, 1);
+        assert.equal(stateOf(second).disposeCalls, 0);
+    },
+});
+
+/**
+ * Purpose: Prevent two concurrent requests for one normalized file from creating owners.
+ * Expect: Both callers receive the same object and the SDK open factory runs once.
+ * Method: Pause the first factory call, enqueue the same path through a relative alias,
+ * release it, then compare results and factory/disposal counts.
+ */
+Deno.test({
+    name: "workspace deduplicates concurrent opens of one normalized file",
+    permissions: { env: true, read: true, sys: ["homedir"] },
+    async fn() {
+        const lookupEntered = deferred<void>();
+        const releaseLookup = deferred<ReturnType<typeof persistedSession>[]>();
+        const controller = fakeController("session-a");
+        let openCalls = 0;
+        let listCalls = 0;
+        const workspace = createWorkspace(
+            new AgentEventBus(),
+            [],
+            () => [],
+            2,
+            () => {
+                listCalls += 1;
+                if (listCalls === 1) {
+                    lookupEntered.resolve();
+                    return releaseLookup.promise;
+                }
+                return Promise.resolve([
+                    persistedSession("/tmp/session-a.jsonl", "session-a"),
+                ]);
+            },
+            () => {
+                openCalls += 1;
+                return controller;
+            },
+        );
+
+        const first = workspace.openLoadedSession("/tmp/session-a.jsonl");
+        await lookupEntered.promise;
+        const second = workspace.openLoadedSession(
+            "/tmp/../tmp/session-a.jsonl",
+        );
+        await Promise.resolve();
+        assert.equal(openCalls, 0);
+
+        releaseLookup.resolve([
+            persistedSession("/tmp/session-a.jsonl", "session-a"),
+        ]);
+        const [firstResult, secondResult] = await Promise.all([first, second]);
+        assert.equal(firstResult, controller);
+        assert.equal(secondResult, controller);
+        assert.equal(openCalls, 1);
+        assert.equal(stateOf(controller).disposeCalls, 0);
+    },
+});
+
+/**
+ * Purpose: Ensure concurrent create/open replacements cannot cause duplicate eviction.
+ * Expect: Each successful replacement evicts at most its one predecessor.
+ * Method: Fill one slot, enqueue create plus open, then inspect every controller disposal.
+ */
+Deno.test({
+    name: "workspace performs one eviction per concurrent capacity replacement",
+    permissions: { env: true, read: true, sys: ["homedir"] },
+    async fn() {
+        const initial = fakeController("initial");
+        const created = fakeController("created");
+        const opened = fakeController("opened");
+        const workspace = createWorkspace(
+            new AgentEventBus(),
+            [initial, created],
+            () => [],
+            1,
+            () =>
+                Promise.resolve([
+                    persistedSession("/tmp/opened.jsonl", "opened"),
+                ]),
+            () => opened,
+        );
+        await workspace.createLoadedSession();
+
+        await Promise.all([
+            workspace.createLoadedSession(),
+            workspace.openLoadedSession("/tmp/opened.jsonl"),
+        ]);
+
+        assert.equal(stateOf(initial).disposeCalls, 1);
+        assert.equal(stateOf(created).disposeCalls, 1);
+        assert.equal(stateOf(opened).disposeCalls, 0);
+        assert.deepEqual(
+            workspace.loadedSessions().map((session) => session.sessionId),
+            ["opened"],
+        );
+    },
+});
+
+/**
+ * Purpose: Prove a rejected lifecycle transaction cannot poison the mutation queue.
+ * Expect: The first open rejects during validation and the second still opens normally.
+ * Method: Hold and reject the first persisted-list lookup while a second open waits.
+ */
+Deno.test({
+    name: "workspace lifecycle queue continues after a failed mutation",
+    permissions: { env: true, read: true, sys: ["homedir"] },
+    async fn() {
+        const firstLookup = deferred<ReturnType<typeof persistedSession>[]>();
+        const controller = fakeController("session-b");
+        let listCalls = 0;
+        let openCalls = 0;
+        const workspace = createWorkspace(
+            new AgentEventBus(),
+            [],
+            () => [],
+            1,
+            () => {
+                listCalls += 1;
+                return listCalls === 1 ? firstLookup.promise : Promise.resolve([
+                    persistedSession(
+                        "/tmp/session-b.jsonl",
+                        "session-b",
+                    ),
+                ]);
+            },
+            () => {
+                openCalls += 1;
+                return controller;
+            },
+        );
+
+        const failed = workspace.openLoadedSession("/tmp/session-a.jsonl");
+        await Promise.resolve();
+        const succeeded = workspace.openLoadedSession("/tmp/session-b.jsonl");
+        firstLookup.reject(new Error("list failed"));
+
+        await assert.rejects(() => failed, /list failed/);
+        assert.equal(await succeeded, controller);
+        assert.equal(listCalls, 2);
+        assert.equal(openCalls, 1);
+    },
+});
+
+/**
+ * Purpose: Keep protected and busy owners non-evictable under queued pressure.
+ * Expect: Concurrent create/open requests both fail and the existing owner remains intact.
+ * Method: Exercise separate protected and busy one-slot workspaces with two queued loads.
+ */
+Deno.test({
+    name:
+        "workspace preserves non-evictable sessions under concurrent pressure",
+    permissions: { env: true, read: true, sys: ["homedir"] },
+    async fn() {
+        for (const mode of ["protected", "busy"] as const) {
+            const current = fakeController("current", {
+                busy: mode === "busy",
+            });
+            const workspace = createWorkspace(
+                new AgentEventBus(),
+                [current, fakeController("unused-create")],
+                () => mode === "protected" ? ["current"] : [],
+                1,
+                () =>
+                    Promise.resolve([
+                        persistedSession("/tmp/next.jsonl", "next"),
+                    ]),
+                () => fakeController("unused-open"),
+            );
+            await workspace.createLoadedSession();
+
+            const results = await Promise.allSettled([
+                workspace.createLoadedSession(),
+                workspace.openLoadedSession("/tmp/next.jsonl"),
+            ]);
+
+            assert.ok(results.every((result) =>
+                result.status === "rejected" &&
+                result.reason instanceof SessionLimitReachedError
+            ));
+            assert.equal(stateOf(current).disposeCalls, 0);
+            assert.deepEqual(
+                workspace.loadedSessions().map((session) => session.sessionId),
+                ["current"],
+            );
+        }
+    },
+});
+
+/**
+ * Purpose: Guard the corrected finding that concurrent creates already obey the cap.
+ * Expect: All requests settle successfully while no registration starts at full capacity.
+ * Method: Queue four creates into two slots and assert factory-time capacity plus final state.
+ */
+Deno.test({
+    name: "workspace retains the loaded-session cap across concurrent creates",
+    permissions: { env: true, read: true, sys: ["homedir"] },
+    async fn() {
+        const controllers = [
+            fakeController("session-a"),
+            fakeController("session-b"),
+            fakeController("session-c"),
+            fakeController("session-d"),
+        ];
+        const workspaceRef: { current?: PiSessionWorkspace } = {};
+        const workspace = createWorkspace(
+            new AgentEventBus(),
+            [],
+            () => [],
+            2,
+            undefined,
+            undefined,
+            () => {
+                assert.ok(workspaceRef.current);
+                assert.ok(workspaceRef.current.loadedSessions().length < 2);
+                return requireNextController(controllers);
+            },
+        );
+        workspaceRef.current = workspace;
+
+        await Promise.all([
+            workspace.createLoadedSession(),
+            workspace.createLoadedSession(),
+            workspace.createLoadedSession(),
+            workspace.createLoadedSession(),
+        ]);
+
+        assert.deepEqual(
+            workspace.loadedSessions().map((session) => session.sessionId),
+            ["session-c", "session-d"],
+        );
+        assert.ok(workspace.loadedSessions().length <= 2);
+    },
+});
+
+/**
  * Purpose: Verify the HTTP-facing workspace contract remains fire-and-forget while
  * metadata refresh and control-lease release stay coupled to actual task settlement.
  * Expect: Acceptance returns immediately; metadata refresh and settlement occur after resolution.
@@ -484,6 +782,9 @@ function createWorkspace(
     openController:
         PiSessionWorkspaceDependencies["controllerFactory"]["open"] = () =>
             requireNextController(controllers),
+    createController:
+        PiSessionWorkspaceDependencies["controllerFactory"]["create"] = () =>
+            requireNextController(controllers),
 ) {
     const dependencies: PiSessionWorkspaceDependencies = {
         agentDir: "/tmp/agentaz-workspace-test",
@@ -494,7 +795,7 @@ function createWorkspace(
             }),
         listPersistedSessions,
         controllerFactory: {
-            create: () => requireNextController(controllers),
+            create: createController,
             open: openController,
         },
     };

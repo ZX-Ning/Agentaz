@@ -2,7 +2,7 @@
 
 ## Status
 
-- **State:** Planned
+- **State:** In progress
 - **Created:** 2026-07-19
 - **Baseline commit:** `b98e6c8818fc` (`test(api): expand backend coverage`)
 - **Scope:** `packages/api`, `packages/protocol`, related frontend
@@ -107,7 +107,7 @@ Out of scope for this plan:
 
 | ID            | Review item                                           | Disposition                           | Priority | Workstream | Status |
 | ------------- | ----------------------------------------------------- | ------------------------------------- | -------- | ---------- | ------ |
-| `COR-01`      | B1: loaded-session open/capacity/dedup race           | Fix                                   | P0       | WS1        | TODO   |
+| `COR-01`      | B1: loaded-session open/capacity/dedup race           | Fix                                   | P0       | WS1        | DONE   |
 | `COR-02`      | B3: revert/delete failure atomicity                   | Fix                                   | P1       | WS2        | TODO   |
 | `PERF-01`     | Snapshot/usage projection repeated per client         | Fix                                   | P2       | WS5        | TODO   |
 | `PERF-02`     | `getHistory()` branch lookup is O(n²)                 | Fix                                   | P1       | WS5        | TODO   |
@@ -147,23 +147,23 @@ work.
 
 #### Tasks
 
-- [ ] Add a failure-safe workspace lifecycle queue/mutex. A rejected operation
+- [x] Add a failure-safe workspace lifecycle queue/mutex. A rejected operation
       must not poison later queue entries.
-- [ ] Serialize create, open, fork, revert, rename, soft-delete, eviction, and
+- [x] Serialize create, open, fork, revert, rename, soft-delete, eviction, and
       `disposeAll` ownership transitions.
-- [ ] Keep message turns and ordinary controller operations outside this mutex.
-- [ ] Split public locking methods from private `...WithinMutation` helpers so
+- [x] Keep message turns and ordinary controller operations outside this mutex.
+- [x] Split public locking methods from private `...WithinMutation` helpers so
       `forkSession()`/`revertSession()` can open a controller without
       recursively acquiring a non-reentrant lock.
-- [ ] Perform normalized-path deduplication again inside the serialized
+- [x] Perform normalized-path deduplication again inside the serialized
       transaction, after all asynchronous validation.
-- [ ] Keep eviction, final capacity assertion, controller creation/open, and Map
+- [x] Keep eviction, final capacity assertion, controller creation/open, and Map
       registration in the same transaction.
-- [ ] Dispose any controller created but not registered because of an error or a
+- [x] Dispose any controller created but not registered because of an error or a
       defensive late duplicate check.
-- [ ] Preserve protected/busy-session eviction rules and existing
+- [x] Preserve protected/busy-session eviction rules and existing
       `session_removed`/`state_changed` ordering.
-- [ ] Add focused concurrency tests before or with the implementation.
+- [x] Add focused concurrency tests before or with the implementation.
 
 #### Required Tests
 
@@ -561,4 +561,5 @@ The remediation plan is complete when:
 
 | Date       | Change                                                                      | Findings                 |
 | ---------- | --------------------------------------------------------------------------- | ------------------------ |
+| 2026-07-19 | Serialized workspace lifecycle ownership and added deterministic race tests | `COR-01` `DONE`          |
 | 2026-07-19 | Created plan from the verified current backend review; no fixes implemented | All registered as `TODO` |

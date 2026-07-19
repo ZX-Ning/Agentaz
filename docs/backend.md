@@ -226,6 +226,12 @@ to `LOCAL_CLIENT_ID` only for non-browser or pre-SSE callers.
 - bind extension UI context
 - dispose loaded sessions explicitly
 
+Workspace ownership transitions are serialized by one failure-safe lifecycle
+queue. Create, open, fork, revert, rename, soft-delete, eviction, and process
+teardown perform their capacity/deduplication checks and working-set mutations
+in that queue. A rejected transition does not block later requests. Message
+turns and ordinary controller operations remain outside the queue.
+
 `PiSessionController` owns browser-facing operations for one manager-backed
 session. Create/open only attaches a `SessionManager`; the first operation that
 needs a live Pi session lazily creates controller-local services, binds

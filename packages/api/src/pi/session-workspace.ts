@@ -117,6 +117,12 @@ export class PiSessionWorkspace {
     private requiredPackagesPromise?: Promise<void>;
     /** The loaded session working set indexed by sessionId. */
     private sessions = new Map<string, ControllerBase>();
+    /**
+     * Serializes transitions that inspect or mutate loaded-session ownership.
+     * The stored tail always resolves, so one rejected mutation cannot poison
+     * later lifecycle requests.
+     */
+    private lifecycleMutationTail: Promise<void> = Promise.resolve();
     /** Last known history revision for sessions that may be reopened later. */
     private historyRevisionBySessionId = new Map<string, number>();
     /** Snapshot of persisted session metadata from the working directory. */
@@ -281,6 +287,13 @@ export class PiSessionWorkspace {
      *   5. Emit a state_changed event.
      */
     async createLoadedSession() {
+        return await this.runLifecycleMutation(() =>
+            this.createLoadedSessionWithinMutation()
+        );
+    }
+
+    /** Creates and registers a controller while the lifecycle queue is held. */
+    private async createLoadedSessionWithinMutation() {
         await this.releaseOneAvailableSessionIfAtCapacity();
         this.assertCanLoadAnotherSession();
 
@@ -293,10 +306,7 @@ export class PiSessionWorkspace {
             host: this.createControllerHost(),
         });
 
-        this.seedHistoryRevision(controller);
-        this.sessions.set(controller.sessionId, controller);
-        this.emitStateChanged();
-        return controller;
+        return await this.registerControllerWithinMutation(controller);
     }
 
     /**
@@ -308,23 +318,25 @@ export class PiSessionWorkspace {
      * controller creation, and registration.
      */
     async openLoadedSession(sessionFile: string) {
-        // Normalize to absolute path for deduplication.
         const normalizedSessionFile = resolve(sessionFile);
-
-        // Check if this file is already loaded.
-        const loaded = [...this.sessions.values()].find(
-            (controller) =>
-                controller.sessionFile &&
-                resolve(controller.sessionFile) === normalizedSessionFile,
+        return await this.runLifecycleMutation(() =>
+            this.openLoadedSessionWithinMutation(normalizedSessionFile)
         );
+    }
+
+    /** Validates, opens, and registers one persisted file with the queue held. */
+    private async openLoadedSessionWithinMutation(
+        normalizedSessionFile: string,
+    ) {
+        // Validate before deduplication. The persisted list is authoritative for
+        // paths allowed to cross the SessionManager.open() boundary.
+        await this.requirePersistedSessionFile(normalizedSessionFile);
+
+        // Deduplicate after asynchronous validation, inside the transaction.
+        const loaded = this.findLoadedSessionByFile(normalizedSessionFile);
         if (loaded) {
             return loaded;
         }
-
-        // Only normal persisted sessions for this cwd may cross the SDK boundary.
-        // SessionManager.open() accepts arbitrary paths and may rewrite malformed
-        // files, so validate before eviction or any other observable mutation.
-        await this.requirePersistedSessionFile(normalizedSessionFile);
 
         await this.releaseOneAvailableSessionIfAtCapacity();
         this.assertCanLoadAnotherSession();
@@ -339,10 +351,10 @@ export class PiSessionWorkspace {
             sessionFile: normalizedSessionFile,
         });
 
-        this.seedHistoryRevision(controller);
-        this.sessions.set(controller.sessionId, controller);
-        this.emitStateChanged();
-        return controller;
+        return await this.registerControllerWithinMutation(
+            controller,
+            normalizedSessionFile,
+        );
     }
 
     /**
@@ -353,6 +365,16 @@ export class PiSessionWorkspace {
      * metadata edits for sessions that are not currently loaded in memory.
      */
     async renamePersistedSession(sessionFile: string, name: string) {
+        return await this.runLifecycleMutation(() =>
+            this.renamePersistedSessionWithinMutation(sessionFile, name)
+        );
+    }
+
+    /** Renames persisted metadata while the lifecycle queue is held. */
+    private async renamePersistedSessionWithinMutation(
+        sessionFile: string,
+        name: string,
+    ) {
         const normalizedName = name.trim();
         if (!normalizedName) {
             throw new BadRequestError("Session name is required.");
@@ -396,6 +418,15 @@ export class PiSessionWorkspace {
      * idle so dispose/removal cannot interrupt active agent work.
      */
     async softDeletePersistedSession(sessionFile: string) {
+        return await this.runLifecycleMutation(() =>
+            this.softDeletePersistedSessionWithinMutation(sessionFile)
+        );
+    }
+
+    /** Soft-deletes one persisted session while the lifecycle queue is held. */
+    private async softDeletePersistedSessionWithinMutation(
+        sessionFile: string,
+    ) {
         const normalizedSessionFile = await this.requirePersistedSessionFile(
             sessionFile,
         );
@@ -503,6 +534,16 @@ export class PiSessionWorkspace {
         sessionId: string,
         options: { entryId?: string; name?: string },
     ) {
+        return await this.runLifecycleMutation(() =>
+            this.forkSessionWithinMutation(sessionId, options)
+        );
+    }
+
+    /** Forks and opens the replacement while the lifecycle queue is held. */
+    private async forkSessionWithinMutation(
+        sessionId: string,
+        options: { entryId?: string; name?: string },
+    ) {
         const controller = this.mutableSession(sessionId);
         this.assertForkRevertReady(controller);
 
@@ -542,8 +583,8 @@ export class PiSessionWorkspace {
             ).appendSessionInfo(normalizedName);
         }
 
-        const forkedController = await this.openLoadedSession(
-            newSessionFile,
+        const forkedController = await this.openLoadedSessionWithinMutation(
+            resolve(newSessionFile),
         );
         await this.refreshPersistedSessionCache();
         this.emitStateChanged();
@@ -558,6 +599,16 @@ export class PiSessionWorkspace {
      * last JSONL entry, so reopening the same file restores the reverted path.
      */
     async revertSession(sessionId: string, entryId: string) {
+        return await this.runLifecycleMutation(() =>
+            this.revertSessionWithinMutation(sessionId, entryId)
+        );
+    }
+
+    /** Reverts and reopens one controller while the lifecycle queue is held. */
+    private async revertSessionWithinMutation(
+        sessionId: string,
+        entryId: string,
+    ) {
         const normalizedEntryId = entryId.trim();
         if (!normalizedEntryId) {
             throw new BadRequestError("Session entry id is required.");
@@ -584,7 +635,9 @@ export class PiSessionWorkspace {
         this.sessions.delete(sessionId);
         await controller.dispose();
 
-        const reopenedController = await this.openLoadedSession(sessionFile);
+        const reopenedController = await this.openLoadedSessionWithinMutation(
+            resolve(sessionFile),
+        );
         await this.refreshPersistedSessionCache();
         this.emitStateChanged();
         return reopenedController;
@@ -752,6 +805,11 @@ export class PiSessionWorkspace {
      * All controllers are disposed in parallel and the working set is cleared.
      */
     async disposeAll() {
+        await this.runLifecycleMutation(() => this.disposeAllWithinMutation());
+    }
+
+    /** Clears and disposes the loaded working set while the queue is held. */
+    private async disposeAllWithinMutation() {
         const controllers = [...this.sessions.values()];
         this.sessions.clear();
         controllers.forEach((controller) =>
@@ -761,6 +819,49 @@ export class PiSessionWorkspace {
             controllers.map((controller) => controller.dispose()),
         );
         this.emitStateChanged();
+    }
+
+    /** Runs one ownership transition after all previously queued transitions. */
+    private async runLifecycleMutation<T>(mutation: () => Promise<T> | T) {
+        const result = this.lifecycleMutationTail.then(mutation);
+        this.lifecycleMutationTail = result.then(
+            () => undefined,
+            () => undefined,
+        );
+        return await result;
+    }
+
+    /**
+     * Registers a newly constructed controller or disposes it if a defensive
+     * duplicate check finds ownership was already established.
+     */
+    private async registerControllerWithinMutation(
+        controller: ControllerBase,
+        normalizedSessionFile?: string,
+    ) {
+        const duplicateByFile = normalizedSessionFile
+            ? this.findLoadedSessionByFile(normalizedSessionFile)
+            : undefined;
+        const duplicate = duplicateByFile ?? this.sessions.get(
+            controller.sessionId,
+        );
+        if (duplicate) {
+            await controller.dispose();
+            return duplicate;
+        }
+
+        try {
+            this.seedHistoryRevision(controller);
+            this.sessions.set(controller.sessionId, controller);
+            this.emitStateChanged();
+            return controller;
+        }
+        catch (error) {
+            if (this.sessions.get(controller.sessionId) !== controller) {
+                await controller.dispose();
+            }
+            throw error;
+        }
     }
 
     /** Reads persisted session metadata from the working directory. */
