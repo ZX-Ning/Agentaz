@@ -1,6 +1,9 @@
 import type { Context } from "@hono/hono";
 import type { UiRequestResponseRequest } from "@agentaz/protocol";
-import { getAgentRuntime } from "../runtime/agent-runtime.ts";
+import {
+    type AgentRuntime,
+    getAgentRuntime,
+} from "../runtime/agent-runtime.ts";
 import { LOCAL_CLIENT_ID } from "../runtime/client-presence.ts";
 import {
     AgentazDomainError,
@@ -13,8 +16,10 @@ import { HttpError, jsonError } from "./errors.ts";
 const CLIENT_ID_HEADER = "x-agentaz-client-id";
 
 /** Returns the shared PiSessionWorkspace for use in HTTP route handlers. */
-export function getConfiguredAgentRegistry() {
-    return getAgentRuntime().workspace;
+export function getConfiguredAgentRegistry(
+    runtime: AgentRuntime = getAgentRuntime(),
+) {
+    return runtime.workspace;
 }
 
 /** Reads the browser tab client id, falling back for non-browser/pre-SSE callers. */
@@ -23,9 +28,11 @@ export function requestClientId(c: Context) {
 }
 
 /** Acquires a short request-scoped session mutation lease. */
-export function acquireRequestSessionControl(c: Context, sessionId: string) {
-    const runtime = getAgentRuntime();
-
+export function acquireRequestSessionControl(
+    c: Context,
+    sessionId: string,
+    runtime: AgentRuntime = getAgentRuntime(),
+) {
     if (!runtime.workspace.hasSession(sessionId)) {
         throw new SessionNotFoundError();
     }
@@ -59,8 +66,9 @@ export async function withRequestSessionControl<T>(
     run: (
         lease: ReturnType<typeof acquireRequestSessionControl>,
     ) => T | Promise<T>,
+    runtime: AgentRuntime = getAgentRuntime(),
 ) {
-    const lease = acquireRequestSessionControl(c, sessionId);
+    const lease = acquireRequestSessionControl(c, sessionId, runtime);
     try {
         return await run(lease);
     }

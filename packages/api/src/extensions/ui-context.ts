@@ -145,23 +145,24 @@ export class WebExtensionUIContext {
 
     /** Resolves a pending select request from a browser response event. */
     resolveSelect(requestId: string, selected?: string) {
-        this.resolve(requestId, selected);
+        this.resolve(requestId, "select", selected);
     }
 
     /** Resolves a pending input request from a browser response event. */
     resolveInput(requestId: string, value?: string) {
-        this.resolve(requestId, value);
+        this.resolve(requestId, "input", value);
     }
 
     /** Resolves a pending confirm request from a browser response event. */
     resolveConfirm(requestId: string, confirmed: boolean) {
-        this.resolve(requestId, confirmed);
+        this.resolve(requestId, "confirm", confirmed);
     }
 
     /** Cancels every pending browser prompt so extension code cannot hang after disconnect or abort. */
     cancelAll() {
-        for (const requestId of this.pending.keys()) {
-            this.resolve(requestId, undefined);
+        for (const [requestId, request] of this.pending) {
+            const fallback = request.kind === "confirm" ? false : undefined;
+            this.resolve(requestId, request.kind, fallback);
         }
     }
 
@@ -212,7 +213,7 @@ export class WebExtensionUIContext {
                 this.setWidgetLines(
                     key,
                     placement,
-                    Array.isArray(rendered) ? rendered : [],
+                    toWidgetLines(rendered),
                 );
             }
             catch (error) {
@@ -317,7 +318,7 @@ export class WebExtensionUIContext {
 
         return new Promise<T>((resolve) => {
             const timer = setTimeout(() => {
-                this.resolve(requestId, fallback);
+                this.resolve(requestId, kind, fallback);
             }, this.timeoutMs);
 
             this.pending.set(requestId, {
@@ -331,9 +332,13 @@ export class WebExtensionUIContext {
         });
     }
 
-    private resolve(requestId: string, value: unknown) {
+    private resolve(
+        requestId: string,
+        kind: PendingRequest["kind"],
+        value: unknown,
+    ) {
         const pending = this.pending.get(requestId);
-        if (!pending) {
+        if (!pending || pending.kind !== kind) {
             return;
         }
         clearTimeout(pending.timer);

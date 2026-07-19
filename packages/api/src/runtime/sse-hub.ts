@@ -52,7 +52,10 @@ export class SseAgentHub {
         // Phase 2: register this client in presence tracking so it gets a sensible
         // default active session (last active session from any client, or
         // the first loaded session as fallback).
-        this.presence.attachClient(clientId);
+        this.presence.attachClient(
+            clientId,
+            this.workspace.firstLoadedSessionId(),
+        );
 
         // Phase 3: refresh persisted session cache so the snapshot is current.
         await refreshProjectionData(this.workspace);

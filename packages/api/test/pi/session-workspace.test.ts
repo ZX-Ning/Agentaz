@@ -1,17 +1,17 @@
 import assert from "node:assert/strict";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { join } from "node:path";
-import { AgentEventBus } from "../src/runtime/event-bus.ts";
+import { AgentEventBus } from "../../src/runtime/event-bus.ts";
 import {
     PiSessionWorkspace,
     type PiSessionWorkspaceDependencies,
-} from "../src/pi/session-workspace.ts";
-import type { ControllerBase } from "../src/pi/session-controller.ts";
+} from "../../src/pi/session-workspace.ts";
+import type { ControllerBase } from "../../src/pi/session-controller.ts";
 import {
     PersistedSessionNotFoundError,
     SessionForkUnavailableError,
     SessionLimitReachedError,
-} from "../src/errors.ts";
+} from "../../src/errors.ts";
 
 /**
  * Purpose: Verify the loaded-session cache enforces capacity without disrupting the

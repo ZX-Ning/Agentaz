@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
-import { BadRequestError } from "../src/errors.ts";
-import { agentHttpError } from "../src/http/agent.ts";
-import { HttpError, jsonError } from "../src/http/errors.ts";
+import { BadRequestError } from "../../src/errors.ts";
+import { agentHttpError } from "../../src/http/agent.ts";
+import { HttpError, jsonError } from "../../src/http/errors.ts";
 
 /**
  * Purpose: Verify agentHttpError treats typed domain/HTTP errors as authoritative

@@ -13,7 +13,7 @@ import {
     supportedThinkingLevels,
     toPiImages,
     toTimestamp,
-} from "../src/pi/session-controller.ts";
+} from "../../src/pi/session-controller.ts";
 
 type HistoryItems = Parameters<typeof normalizeMessages>[0];
 

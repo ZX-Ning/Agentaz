@@ -5,8 +5,8 @@ import {
     readProjectPermissionConfig,
     resetProjectPermissionConfig,
     writeProjectPermissionConfig,
-} from "../src/extensions/permission-config.ts";
-import { BadRequestError } from "../src/errors.ts";
+} from "../../src/extensions/permission-config.ts";
+import { BadRequestError } from "../../src/errors.ts";
 
 /**
  * Purpose: Verify the project permission file lifecycle preserves nested command

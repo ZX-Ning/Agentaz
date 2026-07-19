@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 import type { ServerEvent, UiMessage } from "@agentaz/protocol";
-import { PiSessionController } from "../src/pi/session-controller.ts";
+import { PiSessionController } from "../../src/pi/session-controller.ts";
 
 type LiveTurnTestController = {
     liveTurnMessages: Map<string, UiMessage>;
@@ -104,6 +104,78 @@ Deno.test("live projection retains only the active assistant turn", () => {
 });
 
 /**
+ * Purpose: Verify provider edge events preserve thinking and anonymous tool identity
+ * while accumulated partial results are forwarded as deltas exactly once.
+ * Expect: One anonymous call owns error/result blocks and tool-result deltas are abc then def.
+ * Method: Emit thinking, anonymous start, two accumulated updates, and an error end.
+ */
+Deno.test("live projection streams thinking and anonymous tool result deltas", () => {
+    const events: ServerEvent[] = [];
+    const controller = liveTurnController([], events);
+    controller.startPromptTurn("run it", {
+        turnId: "turn-1",
+        clientMessageId: "client-1",
+    });
+
+    controller.onSessionEvent({
+        type: "message_update",
+        assistantMessageEvent: { type: "thinking_delta", delta: "reason" },
+    });
+    controller.onSessionEvent({
+        type: "tool_start",
+        name: "bash",
+        input: { command: "echo" },
+    });
+    controller.onSessionEvent({
+        type: "tool_update",
+        name: "bash",
+        partialResult: { content: [{ type: "text", text: "abc" }] },
+    });
+    controller.onSessionEvent({
+        type: "tool_update",
+        name: "bash",
+        partialResult: { content: [{ type: "text", text: "abcdef" }] },
+    });
+    controller.onSessionEvent({
+        type: "tool_end",
+        name: "bash",
+        error: "denied",
+        isError: true,
+    });
+
+    const message = controller.liveTurnMessages.get(
+        controller.currentAssistantMessageId,
+    );
+    assert.ok(message);
+    assert.deepEqual(message.blocks.map((block) => block.type), [
+        "thinking",
+        "tool_call",
+        "tool_result",
+    ]);
+    const call = message.blocks.find((block) => block.type === "tool_call");
+    const result = message.blocks.find((block) => block.type === "tool_result");
+    assert.equal(call?.toolCallId, "anonymous-1");
+    assert.equal(call?.status, "error");
+    assert.equal(result?.toolCallId, "anonymous-1");
+    assert.equal(result?.isError, true);
+    assert.equal(result?.content, "denied");
+
+    assert.deepEqual(
+        events.filter((event) =>
+            event.type === "message_block_delta" &&
+            event.blockType === "tool_result"
+        ).map((event) =>
+            event.type === "message_block_delta" ? event.delta : ""
+        ),
+        ["abc", "def"],
+    );
+    assert.ok(events.some((event) =>
+        event.type === "message_block_delta" &&
+        event.blockType === "thinking" && event.delta === "reason"
+    ));
+});
+
+/**
  * Purpose: Verify HTTP history remains authoritative and cannot accidentally expose
  * transient or stale messages retained only by the realtime projection.
  * Expect: History contains only SessionManager entries and excludes a live-only message.
@@ -159,6 +231,8 @@ function liveTurnController(
         toolBlocks: new Map(),
         toolResultEmittedLength: new Map(),
         anonymousToolCallCounter: 0,
+        anonymousToolCallId: undefined,
+        currentToolRequestAnchor: undefined,
         pendingSettings: {},
         transcriptRevision: 0,
         compacting: false,

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import type { ServerEvent, ThinkingLevel } from "@agentaz/protocol";
-import { PiSessionController } from "../src/pi/session-controller.ts";
+import { PiSessionController } from "../../src/pi/session-controller.ts";
 
 type TestModel = {
     provider: string;

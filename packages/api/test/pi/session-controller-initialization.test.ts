@@ -5,7 +5,7 @@ import {
     createSessionController,
     type CreateSessionControllerOptions,
     openSessionController,
-} from "../src/pi/session-controller.ts";
+} from "../../src/pi/session-controller.ts";
 
 /**
  * Factory coverage: creating a manager-backed controller must not load SDK
@@ -129,6 +129,52 @@ Deno.test("openSessionController lazily deduplicates live initialization", async
         await controller.dispose();
     }
     finally {
+        await Deno.remove(root, { recursive: true });
+    }
+});
+
+/**
+ * Purpose: Verify a failed lazy initialization clears both service/init caches so
+ * a later operation can make a fresh attempt instead of reusing rejection forever.
+ * Expect: Two sequential operations receive distinct failures and createServices runs twice.
+ * Method: Reject each host service request with a different error and call abort twice.
+ */
+Deno.test("PiSessionController retries initialization after service failure", async () => {
+    const root = await Deno.makeTempDir();
+    const cwd = join(root, "workspace");
+    const agentDir = join(root, "agent");
+    await Deno.mkdir(cwd, { recursive: true });
+    const failures = [new Error("first failure"), new Error("second failure")];
+    let calls = 0;
+    const controller = createSessionController({
+        cwd,
+        agentDir,
+        authStorage: undefined as never,
+        modelRegistry: undefined as never,
+        approvalTimeoutMs: 100,
+        host: {
+            createServices: () =>
+                Promise.reject(failures[calls++] ?? failures[1]),
+            emit: () => {},
+            onSessionMetadataChanged: () => {},
+        },
+    });
+
+    try {
+        await assert.rejects(
+            () => controller.abort(),
+            (error) => error === failures[0],
+        );
+        assert.equal(controller.session, undefined);
+        await assert.rejects(
+            () => controller.abort(),
+            (error) => error === failures[1],
+        );
+        assert.equal(controller.session, undefined);
+        assert.equal(calls, 2);
+    }
+    finally {
+        await controller.dispose();
         await Deno.remove(root, { recursive: true });
     }
 });

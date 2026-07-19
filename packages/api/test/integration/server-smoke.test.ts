@@ -1,10 +1,10 @@
-import { hashAdminPassword } from "../src/auth/auth.ts";
+import { hashAdminPassword } from "../../src/auth/auth.ts";
 import { assertEquals, assertMatch, assertStringIncludes } from "@std/assert";
 import {
     DEFAULT_API_BODY_LIMIT_BYTES,
     LOGIN_BODY_LIMIT_BYTES,
     MESSAGE_BODY_LIMIT_BYTES,
-} from "../src/http/body-limit.ts";
+} from "../../src/http/body-limit.ts";
 
 const ADMIN_PASSWORD = "test-password";
 const SESSION_SECRET = "01234567890123456789012345678901";
@@ -28,7 +28,7 @@ Deno.test.beforeAll(async () => {
     try {
         staticDirEnv = await withStaticDirEnv();
 
-        const { app } = await import("../src/main.ts");
+        const { app } = await import("../../src/main.ts");
         const server = Deno.serve(
             {
                 hostname: "127.0.0.1",
