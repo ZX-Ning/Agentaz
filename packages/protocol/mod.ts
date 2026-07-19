@@ -9,15 +9,6 @@ export const PROTOCOL_VERSION = 8;
 
 /**
  * Supported Pi thinking levels exposed through the web UI.
- *
- * These control how much of the model's internal reasoning ("thinking")
- * is shown to the user. Higher levels show more reasoning trace.
- *   - off:     No thinking shown (default for non-reasoning models).
- *   - minimal: Brief thinking summary.
- *   - low:     Abbreviated reasoning.
- *   - medium:  Moderate reasoning detail.
- *   - high:    Detailed reasoning.
- *   - xhigh:   Maximum reasoning trace (requires model support).
  */
 export type ThinkingLevel =
     | "off"
@@ -25,7 +16,8 @@ export type ThinkingLevel =
     | "low"
     | "medium"
     | "high"
-    | "xhigh";
+    | "xhigh"
+    | "max";
 
 /** Base64-encoded image attachment reserved for future multimodal prompts. */
 export type ImagePayload = {
