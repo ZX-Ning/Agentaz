@@ -108,7 +108,7 @@ Out of scope for this plan:
 | ID            | Review item                                           | Disposition                           | Priority | Workstream | Status |
 | ------------- | ----------------------------------------------------- | ------------------------------------- | -------- | ---------- | ------ |
 | `COR-01`      | B1: loaded-session open/capacity/dedup race           | Fix                                   | P0       | WS1        | DONE   |
-| `COR-02`      | B3: revert/delete failure atomicity                   | Fix                                   | P1       | WS2        | TODO   |
+| `COR-02`      | B3: revert/delete failure atomicity                   | Fix                                   | P1       | WS2        | DONE   |
 | `PERF-01`     | Snapshot/usage projection repeated per client         | Fix                                   | P2       | WS5        | TODO   |
 | `PERF-02`     | `getHistory()` branch lookup is O(n²)                 | Fix                                   | P1       | WS5        | TODO   |
 | `COORD-01`    | B2: client ID can be forged                           | Document coordination-only boundary   | P2       | WS3        | TODO   |
@@ -197,26 +197,26 @@ a multi-step disk/controller transition recoverable.
 
 #### Tasks
 
-- [ ] Rework revert into a staged replacement:
+- [x] Rework revert into a staged replacement:
   1. validate idle/current-branch state;
   2. persist the branch marker;
   3. construct the replacement controller without public open dedup returning
      the old controller;
   4. swap registration only after replacement creation succeeds;
   5. dispose the old controller after the swap.
-- [ ] If replacement creation fails, keep the original controller registered and
+- [x] If replacement creation fails, keep the original controller registered and
       usable against its now-reverted manager state.
-- [ ] Preserve monotonic history revision across both success and recovery
+- [x] Preserve monotonic history revision across both success and recovery
       paths.
-- [ ] Compute/validate the soft-delete destination before unregistering the
+- [x] Compute/validate the soft-delete destination before unregistering the
       loaded controller.
-- [ ] Define a commit point for soft-delete. A rename failure before commit must
+- [x] Define a commit point for soft-delete. A rename failure before commit must
       leave the loaded controller registered and undisposed.
-- [ ] If cleanup fails after a successful rename, either roll the rename back or
+- [x] If cleanup fails after a successful rename, either roll the rename back or
       reopen/register a replacement before returning an error.
-- [ ] Publish `session_removed` and refresh persisted state only after the
+- [x] Publish `session_removed` and refresh persisted state only after the
       operation commits.
-- [ ] Keep source JSONL data recoverable on every failed path.
+- [x] Keep source JSONL data recoverable on every failed path.
 
 #### Required Tests
 
@@ -561,5 +561,6 @@ The remediation plan is complete when:
 
 | Date       | Change                                                                      | Findings                 |
 | ---------- | --------------------------------------------------------------------------- | ------------------------ |
+| 2026-07-19 | Made revert and loaded soft-delete failure-atomic with recovery tests       | `COR-02` `DONE`          |
 | 2026-07-19 | Serialized workspace lifecycle ownership and added deterministic race tests | `COR-01` `DONE`          |
 | 2026-07-19 | Created plan from the verified current backend review; no fixes implemented | All registered as `TODO` |

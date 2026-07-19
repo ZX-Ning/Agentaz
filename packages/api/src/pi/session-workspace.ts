@@ -72,6 +72,11 @@ export interface PiSessionWorkspaceDependencies {
         create(options: CreateSessionControllerOptions): ControllerBase;
         open(options: OpenSessionControllerOptions): ControllerBase;
     };
+    /** Injectable file boundary for deterministic soft-delete failure tests. */
+    softDeleteFileSystem?: {
+        fileExists(path: string): Promise<boolean>;
+        rename(source: string, destination: string): Promise<void>;
+    };
 }
 
 function defaultWorkspaceDependencies(): PiSessionWorkspaceDependencies {
@@ -431,25 +436,31 @@ export class PiSessionWorkspace {
             sessionFile,
         );
         const loaded = this.findLoadedSessionByFile(normalizedSessionFile);
-        // Capture the loaded id before disposal. A disposed controller is
-        // intentionally unusable, so reading loaded.sessionId after dispose()
-        // would turn a successful delete into an agent_error response.
         const loadedSessionId = loaded?.sessionId;
 
         if (loaded?.isBusy()) {
             throw new SessionBusyError();
         }
 
-        if (loadedSessionId && loaded) {
-            this.sessions.delete(loadedSessionId);
-            this.historyRevisionBySessionId.delete(loadedSessionId);
-            await loaded.dispose();
-        }
-
+        // Destination resolution is fallible and must precede ownership changes.
         const deletedSessionFile = await this.nextSoftDeletedSessionFile(
             normalizedSessionFile,
         );
-        await rename(normalizedSessionFile, deletedSessionFile);
+
+        if (!loaded || !loadedSessionId) {
+            await this.renameSessionFile(
+                normalizedSessionFile,
+                deletedSessionFile,
+            );
+        }
+        else {
+            await this.softDeleteLoadedSessionWithinMutation(
+                loaded,
+                normalizedSessionFile,
+                deletedSessionFile,
+            );
+            this.historyRevisionBySessionId.delete(loadedSessionId);
+        }
 
         this.eventBus.publish({
             type: "session_removed",
@@ -625,21 +636,46 @@ export class PiSessionWorkspace {
 
         const sessionManager = controller.getSessionManager();
         const currentName = sessionManager.getSessionName() ?? "";
-        this.rememberHistoryRevision(
-            controller,
-            controller.historyRevision() + 1,
-        );
+        const replacementRevision = controller.historyRevision() + 1;
         sessionManager.branch(normalizedEntryId);
         sessionManager.appendSessionInfo(currentName);
 
-        this.sessions.delete(sessionId);
-        await controller.dispose();
+        // The original manager now reflects the reverted branch. Raising its
+        // revision keeps the recovery path safe if replacement construction fails.
+        controller.seedHistoryRevision(replacementRevision);
+        this.rememberHistoryRevision(controller, replacementRevision);
 
-        const reopenedController = await this.openLoadedSessionWithinMutation(
-            resolve(sessionFile),
-        );
+        let reopenedController: ControllerBase;
+        try {
+            reopenedController = await this.createReplacementController(
+                resolve(sessionFile),
+                sessionId,
+                replacementRevision,
+            );
+        }
+        catch (error) {
+            // The original controller remains registered on its reverted
+            // manager state; publish that recovery state before returning.
+            this.emitStateChanged();
+            throw error;
+        }
+        this.sessions.set(sessionId, reopenedController);
+
+        let disposeError: unknown;
+        try {
+            await controller.dispose();
+        }
+        catch (error) {
+            // The replacement owns the session after the swap even if cleanup
+            // reports an error; surface the error only after publishing state.
+            disposeError = error;
+        }
+
         await this.refreshPersistedSessionCache();
         this.emitStateChanged();
+        if (disposeError) {
+            throw disposeError;
+        }
         return reopenedController;
     }
 
@@ -909,10 +945,127 @@ export class PiSessionWorkspace {
     /** Returns a non-conflicting filename for a soft-deleted session file. */
     private async nextSoftDeletedSessionFile(sessionFile: string) {
         const base = `${sessionFile}.deleted`;
-        if (!(await fileExists(base))) {
+        const exists = this.dependencies.softDeleteFileSystem?.fileExists ??
+            fileExists;
+        if (!(await exists(base))) {
             return base;
         }
         return `${base}.${Date.now()}`;
+    }
+
+    /** Renames a session file through the injectable filesystem boundary. */
+    private renameSessionFile(source: string, destination: string) {
+        const renameFile = this.dependencies.softDeleteFileSystem?.rename ??
+            rename;
+        return renameFile(source, destination);
+    }
+
+    /**
+     * Soft-deletes a loaded controller without exposing an ownership gap.
+     *
+     * A dormant replacement takes ownership before the old controller is
+     * disposed. Rename is the commit point. Cleanup failure after commit rolls
+     * the file back and reopens a usable controller before returning the error.
+     */
+    private async softDeleteLoadedSessionWithinMutation(
+        loaded: ControllerBase,
+        sourceFile: string,
+        deletedFile: string,
+    ) {
+        const sessionId = loaded.sessionId;
+        const recoveryRevision = loaded.historyRevision() + 1;
+        const recovery = await this.createReplacementController(
+            sourceFile,
+            sessionId,
+            recoveryRevision,
+        );
+
+        // From this point, every pre-commit failure leaves recovery registered.
+        this.sessions.set(sessionId, recovery);
+        try {
+            await loaded.dispose();
+        }
+        catch (error) {
+            this.emitStateChanged();
+            throw error;
+        }
+
+        try {
+            await this.renameSessionFile(sourceFile, deletedFile);
+        }
+        catch (error) {
+            this.emitStateChanged();
+            throw error;
+        }
+
+        // Rename committed. Remove the recovery owner only while disposing it.
+        this.sessions.delete(sessionId);
+        try {
+            await recovery.dispose();
+        }
+        catch (cleanupError) {
+            await this.recoverSoftDeleteAfterCommitFailure(
+                sessionId,
+                sourceFile,
+                deletedFile,
+                recoveryRevision + 1,
+                cleanupError,
+            );
+        }
+    }
+
+    /** Rolls back a committed rename and restores a fresh registered owner. */
+    private async recoverSoftDeleteAfterCommitFailure(
+        sessionId: string,
+        sourceFile: string,
+        deletedFile: string,
+        recoveryRevision: number,
+        cleanupError: unknown,
+    ): Promise<never> {
+        try {
+            await this.renameSessionFile(deletedFile, sourceFile);
+            const replacement = await this.createReplacementController(
+                sourceFile,
+                sessionId,
+                recoveryRevision,
+            );
+            this.sessions.set(sessionId, replacement);
+            this.rememberHistoryRevision(replacement, recoveryRevision);
+            this.emitStateChanged();
+        }
+        catch (recoveryError) {
+            throw new AggregateError(
+                [cleanupError, recoveryError],
+                "Soft-delete cleanup and recovery failed.",
+            );
+        }
+        throw cleanupError;
+    }
+
+    /** Constructs an unregistered controller for an atomic ownership swap. */
+    private async createReplacementController(
+        sessionFile: string,
+        expectedSessionId: string,
+        revision: number,
+    ) {
+        const controller = await this.dependencies.controllerFactory.open({
+            cwd: this.options.cwd,
+            agentDir: this.agentDir,
+            authStorage: this.authStorage,
+            modelRegistry: this.modelRegistry,
+            approvalTimeoutMs: this.options.approvalTimeoutMs,
+            host: this.createControllerHost(),
+            sessionFile,
+        });
+
+        if (controller.sessionId !== expectedSessionId) {
+            await controller.dispose();
+            throw new Error(
+                `Replacement session id mismatch: expected ${expectedSessionId}.`,
+            );
+        }
+        controller.seedHistoryRevision(revision);
+        return controller;
     }
 
     /**

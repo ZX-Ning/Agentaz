@@ -121,6 +121,9 @@ Deno.test("workspace soft-deletes idle sessions and rejects busy sessions", asyn
         Deno.writeTextFile(busyFile, "busy"),
     ]);
     const loaded = new FakeController("loaded", { sessionFile: loadedFile });
+    const loadedRecovery = new FakeController("loaded", {
+        sessionFile: loadedFile,
+    });
     const events: unknown[] = [];
     const eventBus = new AgentEventBus();
     eventBus.subscribe((event) => events.push(event));
@@ -137,6 +140,7 @@ Deno.test("workspace soft-deletes idle sessions and rejects busy sessions", asyn
             controllers: [loaded],
             list,
             eventBus,
+            open: () => loadedRecovery,
         });
         await workspace.createLoadedSession();
         const removedLoaded = await workspace.softDeletePersistedSession(
@@ -178,6 +182,252 @@ Deno.test("workspace soft-deletes idle sessions and rejects busy sessions", asyn
         assert.equal(busy.disposeCalls, 0);
     }
     finally {
+        await Deno.remove(root, { recursive: true });
+    }
+});
+
+/**
+ * Purpose: Keep revert recoverable when replacement construction fails after persistence.
+ * Expect: The original controller remains registered on the reverted branch with a newer revision.
+ * Method: Inject an open-factory failure after branch()/appendSessionInfo(), then inspect ownership.
+ */
+Deno.test("workspace keeps the original controller when revert replacement fails", async () => {
+    const root = await Deno.makeTempDir();
+    const cwd = join(root, "cwd");
+    const sessionDir = join(root, "sessions");
+    await Deno.mkdir(cwd, { recursive: true });
+    const manager = persistedManager(cwd, sessionDir, "one", "answer one");
+    const targetEntry = manager.getBranch().at(-1)?.id;
+    assert.ok(targetEntry);
+    manager.appendMessage(testMessage("user", "two"));
+    manager.appendMessage(testMessage("assistant", "answer two"));
+    const sessionFile = manager.getSessionFile();
+    assert.ok(sessionFile);
+    const original = new FakeController(manager.getSessionId(), {
+        sessionFile,
+        manager,
+        revision: 7,
+    });
+    const workspace = createWorkspace({
+        cwd,
+        controllers: [original],
+        list: () => Promise.resolve([summary(sessionFile, original.sessionId)]),
+        open: () => {
+            throw new Error("replacement failed");
+        },
+    });
+
+    try {
+        await workspace.createLoadedSession();
+        await assert.rejects(
+            () => workspace.revertSession(original.sessionId, targetEntry),
+            /replacement failed/,
+        );
+
+        assert.equal(workspace.hasSession(original.sessionId), true);
+        assert.equal(original.disposeCalls, 0);
+        assert.deepEqual(original.seededRevisions, [8]);
+        assert.equal(
+            messageIds(original.getSessionManager()).at(-1),
+            targetEntry,
+        );
+    }
+    finally {
+        await workspace.disposeAll();
+        await Deno.remove(root, { recursive: true });
+    }
+});
+
+/**
+ * Purpose: Keep replacement ownership committed when old-controller cleanup fails.
+ * Expect: Revert rejects with the cleanup error but the replacement remains registered and usable.
+ * Method: Inject dispose failure on the original after a successful replacement factory call.
+ */
+Deno.test("workspace retains revert replacement after old-controller dispose failure", async () => {
+    const root = await Deno.makeTempDir();
+    const cwd = join(root, "cwd");
+    const sessionDir = join(root, "sessions");
+    await Deno.mkdir(cwd, { recursive: true });
+    const manager = persistedManager(cwd, sessionDir, "one", "answer one");
+    const targetEntry = manager.getBranch().at(-1)?.id;
+    assert.ok(targetEntry);
+    manager.appendMessage(testMessage("user", "two"));
+    manager.appendMessage(testMessage("assistant", "answer two"));
+    const sessionFile = manager.getSessionFile();
+    assert.ok(sessionFile);
+    const cleanupError = new Error("old dispose failed");
+    const original = new FakeController(manager.getSessionId(), {
+        sessionFile,
+        manager,
+        revision: 2,
+        disposeError: cleanupError,
+    });
+    const replacementManager = SessionManager.open(
+        sessionFile,
+        undefined,
+        cwd,
+    );
+    const replacement = new FakeController(original.sessionId, {
+        sessionFile,
+        manager: replacementManager,
+    });
+    const workspace = createWorkspace({
+        cwd,
+        controllers: [original],
+        list: () => Promise.resolve([summary(sessionFile, original.sessionId)]),
+        open: () => replacement,
+    });
+
+    try {
+        await workspace.createLoadedSession();
+        await assert.rejects(
+            () => workspace.revertSession(original.sessionId, targetEntry),
+            cleanupError,
+        );
+
+        assert.equal(original.disposeCalls, 1);
+        assert.equal(workspace.hasSession(replacement.sessionId), true);
+        assert.deepEqual(replacement.seededRevisions, [3]);
+        assert.equal(
+            workspace.loadedSessions()[0]?.sessionId,
+            replacement.sessionId,
+        );
+    }
+    finally {
+        await workspace.disposeAll();
+        await Deno.remove(root, { recursive: true });
+    }
+});
+
+/**
+ * Purpose: Ensure soft-delete destination failure occurs before ownership changes.
+ * Expect: The original loaded controller and source file remain untouched with no removal event.
+ * Method: Inject a failing destination existence check and inspect state/events.
+ */
+Deno.test("workspace leaves loaded state untouched when delete destination calculation fails", async () => {
+    const root = await Deno.makeTempDir();
+    const sourceFile = join(root, "session.jsonl");
+    await Deno.writeTextFile(sourceFile, "session");
+    const original = new FakeController("session", { sessionFile: sourceFile });
+    const events: unknown[] = [];
+    const eventBus = new AgentEventBus();
+    eventBus.subscribe((event) => events.push(event));
+    const workspace = createWorkspace({
+        controllers: [original],
+        eventBus,
+        list: () => Promise.resolve([summary(sourceFile, original.sessionId)]),
+        softDeleteFileSystem: {
+            fileExists: () => Promise.reject(new Error("destination failed")),
+            rename: (source, destination) => Deno.rename(source, destination),
+        },
+    });
+
+    try {
+        await workspace.createLoadedSession();
+        await assert.rejects(
+            () => workspace.softDeletePersistedSession(sourceFile),
+            /destination failed/,
+        );
+
+        assert.equal(workspace.hasSession(original.sessionId), true);
+        assert.equal(original.disposeCalls, 0);
+        assert.equal(await exists(sourceFile), true);
+        assert.equal(removalEvents(events).length, 0);
+    }
+    finally {
+        await workspace.disposeAll();
+        await Deno.remove(root, { recursive: true });
+    }
+});
+
+/**
+ * Purpose: Recover loaded ownership when the soft-delete rename fails before commit.
+ * Expect: A prepared replacement remains registered, the source stays present, and no removal emits.
+ * Method: Inject rename failure after the original controller is safely replaced.
+ */
+Deno.test("workspace recovers a loaded session after soft-delete rename failure", async () => {
+    const root = await Deno.makeTempDir();
+    const sourceFile = join(root, "session.jsonl");
+    await Deno.writeTextFile(sourceFile, "session");
+    const original = new FakeController("session", { sessionFile: sourceFile });
+    const recovery = new FakeController("session", { sessionFile: sourceFile });
+    const events: unknown[] = [];
+    const eventBus = new AgentEventBus();
+    eventBus.subscribe((event) => events.push(event));
+    const workspace = createWorkspace({
+        controllers: [original],
+        eventBus,
+        list: () => Promise.resolve([summary(sourceFile, original.sessionId)]),
+        open: () => recovery,
+        softDeleteFileSystem: {
+            fileExists: () => Promise.resolve(false),
+            rename: () => Promise.reject(new Error("rename failed")),
+        },
+    });
+
+    try {
+        await workspace.createLoadedSession();
+        await assert.rejects(
+            () => workspace.softDeletePersistedSession(sourceFile),
+            /rename failed/,
+        );
+
+        assert.equal(original.disposeCalls, 1);
+        assert.equal(workspace.hasSession(recovery.sessionId), true);
+        assert.deepEqual(recovery.seededRevisions, [1]);
+        assert.equal(await exists(sourceFile), true);
+        assert.equal(removalEvents(events).length, 0);
+    }
+    finally {
+        await workspace.disposeAll();
+        await Deno.remove(root, { recursive: true });
+    }
+});
+
+/**
+ * Purpose: Roll back a committed rename when post-rename controller cleanup fails.
+ * Expect: The source file and a fresh replacement are restored without a removal event.
+ * Method: Fail disposal of the first recovery controller, then supply a second on reopen.
+ */
+Deno.test("workspace rolls back soft-delete after post-rename cleanup failure", async () => {
+    const root = await Deno.makeTempDir();
+    const sourceFile = join(root, "session.jsonl");
+    await Deno.writeTextFile(sourceFile, "session");
+    const cleanupError = new Error("recovery dispose failed");
+    const original = new FakeController("session", { sessionFile: sourceFile });
+    const failedRecovery = new FakeController("session", {
+        sessionFile: sourceFile,
+        disposeError: cleanupError,
+    });
+    const restored = new FakeController("session", { sessionFile: sourceFile });
+    const replacements = [failedRecovery, restored];
+    const events: unknown[] = [];
+    const eventBus = new AgentEventBus();
+    eventBus.subscribe((event) => events.push(event));
+    const workspace = createWorkspace({
+        controllers: [original],
+        eventBus,
+        list: () => Promise.resolve([summary(sourceFile, original.sessionId)]),
+        open: () => requireController(replacements),
+    });
+
+    try {
+        await workspace.createLoadedSession();
+        await assert.rejects(
+            () => workspace.softDeletePersistedSession(sourceFile),
+            cleanupError,
+        );
+
+        assert.equal(original.disposeCalls, 1);
+        assert.equal(failedRecovery.disposeCalls, 1);
+        assert.equal(workspace.hasSession(restored.sessionId), true);
+        assert.deepEqual(restored.seededRevisions, [2]);
+        assert.equal(await exists(sourceFile), true);
+        assert.equal(await exists(`${sourceFile}.deleted`), false);
+        assert.equal(removalEvents(events).length, 0);
+    }
+    finally {
+        await workspace.disposeAll();
         await Deno.remove(root, { recursive: true });
     }
 });
@@ -350,6 +600,9 @@ function createWorkspace(options: {
     open?: PiSessionWorkspaceDependencies["controllerFactory"]["open"];
     eventBus?: AgentEventBus;
     maxLoadedSessions?: number;
+    softDeleteFileSystem?: PiSessionWorkspaceDependencies[
+        "softDeleteFileSystem"
+    ];
 }) {
     const controllers = [...(options.controllers ?? [])];
     const dependencies: PiSessionWorkspaceDependencies = {
@@ -364,6 +617,7 @@ function createWorkspace(options: {
             create: () => requireController(controllers),
             open: options.open ?? (() => requireController(controllers)),
         },
+        softDeleteFileSystem: options.softDeleteFileSystem,
     };
     return new PiSessionWorkspace(
         {
@@ -391,6 +645,7 @@ class FakeController implements ControllerBase {
     private readonly manager?: SessionManager;
     private readonly entries: SessionEntry[];
     private revision: number;
+    private readonly disposeError?: Error;
 
     constructor(
         sessionId: string,
@@ -400,6 +655,7 @@ class FakeController implements ControllerBase {
             manager?: SessionManager;
             entries?: SessionEntry[];
             revision?: number;
+            disposeError?: Error;
         } = {},
     ) {
         this.sessionId = sessionId;
@@ -408,6 +664,7 @@ class FakeController implements ControllerBase {
         this.manager = options.manager;
         this.entries = options.entries ?? options.manager?.getBranch() ?? [];
         this.revision = options.revision ?? 0;
+        this.disposeError = options.disposeError;
     }
 
     historyRevision() {
@@ -505,6 +762,9 @@ class FakeController implements ControllerBase {
 
     dispose() {
         this.disposeCalls += 1;
+        if (this.disposeError) {
+            return Promise.reject(this.disposeError);
+        }
         return Promise.resolve();
     }
 
@@ -595,6 +855,12 @@ async function exists(path: string) {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
     return Boolean(value) && typeof value === "object";
+}
+
+function removalEvents(events: unknown[]) {
+    return events.filter((event) =>
+        isRecord(event) && event.type === "session_removed"
+    );
 }
 
 function withEnv(name: string, value: string | undefined) {
