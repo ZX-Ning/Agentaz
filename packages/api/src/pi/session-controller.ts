@@ -514,7 +514,7 @@ export class PiSessionController implements ControllerBase {
         // from the persisted session context on disk.
         const restored = session
             ? undefined
-            : this.requireSessionManager().buildSessionContext();
+            : this.buildDormantSessionContext();
         const restoredModel = restored?.model
             ? this.modelRegistry.find(
                 restored.model.provider,
@@ -541,6 +541,20 @@ export class PiSessionController implements ControllerBase {
                 : undefined,
             pendingThinkingLevel: this.pendingSettings.thinkingLevel,
         };
+    }
+
+    /** Wraps persisted-context corruption with session detail for the HTTP error log. */
+    private buildDormantSessionContext() {
+        try {
+            return this.requireSessionManager().buildSessionContext();
+        }
+        catch (cause) {
+            // Do not log here: the request boundary logs this contextual error once.
+            throw new Error(
+                `Failed to build persisted model context for session ${this.sessionId}.`,
+                { cause },
+            );
+        }
     }
 
     /**
@@ -2290,7 +2304,7 @@ export function toTimestamp(value: unknown): number | undefined {
 /** Summarizes tool result content for display, truncating at 500 characters. */
 export function summarizeToolResult(result: unknown) {
     const text = flattenText(result);
-    return text.length > 500 ? `${text.slice(0, 500)}...` : text;
+    return text.length > 500 ? `${text.slice(0, 500)}…` : text;
 }
 
 /** Normalizes Pi SDK ContextUsage to protocol UiContextUsage. */

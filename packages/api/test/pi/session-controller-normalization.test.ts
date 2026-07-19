@@ -260,7 +260,10 @@ Deno.test("tool and content helpers normalize provider variants", () => {
         { n: 2 },
     );
     assert.equal(flattenText(["a", { text: "b" }, { ignored: true }]), "ab");
-    assert.equal(summarizeToolResult("x".repeat(501)).length, 503);
+    assert.equal(
+        summarizeToolResult("x".repeat(501)),
+        `${"x".repeat(500)}…`,
+    );
     assert.deepEqual(toPiImages([{ mediaType: "image/png", data: "abc" }]), [
         { type: "image", mimeType: "image/png", data: "abc" },
     ]);

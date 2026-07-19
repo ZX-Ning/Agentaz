@@ -317,6 +317,33 @@ Deno.test("PiSessionController restores mapped max thinking consistently", () =>
 });
 
 /**
+ * Purpose: Keep corrupt dormant model context explicit while preserving generic HTTP redaction.
+ * Expect: The controller throws one contextual error whose cause remains available to server logs.
+ * Method: Inject a failing manager context build and inspect the thrown error contract directly.
+ */
+Deno.test("PiSessionController contextualizes dormant model context failures", () => {
+    const cause = new Error("corrupt session entry");
+    const controller = bareController(undefined as never, [], {
+        sessionResult: undefined,
+        sessionManager: {
+            getSessionId: () => "session-corrupt",
+            buildSessionContext: () => {
+                throw cause;
+            },
+        },
+    });
+
+    assert.throws(
+        () => controller.getModelState(),
+        (error) =>
+            error instanceof Error &&
+            error.message ===
+                "Failed to build persisted model context for session session-corrupt." &&
+            error.cause === cause,
+    );
+});
+
+/**
  * Purpose: Verify HTTP history caching is stable and revision seeding can only move
  * forward when workspace controller replacement invalidates old snapshots.
  * Expect: Repeated reads share identity; higher seed rebuilds; lower seed is ignored.

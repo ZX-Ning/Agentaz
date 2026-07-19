@@ -276,6 +276,11 @@ new or replacement controller above all currently loaded revisions. This
 preserves stale-history rejection across reopen/revert without retaining a
 process-lifetime map of every session ID.
 
+Dormant model reads rebuild persisted Pi session context. Corrupt context is an
+explicit server failure: the controller wraps it with the session ID for the
+single request-boundary log, while the HTTP response remains the generic
+redacted 500 contract.
+
 `PiSessionController` owns browser-facing operations for one manager-backed
 session. Create/open only attaches a `SessionManager`; the first operation that
 needs a live Pi session lazily creates controller-local services, binds
@@ -379,6 +384,9 @@ History projection includes Pi `compaction` entries as durable `system` messages
 in the transcript. The marker is intentionally concise and uses the persisted
 `tokensBefore` value; the full compaction summary remains in the Pi session
 entry and is not rendered in the chat transcript by default.
+
+Backend-generated truncated tool results and entry previews use the single
+Unicode ellipsis marker (`…`).
 
 `clientMessageId` belongs to prompt submissions only. `follow_up` currently
 queues text inside Pi's pending queue and does not create a confirmed browser

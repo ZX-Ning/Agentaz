@@ -9,7 +9,10 @@ import type {
 } from "@agentaz/protocol";
 import type { PiSessionWorkspace } from "../../src/pi/session-workspace.ts";
 import { defaultPermissionConfig } from "../../src/extensions/permission-config.ts";
-import { agentHttpError } from "../../src/http/agent.ts";
+import {
+    agentHttpError,
+    agentHttpErrorResponse,
+} from "../../src/http/agent.ts";
 import { createAgentRoutes } from "../../src/routes/agent.ts";
 import type { AgentRuntime } from "../../src/runtime/agent-runtime.ts";
 import { AgentEventBus } from "../../src/runtime/event-bus.ts";
@@ -137,6 +140,41 @@ Deno.test("agent routes validate bodies and classify missing sessions", async ()
 });
 
 /**
+ * Purpose: Pin the dormant model-context failure contract at the production HTTP boundary.
+ * Expect: One contextual server log accompanies a generic client-safe 500 response.
+ * Method: Inject the controller-style contextual error into GET models and capture the boundary.
+ */
+Deno.test("agent model route logs context once and redacts dormant failures", async () => {
+    using errors = captureConsoleErrors();
+    const harness = routeHarness(true);
+    harness.workspace.addSession("session-corrupt");
+    harness.workspace.modelStateFailure = new Error(
+        "Failed to build persisted model context for session session-corrupt.",
+        { cause: new Error("corrupt session entry") },
+    );
+
+    const result = await requestJson(
+        harness.app,
+        "GET",
+        "/api/agent/sessions/session-corrupt/models",
+    );
+
+    assert.equal(result.response.status, 500);
+    assert.deepEqual(result.payload, {
+        code: "agent_error",
+        message: "Unexpected server error.",
+        recoverable: false,
+    });
+    assert.equal(errors.messages.length, 1);
+    assert.deepEqual(errors.messages[0]?.[1], {
+        method: "GET",
+        path: "/api/agent/sessions/session-corrupt/models",
+    });
+    assert.match(String(errors.messages[0]?.[2]), /session-corrupt/);
+    assert.doesNotMatch(JSON.stringify(result.payload), /corrupt session/);
+});
+
+/**
  * Purpose: Verify short mutation routes hold one client-scoped lease, reject another
  * client concurrently, and release control on both success and failure.
  * Expect: The owner is visible while model mutation waits; every terminal path clears it.
@@ -261,7 +299,7 @@ Deno.test("agent message route holds control through background settlement", asy
     assert.equal(harness.presence.ownerOf("session-a"), undefined);
 });
 
-function routeHarness() {
+function routeHarness(useProductionErrorBoundary = false) {
     const eventBus = new AgentEventBus();
     const presence = new ClientPresence();
     const workspace = new FakeAgentWorkspace();
@@ -275,10 +313,12 @@ function routeHarness() {
         } as unknown as SseAgentHub,
     } satisfies AgentRuntime;
     const app = new Hono();
-    app.onError((error, c) => {
-        const mapped = agentHttpError(error);
-        return c.json(mapped.data, { status: mapped.status as 400 });
-    });
+    app.onError(
+        useProductionErrorBoundary ? agentHttpErrorResponse : (error, c) => {
+            const mapped = agentHttpError(error);
+            return c.json(mapped.data, { status: mapped.status as 400 });
+        },
+    );
     app.route("/api", createAgentRoutes(() => runtime));
     return { app, eventBus, presence, workspace };
 }
@@ -289,6 +329,7 @@ class FakeAgentWorkspace {
     permissionConfig = defaultPermissionConfig();
     modelGate?: Promise<void>;
     modelFailure?: Error;
+    modelStateFailure?: Error;
     modelStarted = Promise.withResolvers<void>();
     submitFailure?: Error;
     settleMessage?: () => void;
@@ -359,6 +400,9 @@ class FakeAgentWorkspace {
     }
 
     getSessionModelState(sessionId: string) {
+        if (this.modelStateFailure) {
+            throw this.modelStateFailure;
+        }
         return this.modelState(sessionId);
     }
 
@@ -423,6 +467,18 @@ class FakeAgentWorkspace {
             config: structuredClone(this.permissionConfig),
         };
     }
+}
+
+function captureConsoleErrors() {
+    const original = console.error;
+    const messages: unknown[][] = [];
+    console.error = (...args: unknown[]) => messages.push(args);
+    return {
+        messages,
+        [Symbol.dispose]() {
+            console.error = original;
+        },
+    };
 }
 
 function loadedSession(sessionId: string): UiRuntimeLoadedSession {

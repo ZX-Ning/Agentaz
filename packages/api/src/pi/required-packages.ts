@@ -106,7 +106,7 @@ export async function ensureRequiredPiPackages(agentDir: string) {
 function resolveRequiredPackageSources(): Promise<
     RequiredPackageSource[]
 > {
-    const nodeModulesDir = process.env[REQUIRED_PI_NODE_MODULES_DIR_ENV]
+    const nodeModulesDir = Deno.env.get(REQUIRED_PI_NODE_MODULES_DIR_ENV)
         ?.trim();
     if (!nodeModulesDir) {
         return Promise.resolve(

@@ -121,11 +121,11 @@ Out of scope for this plan:
 | `HTTP-02`     | B10: unknown 500 messages expose internals            | Fix + server-side logging             | P2       | WS3        | DONE     |
 | `PROTO-01`    | B11: merged assistant metadata semantics are implicit | Document intentional projection       | P3       | WS4        | DONE     |
 | `COMPAT-01`   | B12: `max` thinking support is incomplete             | Fix across protocol/backend/frontend  | P1       | WS4        | DONE     |
-| `CLEAN-01`    | B12: required packages use `process.env`              | Standardize on `Deno.env`             | P4       | WS6        | TODO     |
-| `MODEL-01`    | B12: dormant model context read can throw             | Make failure behavior explicit/tested | P3       | WS6        | TODO     |
+| `CLEAN-01`    | B12: required packages use `process.env`              | Standardize on `Deno.env`             | P4       | WS6        | DONE     |
+| `MODEL-01`    | B12: dormant model context read can throw             | Make failure behavior explicit/tested | P3       | WS6        | DONE     |
 | `STATIC-01`   | B12: SPA fallback rereads `index.html`                | Cache production shell read           | P4       | WS5        | DONE     |
 | `AUTH-03`     | B12: public auth path matching is brittle             | Use exact normalized paths            | P3       | WS3        | DONE     |
-| `STYLE-01`    | Truncation markers use inconsistent ellipses          | Standardize                           | P4       | WS6        | TODO     |
+| `STYLE-01`    | Truncation markers use inconsistent ellipses          | Standardize                           | P4       | WS6        | DONE     |
 | `REFACTOR-01` | Controller normalization helpers make file oversized  | Extract after behavior fixes          | P4       | WS6        | TODO     |
 
 `AUTH-02` is tracked even though the expected outcome is an accepted risk. It is
@@ -417,13 +417,13 @@ before refactoring normalization
   - keep only O(1) workspace revision state.
 - [x] Add tests covering eviction/reopen/revert after many distinct sessions and
       prove the replacement revision remains greater than the previous instance.
-- [ ] Replace `process.env[AGENTAZ_PI_NODE_MODULES_DIR]` with `Deno.env.get()`
+- [x] Replace `process.env[AGENTAZ_PI_NODE_MODULES_DIR]` with `Deno.env.get()`
       for repository consistency; retain current behavior/tests.
-- [ ] Keep dormant `buildSessionContext()` failures explicit rather than
+- [x] Keep dormant `buildSessionContext()` failures explicit rather than
       silently reporting `off`/no model. Rely on the hardened generic 500
       boundary, add contextual server logging, and test the chosen failure
       contract.
-- [ ] Standardize truncation markers (`…` or `...`) in one focused change and
+- [x] Standardize truncation markers (`…` or `...`) in one focused change and
       update exact-output tests.
 - [ ] After correctness/protocol changes settle, extract pure
       history/content/tool normalization helpers from `session-controller.ts`
@@ -565,6 +565,7 @@ The remediation plan is complete when:
 
 | Date       | Change                                                                         | Findings                 |
 | ---------- | ------------------------------------------------------------------------------ | ------------------------ |
+| 2026-07-19 | Standardized env/truncation and made dormant model failures explicit           | WS6 low-risk items done  |
 | 2026-07-19 | Replaced per-session revision retention with one monotonic generation          | `MEM-01` `DONE`          |
 | 2026-07-19 | Removed history/snapshot hot paths and cached the per-app SPA shell            | WS5 findings complete    |
 | 2026-07-19 | Isolated compact compatibility and guarded anonymous tool projection           | `EVENT-01`, `PROTO-01`   |

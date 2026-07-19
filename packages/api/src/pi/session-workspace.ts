@@ -1246,5 +1246,5 @@ function isUiEntryRole(role: unknown): role is "user" | "assistant" {
 /** Builds a compact one-line preview for a fork/revert picker entry. */
 function summarizeEntryContent(content: unknown) {
     const text = flattenText(content).replace(/\s+/g, " ").trim();
-    return text.length > 100 ? `${text.slice(0, 100)}...` : text;
+    return text.length > 100 ? `${text.slice(0, 100)}…` : text;
 }
