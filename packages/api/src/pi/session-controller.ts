@@ -1506,6 +1506,7 @@ export class PiSessionController implements ControllerBase {
         if (phase === "start" && this.anonymousToolCallId) {
             this.anonymousToolProjectionAmbiguous = true;
             this.anonymousToolCallId = undefined;
+            this.currentToolRequestAnchor = undefined;
             const message =
                 "Overlapping anonymous tool calls cannot be correlated; live anonymous tool projection is paused until the turn completes.";
             console.error(`[agentaz-server] ${message}`);

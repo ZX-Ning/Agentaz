@@ -6,6 +6,10 @@ import { PiSessionController } from "../../src/pi/session-controller.ts";
 type LiveTurnTestController = {
     liveTurnMessages: Map<string, UiMessage>;
     currentAssistantMessageId: string;
+    currentToolRequestAnchor?: {
+        messageId: string;
+        toolCallId: string;
+    };
     startPromptTurn(
         text: string,
         turn: { turnId: string; clientMessageId: string },
@@ -178,7 +182,7 @@ Deno.test("live projection streams thinking and anonymous tool result deltas", (
 
 /**
  * Purpose: Prevent overlapping anonymous provider events from cross-wiring tool blocks.
- * Expect: Ambiguity emits one recoverable error and suppresses anonymous updates/ends.
+ * Expect: Ambiguity clears approval anchoring, emits one error, and suppresses updates/ends.
  * Method: Start two id-less calls, send id-less lifecycle events, then verify an
  * explicit current-SDK call still projects independently.
  */
@@ -192,7 +196,12 @@ Deno.test("live projection stops ambiguous anonymous tool correlation", () => {
     });
 
     controller.onSessionEvent({ type: "tool_start", name: "first" });
+    assert.equal(
+        toolRequestAnchor(controller)?.toolCallId,
+        "anonymous-1",
+    );
     controller.onSessionEvent({ type: "tool_start", name: "second" });
+    assert.equal(toolRequestAnchor(controller), undefined);
     controller.onSessionEvent({
         type: "tool_update",
         partialResult: { content: "ambiguous" },
@@ -204,6 +213,7 @@ Deno.test("live projection stops ambiguous anonymous tool correlation", () => {
         toolCallId: "explicit-1",
         toolName: "read",
     });
+    assert.equal(toolRequestAnchor(controller)?.toolCallId, "explicit-1");
     controller.onSessionEvent({
         type: "tool_execution_end",
         toolCallId: "explicit-1",
@@ -370,6 +380,10 @@ function liveTurnController(
         disposed: false,
     });
     return controller;
+}
+
+function toolRequestAnchor(controller: LiveTurnTestController) {
+    return controller.currentToolRequestAnchor;
 }
 
 function captureConsoleErrors() {

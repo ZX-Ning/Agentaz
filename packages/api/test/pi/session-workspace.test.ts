@@ -351,9 +351,9 @@ Deno.test({
 });
 
 /**
- * Purpose: Guard the corrected finding that concurrent creates already obey the cap.
- * Expect: All requests settle successfully while no registration starts at full capacity.
- * Method: Queue four creates into two slots and assert factory-time capacity plus final state.
+ * Purpose: Guard the loaded-session cap while replacements retain their old owner until commit.
+ * Expect: All requests settle successfully and the published working set never exceeds the cap.
+ * Method: Queue four creates into two slots and record factory-time plus final working-set sizes.
  */
 Deno.test({
     name: "workspace retains the loaded-session cap across concurrent creates",
@@ -366,6 +366,7 @@ Deno.test({
             fakeController("session-d"),
         ];
         const workspaceRef: { current?: PiSessionWorkspace } = {};
+        const factorySizes: number[] = [];
         const workspace = createWorkspace(
             new AgentEventBus(),
             [],
@@ -375,7 +376,9 @@ Deno.test({
             undefined,
             () => {
                 assert.ok(workspaceRef.current);
-                assert.ok(workspaceRef.current.loadedSessions().length < 2);
+                factorySizes.push(
+                    workspaceRef.current.loadedSessions().length,
+                );
                 return requireNextController(controllers);
             },
         );
@@ -392,7 +395,86 @@ Deno.test({
             workspace.loadedSessions().map((session) => session.sessionId),
             ["session-c", "session-d"],
         );
+        assert.deepEqual(factorySizes, [0, 1, 2, 2]);
         assert.ok(workspace.loadedSessions().length <= 2);
+    },
+});
+
+/**
+ * Purpose: Keep the current owner reachable when replacement construction fails at capacity.
+ * Expect: The failed create leaves the old controller registered and undisposed.
+ * Method: Fill one slot, throw from the next factory call, then inspect ownership and cleanup.
+ */
+Deno.test({
+    name:
+        "workspace preserves the eviction candidate when replacement construction fails",
+    permissions: { env: true, read: true, sys: ["homedir"] },
+    async fn() {
+        const current = fakeController("current");
+        let createCalls = 0;
+        const workspace = createWorkspace(
+            new AgentEventBus(),
+            [],
+            () => [],
+            1,
+            undefined,
+            undefined,
+            () => {
+                createCalls += 1;
+                if (createCalls === 1) {
+                    return current;
+                }
+                throw new Error("replacement construction failed");
+            },
+        );
+        await workspace.createLoadedSession();
+
+        await assert.rejects(
+            () => workspace.createLoadedSession(),
+            /replacement construction failed/,
+        );
+
+        assert.deepEqual(
+            workspace.loadedSessions().map((session) => session.sessionId),
+            ["current"],
+        );
+        assert.equal(stateOf(current).disposeCalls, 0);
+    },
+});
+
+/**
+ * Purpose: Keep replacement ownership committed when eviction cleanup fails.
+ * Expect: The create rejects with the cleanup error, but the new controller remains loaded.
+ * Method: Reject disposal of a reserved candidate after the ownership swap and inspect state.
+ */
+Deno.test({
+    name: "workspace retains the replacement after eviction cleanup fails",
+    permissions: { env: true, read: true, sys: ["homedir"] },
+    async fn() {
+        const cleanupError = new Error("eviction cleanup failed");
+        const current = fakeController("current", {
+            dispose: () => Promise.reject(cleanupError),
+        });
+        const replacement = fakeController("replacement");
+        const workspace = createWorkspace(
+            new AgentEventBus(),
+            [current, replacement],
+            () => [],
+            1,
+        );
+        await workspace.createLoadedSession();
+
+        await assert.rejects(
+            () => workspace.createLoadedSession(),
+            cleanupError,
+        );
+
+        assert.deepEqual(
+            workspace.loadedSessions().map((session) => session.sessionId),
+            ["replacement"],
+        );
+        assert.equal(stateOf(current).disposeCalls, 1);
+        assert.equal(stateOf(replacement).disposeCalls, 0);
     },
 });
 
@@ -886,6 +968,7 @@ function fakeController(
         entries?: ReturnType<ControllerBase["getEntries"]>;
         sessionFile?: string;
         sessionManager?: SessionManager;
+        dispose?: () => Promise<void>;
     } = {},
 ): ControllerBase {
     let revision = options.revision ?? 0;
@@ -913,7 +996,7 @@ function fakeController(
         isBusy: () => options.busy ?? false,
         dispose: () => {
             state.disposeCalls += 1;
-            return Promise.resolve();
+            return options.dispose?.() ?? Promise.resolve();
         },
         getHistory: () => ({ sessionId, revision: 0, messages: [] }),
         compact: () =>

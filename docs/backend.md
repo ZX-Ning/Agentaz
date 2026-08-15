@@ -261,14 +261,27 @@ Workspace ownership transitions are serialized by one failure-safe lifecycle
 queue. Create, open, fork, revert, rename, soft-delete, eviction, and process
 teardown perform their capacity/deduplication checks and working-set mutations
 in that queue. A rejected transition does not block later requests. Message
-turns and ordinary controller operations remain outside the queue.
+turns and ordinary controller operations remain outside the queue. Destructive
+ownership changes therefore also reserve the affected session ID; normal
+mutations return `session_busy` until the transition releases that reservation.
+
+Capacity replacement is staged rather than destructive: the workspace reserves
+an idle, unprotected eviction candidate, constructs the provisional controller
+while the current owner remains registered, then publishes the replacement
+before disposing the old owner. Construction failure leaves the candidate
+untouched. Cleanup failure after the swap fails the request but keeps the new
+controller reachable and publishes the committed removal/state transition.
 
 Revert prepares a replacement before swapping controller ownership. If opening
 the replacement fails, the original controller stays registered on the newly
 persisted branch with an advanced transcript revision. Loaded soft-delete also
 keeps a recovery controller registered across pre-commit failures; the file
 rename is the commit point. Post-rename cleanup failure rolls the file back and
-registers a fresh replacement before the error crosses the HTTP boundary.
+registers a fresh replacement before the error crosses the HTTP boundary. Fork
+reserves load capacity before the Pi SDK creates a JSONL file. If naming,
+validation, or provisional open fails before registration, the workspace removes
+the new file. A removal failure is combined with the original error and the
+persisted-session projection is refreshed so the orphan remains visible.
 
 Controller ownership epochs are seeded from one workspace-wide monotonic history
 generation. The workspace advances it before eviction/disposal and seeds each
@@ -415,8 +428,9 @@ their existing projection behavior. The legacy/provider fallback for one
 sequential anonymous tool call uses a synthetic ID. If a second anonymous start
 overlaps before the first ends, correlation is ambiguous: the controller emits a
 recoverable `tool_projection_ambiguous` error, suppresses further anonymous
-update/end projection for that turn, and relies on persisted history after
-completion. Explicit-ID tools continue projecting normally.
+update/end projection for that turn, clears the ambiguous approval anchor, and
+relies on persisted history after completion. Explicit-ID tools continue
+projecting normally and establish a fresh approval anchor.
 
 ## Permissions
 
@@ -484,7 +498,8 @@ Current behavior:
 - list sessions for current cwd
 - open/resume selected session
 - keep loaded sessions server-resident across focus changes and SSE disconnects
-- evict one idle, non-active session only when `maxLoadedSessions` is reached
+- reserve and replace one idle, non-active session only when `maxLoadedSessions`
+  is reached
 - do not expose loaded-session close/unload as a user-facing browser action
 - expose simple loaded-session fork/revert HTTP APIs for the current branch only
 - require entry-scoped fork points to include an assistant response; Pi defers

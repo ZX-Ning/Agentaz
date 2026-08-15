@@ -128,6 +128,24 @@ Out of scope for this plan:
 | `STYLE-01`    | Truncation markers use inconsistent ellipses          | Standardize                             | P4       | WS6        | DONE     |
 | `REFACTOR-01` | Controller normalization helpers make file oversized  | Extract after behavior fixes            | P4       | WS6        | DONE     |
 
+### Follow-Up Review Corrections (2026-08-15)
+
+A post-completion branch review found four narrower ownership/projection gaps.
+They are tracked separately from the original findings because the lifecycle
+queue itself remains correct; these cases cross the queue boundary or fail at a
+staged commit boundary.
+
+| ID          | Follow-up item                                             | Resolution                                                    | Status |
+| ----------- | ---------------------------------------------------------- | ------------------------------------------------------------- | ------ |
+| `COR-01A`   | Normal mutation can start during destructive transition    | Reserve transitioning IDs; reject mutable access as busy      | DONE   |
+| `COR-01B`   | Eviction unregisters owner before replacement is ready     | Construct first; publish swap before old-controller cleanup   | DONE   |
+| `COR-02A`   | Fork materializes JSONL before capacity/open is guaranteed | Preflight capacity; remove unowned file on pre-commit failure | DONE   |
+| `EVENT-01A` | Anonymous overlap retains a stale approval anchor          | Clear anchor when anonymous correlation becomes ambiguous     | DONE   |
+
+Follow-up regression coverage includes loaded soft-delete mutation exclusion,
+pre- and post-commit capacity failures, real fork-file preflight/rollback,
+rollback-error aggregation, and anonymous approval-anchor reset.
+
 `AUTH-02` is tracked even though the expected outcome is an accepted risk. It is
 not complete until the logout/revocation semantics and remote-exposure gate are
 explicitly documented.
@@ -566,6 +584,7 @@ The remediation plan is complete when:
 
 | Date       | Change                                                                         | Findings                 |
 | ---------- | ------------------------------------------------------------------------------ | ------------------------ |
+| 2026-08-15 | Closed follow-up ownership, fork rollback, and approval-anchor review gaps     | Follow-up audit complete |
 | 2026-07-19 | Accepted/documented Pi 0.80.6 compact errors; no upstream issue will be filed  | `SDK-01` `ACCEPTED`      |
 | 2026-07-19 | Audited final local state: check/test/lint pass; concurrency suite 10/10       | Pre-decision audit       |
 | 2026-07-19 | Added real authenticated SSE and complete optional-JSON boundary coverage      | WS7 gaps complete        |

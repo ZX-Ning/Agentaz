@@ -15,6 +15,7 @@ import {
     BadRequestError,
     PersistedSessionNotFoundError,
     SessionBusyError,
+    SessionLimitReachedError,
 } from "../../src/errors.ts";
 import type { ControllerBase } from "../../src/pi/session-controller.ts";
 import { toUiSessionSummary } from "../../src/pi/session-normalization.ts";
@@ -180,6 +181,59 @@ Deno.test("workspace soft-deletes idle sessions and rejects busy sessions", asyn
         assert.equal(busy.disposeCalls, 0);
     }
     finally {
+        await Deno.remove(root, { recursive: true });
+    }
+});
+
+/**
+ * Purpose: Prevent a prompt from starting after soft-delete has accepted an idle owner.
+ * Expect: Normal mutations report SessionBusyError until the lifecycle transition settles.
+ * Method: Pause destination resolution after the idle check, submit a prompt, then finish delete.
+ */
+Deno.test("workspace blocks mutations throughout loaded soft-delete", async () => {
+    const root = await Deno.makeTempDir();
+    const sourceFile = join(root, "session.jsonl");
+    await Deno.writeTextFile(sourceFile, "session");
+    const destinationEntered = deferred<void>();
+    const releaseDestination = deferred<boolean>();
+    const original = new FakeController("session", { sessionFile: sourceFile });
+    const recovery = new FakeController("session", { sessionFile: sourceFile });
+    const workspace = createWorkspace({
+        controllers: [original],
+        list: () => Promise.resolve([summary(sourceFile, original.sessionId)]),
+        open: () => recovery,
+        softDeleteFileSystem: {
+            fileExists: () => {
+                destinationEntered.resolve();
+                return releaseDestination.promise;
+            },
+            rename: (source, destination) => Deno.rename(source, destination),
+        },
+    });
+
+    try {
+        await workspace.createLoadedSession();
+        const deleting = workspace.softDeletePersistedSession(sourceFile);
+        await destinationEntered.promise;
+
+        assert.throws(
+            () =>
+                workspace.submitMessage("session", {
+                    mode: "prompt",
+                    clientMessageId: "delete-race",
+                    text: "must not start",
+                }),
+            SessionBusyError,
+        );
+
+        releaseDestination.resolve(false);
+        await deleting;
+        assert.equal(original.disposeCalls, 1);
+        assert.equal(await exists(`${sourceFile}.deleted`), true);
+    }
+    finally {
+        releaseDestination.resolve(false);
+        await workspace.disposeAll();
         await Deno.remove(root, { recursive: true });
     }
 });
@@ -535,6 +589,171 @@ Deno.test("workspace full fork and revert preserve branches and revisions", asyn
 });
 
 /**
+ * Purpose: Refuse a fork before materialization when no load-capacity reservation exists.
+ * Expect: A protected source in a one-slot workspace yields SessionLimitReachedError and no file.
+ * Method: Snapshot JSONL files around a full-fork request whose only owner is the source.
+ */
+Deno.test("workspace preflights fork capacity before creating its JSONL file", async () => {
+    const root = await Deno.makeTempDir();
+    using _agentDir = withEnv("PI_CODING_AGENT_DIR", join(root, "agent"));
+    const cwd = join(root, "cwd");
+    const sourceDir = join(root, "source-sessions");
+    await Deno.mkdir(cwd, { recursive: true });
+    const manager = persistedManager(cwd, sourceDir, "one", "answer one");
+    const sourceFile = manager.getSessionFile();
+    assert.ok(sourceFile);
+    const source = new FakeController(manager.getSessionId(), {
+        sessionFile: sourceFile,
+        manager,
+    });
+    const workspace = createWorkspace({
+        cwd,
+        controllers: [source],
+        list: () => Promise.resolve([summary(sourceFile, source.sessionId)]),
+        maxLoadedSessions: 1,
+    });
+
+    try {
+        await workspace.createLoadedSession();
+        const before = await jsonlFiles(root);
+
+        await assert.rejects(
+            () => workspace.forkSession(source.sessionId, {}),
+            SessionLimitReachedError,
+        );
+
+        assert.deepEqual(await jsonlFiles(root), before);
+        assert.equal(workspace.hasSession(source.sessionId), true);
+        assert.equal(source.disposeCalls, 0);
+    }
+    finally {
+        await workspace.disposeAll();
+        await Deno.remove(root, { recursive: true });
+    }
+});
+
+/**
+ * Purpose: Roll back a materialized fork when its provisional controller cannot open.
+ * Expect: The open error propagates, the new JSONL is removed, and the source stays loaded.
+ * Method: Inject an open failure plus observable removal boundary and compare file snapshots.
+ */
+Deno.test("workspace removes an unowned fork after controller open fails", async () => {
+    const root = await Deno.makeTempDir();
+    using _agentDir = withEnv("PI_CODING_AGENT_DIR", join(root, "agent"));
+    const cwd = join(root, "cwd");
+    const sourceDir = join(root, "source-sessions");
+    await Deno.mkdir(cwd, { recursive: true });
+    const manager = persistedManager(cwd, sourceDir, "one", "answer one");
+    const sourceFile = manager.getSessionFile();
+    assert.ok(sourceFile);
+    const source = new FakeController(manager.getSessionId(), {
+        sessionFile: sourceFile,
+        manager,
+    });
+    let removedFile: string | undefined;
+    const list = async (listCwd: string) => [
+        summary(sourceFile, source.sessionId),
+        ...(await SessionManager.list(listCwd)).map(toUiSessionSummary),
+    ];
+    const workspace = createWorkspace({
+        cwd,
+        controllers: [source],
+        list,
+        maxLoadedSessions: 2,
+        open: () => {
+            throw new Error("fork open failed");
+        },
+        forkFileSystem: {
+            remove: async (path) => {
+                removedFile = path;
+                await Deno.remove(path);
+            },
+        },
+    });
+
+    try {
+        await workspace.createLoadedSession();
+        const before = await jsonlFiles(root);
+
+        await assert.rejects(
+            () => workspace.forkSession(source.sessionId, {}),
+            /fork open failed/,
+        );
+
+        assert.ok(removedFile);
+        assert.equal(await exists(removedFile), false);
+        assert.deepEqual(await jsonlFiles(root), before);
+        assert.equal(workspace.hasSession(source.sessionId), true);
+    }
+    finally {
+        await workspace.disposeAll();
+        await Deno.remove(root, { recursive: true });
+    }
+});
+
+/**
+ * Purpose: Preserve both causes when fork creation and rollback fail independently.
+ * Expect: AggregateError contains the open and removal failures and refreshes persisted state.
+ * Method: Fail provisional open and injected removal, then inspect aggregate causes/list calls.
+ */
+Deno.test("workspace aggregates fork open and rollback failures", async () => {
+    const root = await Deno.makeTempDir();
+    using _agentDir = withEnv("PI_CODING_AGENT_DIR", join(root, "agent"));
+    const cwd = join(root, "cwd");
+    const sourceDir = join(root, "source-sessions");
+    await Deno.mkdir(cwd, { recursive: true });
+    const manager = persistedManager(cwd, sourceDir, "one", "answer one");
+    const sourceFile = manager.getSessionFile();
+    assert.ok(sourceFile);
+    const source = new FakeController(manager.getSessionId(), {
+        sessionFile: sourceFile,
+        manager,
+    });
+    const openError = new Error("fork open failed");
+    const rollbackError = new Error("fork removal failed");
+    let listCalls = 0;
+    const list = async (listCwd: string) => {
+        listCalls += 1;
+        return [
+            summary(sourceFile, source.sessionId),
+            ...(await SessionManager.list(listCwd)).map(toUiSessionSummary),
+        ];
+    };
+    const workspace = createWorkspace({
+        cwd,
+        controllers: [source],
+        list,
+        maxLoadedSessions: 2,
+        open: () => {
+            throw openError;
+        },
+        forkFileSystem: {
+            remove: () => Promise.reject(rollbackError),
+        },
+    });
+
+    try {
+        await workspace.createLoadedSession();
+        let failure: unknown;
+        try {
+            await workspace.forkSession(source.sessionId, {});
+        }
+        catch (error) {
+            failure = error;
+        }
+
+        assert.ok(failure instanceof AggregateError);
+        assert.deepEqual(failure.errors, [openError, rollbackError]);
+        assert.ok(listCalls >= 2);
+        assert.equal(workspace.hasSession(source.sessionId), true);
+    }
+    finally {
+        await workspace.disposeAll();
+        await Deno.remove(root, { recursive: true });
+    }
+});
+
+/**
  * Purpose: Verify compact/message/UI workspace adapters dispatch to the correct
  * controller methods and preserve settlement/state refresh behavior.
  * Expect: Busy compact rejects; idle compact returns protocol data; steer and UI kinds route exactly once.
@@ -615,6 +834,7 @@ function createWorkspace(options: {
     softDeleteFileSystem?: PiSessionWorkspaceDependencies[
         "softDeleteFileSystem"
     ];
+    forkFileSystem?: PiSessionWorkspaceDependencies["forkFileSystem"];
 }) {
     const controllers = [...(options.controllers ?? [])];
     const dependencies: PiSessionWorkspaceDependencies = {
@@ -630,6 +850,7 @@ function createWorkspace(options: {
             open: options.open ?? (() => requireController(controllers)),
         },
         softDeleteFileSystem: options.softDeleteFileSystem,
+        forkFileSystem: options.forkFileSystem,
     };
     return new PiSessionWorkspace(
         {
@@ -863,6 +1084,30 @@ async function exists(path: string) {
         }
         throw error;
     }
+}
+
+async function jsonlFiles(root: string) {
+    const files: string[] = [];
+    for await (const entry of Deno.readDir(root)) {
+        const path = join(root, entry.name);
+        if (entry.isDirectory) {
+            files.push(...await jsonlFiles(path));
+        }
+        else if (entry.isFile && entry.name.endsWith(".jsonl")) {
+            files.push(path);
+        }
+    }
+    return files.sort();
+}
+
+function deferred<T>() {
+    let resolve!: (value: T | PromiseLike<T>) => void;
+    let reject!: (reason?: unknown) => void;
+    const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+        resolve = resolvePromise;
+        reject = rejectPromise;
+    });
+    return { promise, resolve, reject };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

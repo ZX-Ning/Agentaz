@@ -5,7 +5,7 @@ import {
     ModelRegistry,
     SessionManager,
 } from "@earendil-works/pi-coding-agent";
-import { access, rename } from "node:fs/promises";
+import { access, rename, unlink } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import type {
     ContextCompactResponse,
@@ -79,7 +79,21 @@ export interface PiSessionWorkspaceDependencies {
         fileExists(path: string): Promise<boolean>;
         rename(source: string, destination: string): Promise<void>;
     };
+    /** Injectable removal boundary for fork rollback failure tests. */
+    forkFileSystem?: {
+        remove(path: string): Promise<void>;
+    };
 }
+
+type EvictionCandidate = {
+    sessionId: string;
+    controller: ControllerBase;
+};
+
+type LoadCapacityReservation = {
+    candidate?: EvictionCandidate;
+    release(): void;
+};
 
 function defaultWorkspaceDependencies(): PiSessionWorkspaceDependencies {
     return {
@@ -124,6 +138,8 @@ export class PiSessionWorkspace {
     private requiredPackagesPromise?: Promise<void>;
     /** The loaded session working set indexed by sessionId. */
     private sessions = new Map<string, ControllerBase>();
+    /** Session ids whose controller ownership is being replaced or removed. */
+    private transitioningSessionIds = new Set<string>();
     /**
      * Serializes transitions that inspect or mutate loaded-session ownership.
      * The stored tail always resolves, so one rejected mutation cannot poison
@@ -287,11 +303,10 @@ export class PiSessionWorkspace {
      * Creates a fresh persisted session for the configured cwd.
      *
      * Lifecycle:
-     *   1. If at capacity, evict one non-protected idle session.
-     *   2. Verify capacity is available (throws if not).
-     *   3. Create a PiSessionController with a new SessionManager.
-     *   4. Register the controller in the working set.
-     *   5. Emit a state_changed event.
+     *   1. If at capacity, reserve one non-protected idle session.
+     *   2. Construct the replacement without changing current ownership.
+     *   3. Atomically publish the replacement and retire the reserved owner.
+     *   4. Emit a state_changed event.
      */
     async createLoadedSession() {
         return await this.runLifecycleMutation(() =>
@@ -301,19 +316,26 @@ export class PiSessionWorkspace {
 
     /** Creates and registers a controller while the lifecycle queue is held. */
     private async createLoadedSessionWithinMutation() {
-        await this.releaseOneAvailableSessionIfAtCapacity();
-        this.assertCanLoadAnotherSession();
+        const capacity = this.reserveLoadCapacityWithinMutation();
+        try {
+            const controller = this.dependencies.controllerFactory.create({
+                cwd: this.options.cwd,
+                agentDir: this.agentDir,
+                authStorage: this.authStorage,
+                modelRegistry: this.modelRegistry,
+                approvalTimeoutMs: this.options.approvalTimeoutMs,
+                host: this.createControllerHost(),
+            });
 
-        const controller = this.dependencies.controllerFactory.create({
-            cwd: this.options.cwd,
-            agentDir: this.agentDir,
-            authStorage: this.authStorage,
-            modelRegistry: this.modelRegistry,
-            approvalTimeoutMs: this.options.approvalTimeoutMs,
-            host: this.createControllerHost(),
-        });
-
-        return await this.registerControllerWithinMutation(controller);
+            return await this.registerControllerWithinMutation(
+                controller,
+                undefined,
+                capacity.candidate,
+            );
+        }
+        finally {
+            capacity.release();
+        }
     }
 
     /**
@@ -334,6 +356,7 @@ export class PiSessionWorkspace {
     /** Validates, opens, and registers one persisted file with the queue held. */
     private async openLoadedSessionWithinMutation(
         normalizedSessionFile: string,
+        capacityReservation?: LoadCapacityReservation,
     ) {
         // Validate before deduplication. The persisted list is authoritative for
         // paths allowed to cross the SessionManager.open() boundary.
@@ -345,23 +368,30 @@ export class PiSessionWorkspace {
             return loaded;
         }
 
-        await this.releaseOneAvailableSessionIfAtCapacity();
-        this.assertCanLoadAnotherSession();
+        const capacity = capacityReservation ??
+            this.reserveLoadCapacityWithinMutation();
+        try {
+            const controller = await this.dependencies.controllerFactory.open({
+                cwd: this.options.cwd,
+                agentDir: this.agentDir,
+                authStorage: this.authStorage,
+                modelRegistry: this.modelRegistry,
+                approvalTimeoutMs: this.options.approvalTimeoutMs,
+                host: this.createControllerHost(),
+                sessionFile: normalizedSessionFile,
+            });
 
-        const controller = await this.dependencies.controllerFactory.open({
-            cwd: this.options.cwd,
-            agentDir: this.agentDir,
-            authStorage: this.authStorage,
-            modelRegistry: this.modelRegistry,
-            approvalTimeoutMs: this.options.approvalTimeoutMs,
-            host: this.createControllerHost(),
-            sessionFile: normalizedSessionFile,
-        });
-
-        return await this.registerControllerWithinMutation(
-            controller,
-            normalizedSessionFile,
-        );
+            return await this.registerControllerWithinMutation(
+                controller,
+                normalizedSessionFile,
+                capacity.candidate,
+            );
+        }
+        finally {
+            if (!capacityReservation) {
+                capacity.release();
+            }
+        }
     }
 
     /**
@@ -444,37 +474,45 @@ export class PiSessionWorkspace {
             throw new SessionBusyError();
         }
 
-        // Destination resolution is fallible and must precede ownership changes.
-        const deletedSessionFile = await this.nextSoftDeletedSessionFile(
-            normalizedSessionFile,
-        );
-
-        if (!loaded || !loadedSessionId) {
-            await this.renameSessionFile(
+        const releaseTransition = loadedSessionId
+            ? this.reserveSessionTransition(loadedSessionId)
+            : () => undefined;
+        try {
+            // Destination resolution is fallible and must precede ownership changes.
+            const deletedSessionFile = await this.nextSoftDeletedSessionFile(
                 normalizedSessionFile,
-                deletedSessionFile,
             );
-        }
-        else {
-            await this.softDeleteLoadedSessionWithinMutation(
-                loaded,
-                normalizedSessionFile,
-                deletedSessionFile,
-            );
-        }
 
-        this.eventBus.publish({
-            type: "session_removed",
-            sessionId: loadedSessionId ?? normalizedSessionFile,
-            fallbackSessionId: this.firstLoadedSessionId(),
-        });
-        await this.refreshPersistedSessionCache();
-        this.emitStateChanged();
+            if (!loaded || !loadedSessionId) {
+                await this.renameSessionFile(
+                    normalizedSessionFile,
+                    deletedSessionFile,
+                );
+            }
+            else {
+                await this.softDeleteLoadedSessionWithinMutation(
+                    loaded,
+                    normalizedSessionFile,
+                    deletedSessionFile,
+                );
+            }
 
-        return {
-            sessionId: loadedSessionId,
-            sessionFile: normalizedSessionFile,
-        };
+            this.eventBus.publish({
+                type: "session_removed",
+                sessionId: loadedSessionId ?? normalizedSessionFile,
+                fallbackSessionId: this.firstLoadedSessionId(),
+            });
+            await this.refreshPersistedSessionCache();
+            this.emitStateChanged();
+
+            return {
+                sessionId: loadedSessionId,
+                sessionFile: normalizedSessionFile,
+            };
+        }
+        finally {
+            releaseTransition();
+        }
     }
 
     /** Returns normalized history for one loaded session. */
@@ -564,43 +602,63 @@ export class PiSessionWorkspace {
             throw new SessionNotPersistedError();
         }
 
+        const forkEntryId = options.entryId?.trim() || undefined;
+        if (forkEntryId) {
+            this.requireForkableEntry(controller, forkEntryId);
+        }
+
+        // Capacity must be guaranteed before the SDK materializes a JSONL fork.
+        // The source is never an eviction candidate for its own fork operation.
+        const capacity = this.reserveLoadCapacityWithinMutation([sessionId]);
         let newSessionFile: string | undefined;
-        if (options.entryId?.trim()) {
-            const entryId = options.entryId.trim();
-            this.requireForkableEntry(controller, entryId);
-            const temporaryManager = SessionManager.open(
-                sourceFile,
-                undefined,
-                this.options.cwd,
+        try {
+            if (forkEntryId) {
+                const temporaryManager = SessionManager.open(
+                    sourceFile,
+                    undefined,
+                    this.options.cwd,
+                );
+                newSessionFile = temporaryManager.createBranchedSession(
+                    forkEntryId,
+                );
+            }
+            else {
+                newSessionFile = SessionManager.forkFrom(
+                    sourceFile,
+                    this.options.cwd,
+                ).getSessionFile();
+            }
+
+            if (!newSessionFile) {
+                throw new SessionNotPersistedError();
+            }
+
+            const normalizedName = options.name?.trim();
+            if (normalizedName) {
+                SessionManager.open(
+                    newSessionFile,
+                    undefined,
+                    this.options.cwd,
+                ).appendSessionInfo(normalizedName);
+            }
+
+            const forkedController = await this.openLoadedSessionWithinMutation(
+                resolve(newSessionFile),
+                capacity,
             );
-            newSessionFile = temporaryManager.createBranchedSession(entryId);
+            await this.refreshPersistedSessionCache();
+            this.emitStateChanged();
+            return forkedController;
         }
-        else {
-            newSessionFile = SessionManager.forkFrom(
-                sourceFile,
-                this.options.cwd,
-            ).getSessionFile();
+        catch (error) {
+            if (newSessionFile) {
+                await this.rollbackUnownedForkFile(newSessionFile, error);
+            }
+            throw error;
         }
-
-        if (!newSessionFile) {
-            throw new SessionNotPersistedError();
+        finally {
+            capacity.release();
         }
-
-        const normalizedName = options.name?.trim();
-        if (normalizedName) {
-            SessionManager.open(
-                newSessionFile,
-                undefined,
-                this.options.cwd,
-            ).appendSessionInfo(normalizedName);
-        }
-
-        const forkedController = await this.openLoadedSessionWithinMutation(
-            resolve(newSessionFile),
-        );
-        await this.refreshPersistedSessionCache();
-        this.emitStateChanged();
-        return forkedController;
     }
 
     /**
@@ -635,48 +693,54 @@ export class PiSessionWorkspace {
             throw new SessionNotPersistedError();
         }
 
-        const sessionManager = controller.getSessionManager();
-        const currentName = sessionManager.getSessionName() ?? "";
-        const replacementRevision = this.reserveHistoryRevision(controller);
-        sessionManager.branch(normalizedEntryId);
-        sessionManager.appendSessionInfo(currentName);
-
-        // The original manager now reflects the reverted branch. Raising its
-        // revision keeps the recovery path safe if replacement construction fails.
-        controller.seedHistoryRevision(replacementRevision);
-
-        let reopenedController: ControllerBase;
+        const releaseTransition = this.reserveSessionTransition(sessionId);
         try {
-            reopenedController = await this.createReplacementController(
-                resolve(sessionFile),
-                sessionId,
-                replacementRevision,
-            );
-        }
-        catch (error) {
-            // The original controller remains registered on its reverted
-            // manager state; publish that recovery state before returning.
+            const sessionManager = controller.getSessionManager();
+            const currentName = sessionManager.getSessionName() ?? "";
+            const replacementRevision = this.reserveHistoryRevision(controller);
+            sessionManager.branch(normalizedEntryId);
+            sessionManager.appendSessionInfo(currentName);
+
+            // The original manager now reflects the reverted branch. Raising its
+            // revision keeps the recovery path safe if replacement construction fails.
+            controller.seedHistoryRevision(replacementRevision);
+
+            let reopenedController: ControllerBase;
+            try {
+                reopenedController = await this.createReplacementController(
+                    resolve(sessionFile),
+                    sessionId,
+                    replacementRevision,
+                );
+            }
+            catch (error) {
+                // The original controller remains registered on its reverted
+                // manager state; publish that recovery state before returning.
+                this.emitStateChanged();
+                throw error;
+            }
+            this.sessions.set(sessionId, reopenedController);
+
+            let disposeError: unknown;
+            try {
+                await controller.dispose();
+            }
+            catch (error) {
+                // The replacement owns the session after the swap even if cleanup
+                // reports an error; surface the error only after publishing state.
+                disposeError = error;
+            }
+
+            await this.refreshPersistedSessionCache();
             this.emitStateChanged();
-            throw error;
+            if (disposeError) {
+                throw disposeError;
+            }
+            return reopenedController;
         }
-        this.sessions.set(sessionId, reopenedController);
-
-        let disposeError: unknown;
-        try {
-            await controller.dispose();
+        finally {
+            releaseTransition();
         }
-        catch (error) {
-            // The replacement owns the session after the swap even if cleanup
-            // reports an error; surface the error only after publishing state.
-            disposeError = error;
-        }
-
-        await this.refreshPersistedSessionCache();
-        this.emitStateChanged();
-        if (disposeError) {
-            throw disposeError;
-        }
-        return reopenedController;
     }
 
     /** Returns HTTP model/thinking state for one loaded session. */
@@ -872,6 +936,7 @@ export class PiSessionWorkspace {
     private async registerControllerWithinMutation(
         controller: ControllerBase,
         normalizedSessionFile?: string,
+        evictionCandidate?: EvictionCandidate,
     ) {
         const duplicateByFile = normalizedSessionFile
             ? this.findLoadedSessionByFile(normalizedSessionFile)
@@ -884,16 +949,58 @@ export class PiSessionWorkspace {
             return duplicate;
         }
 
+        let committed = false;
         try {
+            if (
+                evictionCandidate &&
+                !this.evictionCandidateIsAvailable(evictionCandidate)
+            ) {
+                throw new SessionLimitReachedError(
+                    this.options.maxLoadedSessions,
+                );
+            }
+            if (
+                !evictionCandidate &&
+                this.sessions.size >= this.options.maxLoadedSessions
+            ) {
+                throw new SessionLimitReachedError(
+                    this.options.maxLoadedSessions,
+                );
+            }
+
             controller.seedHistoryRevision(
                 this.reserveHistoryRevision(controller),
             );
+
+            // Publish the replacement before retiring the old owner. Map writes
+            // are synchronous, so callers never observe an ownership gap.
             this.sessions.set(controller.sessionId, controller);
+            if (evictionCandidate) {
+                this.sessions.delete(evictionCandidate.sessionId);
+                this.advanceHistoryRevisionGeneration(
+                    evictionCandidate.controller,
+                );
+            }
+            committed = true;
+
+            if (evictionCandidate) {
+                this.eventBus.publish({
+                    type: "session_removed",
+                    sessionId: evictionCandidate.sessionId,
+                    fallbackSessionId: this.firstLoadedSessionId(),
+                });
+            }
             this.emitStateChanged();
+
+            // Cleanup occurs after the ownership commit. A disposal failure is
+            // surfaced, but the new controller remains reachable and usable.
+            if (evictionCandidate) {
+                await evictionCandidate.controller.dispose();
+            }
             return controller;
         }
         catch (error) {
-            if (this.sessions.get(controller.sessionId) !== controller) {
+            if (!committed) {
                 await controller.dispose();
             }
             throw error;
@@ -958,6 +1065,51 @@ export class PiSessionWorkspace {
         const renameFile = this.dependencies.softDeleteFileSystem?.rename ??
             rename;
         return renameFile(source, destination);
+    }
+
+    /** Removes a fork file through the injectable rollback boundary. */
+    private removeForkFile(path: string) {
+        const removeFile = this.dependencies.forkFileSystem?.remove ?? unlink;
+        return removeFile(path);
+    }
+
+    /** Removes a materialized fork unless a registered controller owns it. */
+    private async rollbackUnownedForkFile(
+        sessionFile: string,
+        operationError: unknown,
+    ) {
+        const normalizedSessionFile = resolve(sessionFile);
+        if (this.findLoadedSessionByFile(normalizedSessionFile)) {
+            // Registration committed before a post-commit cleanup failure.
+            // Keep the file/controller pair and refresh the persisted projection.
+            try {
+                await this.refreshPersistedSessionCache();
+            }
+            catch (refreshError) {
+                throw new AggregateError(
+                    [operationError, refreshError],
+                    "Fork committed, but cleanup and state refresh failed.",
+                );
+            }
+            return;
+        }
+
+        try {
+            await this.removeForkFile(normalizedSessionFile);
+        }
+        catch (rollbackError) {
+            const errors = [operationError, rollbackError];
+            try {
+                await this.refreshPersistedSessionCache();
+            }
+            catch (refreshError) {
+                errors.push(refreshError);
+            }
+            throw new AggregateError(
+                errors,
+                "Fork creation and rollback failed.",
+            );
+        }
     }
 
     /**
@@ -1068,44 +1220,66 @@ export class PiSessionWorkspace {
         return controller;
     }
 
-    /**
-     * Frees one idle loaded session only when the working set is at capacity.
-     *
-     * Iterates sessions in insertion order and disposes the first one that:
-     *   - Is not protected (not focused by any connected browser client).
-     *   - Is not busy (agent workflow is idle, no pending UI prompts).
-     *
-     * Emits a session_removed event so presence and projector can update.
-     */
-    private async releaseOneAvailableSessionIfAtCapacity() {
+    /** Reserves one idle controller for replacement when the set is at capacity. */
+    private reserveLoadCapacityWithinMutation(
+        excludedSessionIds: Iterable<string> = [],
+    ): LoadCapacityReservation {
         if (this.sessions.size < this.options.maxLoadedSessions) {
-            return;
+            return { release: () => undefined };
         }
 
         const protectedSessionIds = new Set(this.getProtectedSessionIds());
-        for (const [sessionId, controller] of [...this.sessions]) {
-            // Skip protected or busy sessions.
+        const excluded = new Set(excludedSessionIds);
+        for (const [sessionId, controller] of this.sessions) {
             if (
-                protectedSessionIds.has(sessionId) || controller.isBusy()
+                excluded.has(sessionId) ||
+                protectedSessionIds.has(sessionId) ||
+                controller.isBusy() ||
+                this.transitioningSessionIds.has(sessionId)
             ) {
                 continue;
             }
 
-            this.sessions.delete(sessionId);
-            this.advanceHistoryRevisionGeneration(controller);
-            await controller.dispose();
-            this.eventBus.publish({
-                type: "session_removed",
-                sessionId,
-                fallbackSessionId: this.firstLoadedSessionId(),
-            });
-            this.emitStateChanged();
-            return;
+            const release = this.reserveSessionTransition(sessionId);
+            return {
+                candidate: { sessionId, controller },
+                release,
+            };
         }
+
+        throw new SessionLimitReachedError(this.options.maxLoadedSessions);
+    }
+
+    /** Revalidates a reserved candidate immediately before ownership commit. */
+    private evictionCandidateIsAvailable(candidate: EvictionCandidate) {
+        return this.sessions.get(candidate.sessionId) ===
+                candidate.controller &&
+            this.transitioningSessionIds.has(candidate.sessionId) &&
+            !candidate.controller.isBusy() &&
+            !new Set(this.getProtectedSessionIds()).has(candidate.sessionId);
+    }
+
+    /** Blocks normal mutations while controller ownership is in transition. */
+    private reserveSessionTransition(sessionId: string) {
+        if (this.transitioningSessionIds.has(sessionId)) {
+            throw new SessionBusyError();
+        }
+
+        this.transitioningSessionIds.add(sessionId);
+        let active = true;
+        return () => {
+            if (active) {
+                active = false;
+                this.transitioningSessionIds.delete(sessionId);
+            }
+        };
     }
 
     /** Alias for requireSession — indicates the caller intends to mutate. */
     private mutableSession(sessionId: string) {
+        if (this.transitioningSessionIds.has(sessionId)) {
+            throw new SessionBusyError();
+        }
         return this.requireSession(sessionId);
     }
 
@@ -1206,15 +1380,6 @@ export class PiSessionWorkspace {
         );
         if (!hasAssistant) {
             throw new SessionForkUnavailableError();
-        }
-    }
-
-    /** Throws if the loaded session limit has been reached. */
-    private assertCanLoadAnotherSession() {
-        if (this.sessions.size >= this.options.maxLoadedSessions) {
-            throw new SessionLimitReachedError(
-                this.options.maxLoadedSessions,
-            );
         }
     }
 
